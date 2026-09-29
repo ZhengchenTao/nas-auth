@@ -12,14 +12,18 @@ public static class Ui
 {
     public const string BasecoatDir = "/vendor/basecoat-1.0.2";
 
-    /// <summary>app.css + theme.js 的内容哈希，拼在 URL 上做缓存失效（vendor 目录名自带版本号，不用拼）。</summary>
+    /// <summary>
+    /// 全部静态资源（app.css、theme.js、Basecoat 三个文件）的内容哈希，拼在每个引用 URL 上做缓存失效。
+    /// Basecoat 目录名虽带版本号，但 URL 从不变，CDN / 浏览器（尤其 iOS 的 in-app 浏览器）
+    /// 一旦缓存了坏副本就会一直用下去（2026-09-30：Open WebUI PWA 里授权页丢了 Basecoat 样式）。
+    /// </summary>
     public static string AssetVersion { get; private set; } = "0";
 
     public static void InitAssets(string? webRootPath)
     {
         if (string.IsNullOrEmpty(webRootPath)) return;
         using var sha = SHA256.Create();
-        foreach (var name in new[] { "app.css", "theme.js" })
+        foreach (var name in new[] { "app.css", "theme.js", $"{BasecoatDir[1..]}/basecoat.cdn.min.css", $"{BasecoatDir[1..]}/basecoat.min.js", $"{BasecoatDir[1..]}/sidebar.min.js" })
         {
             var path = Path.Combine(webRootPath, name);
             if (!File.Exists(path)) continue;
@@ -34,7 +38,7 @@ public static class Ui
     public static string HeadAssets() =>
         $@"<meta name=""color-scheme"" content=""light dark"">
   <link rel=""icon"" type=""image/png"" href=""/favicon.png"">
-  <link rel=""stylesheet"" href=""{BasecoatDir}/basecoat.cdn.min.css"">
+  <link rel=""stylesheet"" href=""{BasecoatDir}/basecoat.cdn.min.css?v={AssetVersion}"">
   <link rel=""stylesheet"" href=""/app.css?v={AssetVersion}"">
   <script src=""/theme.js?v={AssetVersion}""></script>";
 

@@ -79,8 +79,8 @@ public static class DashboardTemplates
   <meta name=""viewport"" content=""width=device-width,initial-scale=1"">
   <title>{Esc(T(title))} · nas-auth</title>
   {HeadAssets()}
-  <script src=""{BasecoatDir}/basecoat.min.js"" defer></script>
-  <script src=""{BasecoatDir}/sidebar.min.js"" defer></script>
+  <script src=""{BasecoatDir}/basecoat.min.js?v={AssetVersion}"" defer></script>
+  <script src=""{BasecoatDir}/sidebar.min.js?v={AssetVersion}"" defer></script>
 </head>
 <body>
   <aside class=""sidebar"" data-side=""left"" aria-hidden=""false"" data-sidebar-initialized=""true"">
