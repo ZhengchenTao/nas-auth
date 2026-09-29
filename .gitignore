@@ -1,0 +1,37 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Local SQLite runtime data。Windows git core.ignorecase=true 会让 'data/' 同时
+# 命中源码目录 Data/，所以这里只忽略具体 db 文件，不忽略整个目录。
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+# 与 dev db 同目录落盘的密钥：OidcKeyService 的 RSA 私钥、DataProtection 的 dp-keys/
+# （Windows 上 ./data 与源码目录 Data/ 大小写不敏感地重合，不忽略就可能被提交）
+*.pem
+*.key
+*.pfx
+*.p12
+dp-keys/
+.env
+.env.*
+!.env.example
+
+# Local resource overrides (use *.example.json for the committed sample)
+resources.json
+clients.preset.json
+
+# Test / coverage
+TestResults/
+coverage/
+*.trx
+
+# IDE
+.idea/
+*.swp
+.DS_Store

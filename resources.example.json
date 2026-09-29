@@ -1,0 +1,36 @@
+[
+  {
+    "aud": "ezbookkeeping",
+    "resource_url": "https://auth.example.com/proxy/ezbookkeeping",
+    "display_name": "ezBookkeeping",
+    "scopes": ["read:ezbookkeeping", "write:ezbookkeeping"],
+    "proxy": {
+      "upstream": "http://ezbookkeeping:8080",
+      "bearer_env": "EZBK_MCP_TOKEN"
+    }
+  },
+  {
+    "aud": "obsidian",
+    "resource_url": "https://obsidian-mcp.example.com",
+    "display_name": "Obsidian Vault",
+    "scopes": ["read:obsidian", "write:obsidian"]
+  },
+  {
+    "aud": "gitea",
+    "resource_url": "https://gitea-mcp.example.com",
+    "display_name": "Gitea MCP",
+    "scopes": ["read:gitea"]
+  },
+  {
+    "aud": "gitea-web",
+    "resource_url": "https://git.example.com",
+    "display_name": "Gitea Web SSO",
+    "scopes": ["openid", "email", "profile"]
+  },
+  {
+    "aud": "immich",
+    "resource_url": "https://photos.example.com",
+    "display_name": "Immich",
+    "scopes": ["openid", "email", "profile"]
+  }
+]

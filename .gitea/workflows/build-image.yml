@@ -1,0 +1,144 @@
+name: Build Docker Image
+
+# Registry / 镜像路径 / 部署目标通过 gitea 仓库 Variables + Secrets 配置。
+# ⚠️ 本仓是公开仓（且镜像到 GitHub），正文里绝不写部署主机、路径、host key。
+#   vars.REGISTRY            例如 git.example.com（不带协议、不带斜杠）
+#   vars.IMAGE_OWNER         例如 your-username 或组织名；镜像 = <REGISTRY>/<IMAGE_OWNER>/nas-auth
+#   vars.DEPLOY_SERVICE      部署目标服务名；留空（例如开源镜像里的 GitHub）就跳过 deploy
+#   secrets.AIFACELY_REGISTRY_TOKEN  推镜像用，需 read:package + write:package
+#                            ⚠️ 别设过期时间（或定期续）：过期后 docker login 会 unauthorized
+#   secrets.NAS_CI_SSH_KEY         部署用私钥
+#   secrets.NAS_SSH_HOST           部署目标主机
+#   secrets.NAS_SSH_KNOWN_HOSTS    目标主机 host key（固定，不用 accept-new）
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.dockerignore'
+      # *.example.json 本质是文档：生产读的是挂载进去的 resources.json /
+      # clients.preset.json，示例文件在镜像里躺着没人读。改它不该重启 IdP。
+      - '**.example.json'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: '要打包的分支（仅手动触发生效）'
+        required: true
+        default: 'main'
+      tag:
+        description: '镜像 tag（留空则用 commit short hash）'
+        required: false
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # action 走 Gitea 镜像仓的全 URL 引用 —— 对 runner 就是本机，clone 秒级。
+      # 用 `actions/checkout@v4` 短写法会被解析到 github.com，runner 所在网络拉不动
+      # （实测 connection timed out / unexpected EOF）。
+      - name: Checkout target branch
+        uses: https://git.aifacely.net/mirror/checkout@v4
+        with:
+          ref: ${{ inputs.branch || github.ref_name }}
+          fetch-depth: 0
+
+      # 不用 setup-buildx-action：mirror 里没有它，这里也不需要 —— 默认 docker
+      # driver 直接用宿主 daemon 的构建缓存，跨 run 持久。
+
+      - name: Login to Container Registry
+        uses: https://git.aifacely.net/mirror/login-action@v3
+        with:
+          registry: ${{ vars.REGISTRY }}
+          username: ${{ vars.IMAGE_OWNER }}
+          password: ${{ secrets.AIFACELY_REGISTRY_TOKEN }}
+
+      - name: Determine image tag
+        id: meta
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            IMAGE_TAG="${{ inputs.tag }}"
+          else
+            IMAGE_TAG="$(git rev-parse --short HEAD)"
+          fi
+          IMAGE_REF="${{ vars.REGISTRY }}/${{ vars.IMAGE_OWNER }}/nas-auth"
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image_ref=$IMAGE_REF" >> $GITHUB_OUTPUT
+          echo "full_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "==> Image: $IMAGE_REF:$IMAGE_TAG"
+
+      - name: Build and push
+        uses: https://git.aifacely.net/mirror/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # provenance/sbom 关掉：默认会多推一层 attestation manifest，
+          # Gitea registry 支持不好。
+          provenance: false
+          sbom: false
+          # HTTP(S)_PROXY / NO_PROXY 是 Docker 的【预定义 build-arg】，不用在 Dockerfile
+          # 里 ARG 声明就能注入 RUN 步骤，也不会写进镜像 history。指向 runner 宿主机上的
+          # HTTP 代理（docker0 网关 172.17.0.1 —— RUN 步骤跑在默认 bridge 上，够不到 127.0.0.1）。
+          # 不加的话容器内拉境外依赖（NuGet / apt 等）很慢甚至失败。
+          # REVISION 进 Dockerfile 的 image.revision label。
+          build-args: |
+            REVISION=${{ steps.meta.outputs.full_sha }}
+            HTTP_PROXY=http://172.17.0.1:10809
+            HTTPS_PROXY=http://172.17.0.1:10809
+            NO_PROXY=localhost,127.0.0.1,git.aifacely.net,git.zhengchentao.win
+          # image.source 指本仓事实源，镜像只是暂存在 registry；
+          # 按 label 精确值清理 registry / 构建机镜像的脚本靠它找自家产物。
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.meta.outputs.full_sha }}
+          tags: |
+            ${{ steps.meta.outputs.image_ref }}:${{ steps.meta.outputs.image_tag }}
+            ${{ steps.meta.outputs.image_ref }}:latest
+
+      - name: Build summary
+        if: always()
+        run: |
+          {
+            echo "## Build Summary"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| 触发方式 | \`${{ github.event_name }}\` |"
+            echo "| 源分支 | \`${{ github.ref_name }}\` |"
+            echo "| Commit (full) | \`${{ steps.meta.outputs.full_sha }}\` |"
+            echo "| 镜像 | \`${{ steps.meta.outputs.image_ref }}:${{ steps.meta.outputs.image_tag }}\` + \`:latest\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ---- deploy ----
+      # 仅在配置了 vars.DEPLOY_SERVICE 时运行。留空（例如开源镜像里的 GitHub）就跳过。
+      #
+      # runner 摸不到部署目标的本地路径，改成 ssh 过去触发。目标侧是 ssh 强制命令
+      # （authorized_keys 里的 command=），这把 key 只能触发白名单内的 compose 重启，
+      # 拿不到 shell。ssh 最后那个参数会被当成 SSH_ORIGINAL_COMMAND 做白名单精确匹配，
+      # 不是在目标机上执行的 shell 命令。
+      - name: Deploy
+        if: ${{ vars.DEPLOY_SERVICE != '' }}
+        run: |
+          set -e
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.NAS_CI_SSH_KEY }}" > ~/.ssh/nas_ci
+          chmod 600 ~/.ssh/nas_ci
+          printf '%s\n' "${{ secrets.NAS_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts_nas
+          chmod 600 ~/.ssh/known_hosts_nas
+          ssh -i ~/.ssh/nas_ci \
+              -o UserKnownHostsFile=~/.ssh/known_hosts_nas \
+              -o StrictHostKeyChecking=yes \
+              -o BatchMode=yes \
+              -o ConnectTimeout=30 \
+              tao@${{ secrets.NAS_SSH_HOST }} "deploy ${{ vars.DEPLOY_SERVICE }}"
+
+      - name: Cleanup key
+        if: always()
+        run: rm -f ~/.ssh/nas_ci

@@ -1,0 +1,32 @@
+[
+  {
+    "client_id": "ezbookkeeping-mcp",
+    "client_name": "ezBookkeeping MCP",
+    "redirect_uris": [
+      "https://book.example.com/oauth/callback"
+    ],
+    "token_endpoint_auth_method": "none"
+  },
+  {
+    "client_id": "gitea-web",
+    "client_name": "Gitea Web SSO",
+    "client_secret": "REPLACE-WITH-HIGH-ENTROPY-SECRET-SAME-AS-GITEA-AUTH-SOURCE",
+    "redirect_uris": [
+      "https://git.example.com/user/oauth2/nas-auth/callback"
+    ],
+    "token_endpoint_auth_method": "client_secret_post",
+    "default_resource": "https://git.example.com"
+  },
+  {
+    "client_id": "immich",
+    "client_name": "Immich",
+    "client_secret": "REPLACE-WITH-HIGH-ENTROPY-SECRET-SAME-AS-IMMICH-OAUTH-CLIENT-SECRET",
+    "redirect_uris": [
+      "https://photos.example.com/auth/login",
+      "https://photos.example.com/user-settings",
+      "app.immich:///oauth-callback"
+    ],
+    "token_endpoint_auth_method": "client_secret_post",
+    "default_resource": "https://photos.example.com"
+  }
+]

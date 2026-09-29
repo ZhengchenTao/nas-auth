@@ -1,0 +1,131 @@
+/*
+ * nas-auth 自有样式，叠在 Basecoat 1.0.2（wwwroot/vendor/basecoat-1.0.2，MIT）之上。
+ * Basecoat 的 CDN 版只有组件、不含 Tailwind 工具类，所以页面布局都在这里手写。
+ * 本文件不进 @layer，同名规则天然压过 Basecoat 的 components 层。
+ * 暗色：Basecoat 认 <html class="dark">，由 theme.js 跟随系统设置。
+ */
+
+:root { --nas-mono: ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace; }
+
+body { min-height: 100vh; }
+a { color: inherit; }
+code, .mono { font-family: var(--nas-mono); }
+code {
+  font-size: .85em; padding: .1em .35em; border-radius: calc(var(--radius) - 4px);
+  background: var(--muted); color: var(--foreground);
+}
+.hint { color: var(--muted-foreground); font-size: .875rem; line-height: 1.55; margin: 0; }
+.sub { display: block; margin-top: 2px; color: var(--muted-foreground); font-size: .75rem;
+       font-family: var(--nas-mono); overflow-wrap: anywhere; white-space: normal; }
+.field { gap: .5rem; }
+.btn.block { width: 100%; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sep { display: flex; align-items: center; gap: 12px; color: var(--muted-foreground); font-size: .75rem; }
+.sep::before, .sep::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+
+/* 状态徽章：Basecoat 只有 primary / secondary / outline / destructive，补 ok / warn 两种 */
+.badge.ok   { background: color-mix(in oklab, #16a34a 14%, transparent); color: #15803d; border-color: transparent; }
+.badge.warn { background: color-mix(in oklab, #f59e0b 18%, transparent); color: #b45309; border-color: transparent; }
+.dark .badge.ok   { color: #4ade80; }
+.dark .badge.warn { color: #fbbf24; }
+.badge.mono { font-family: var(--nas-mono); font-weight: 500; }
+
+/* ---------------- 登录 / 授权 / 改密等单卡片页 ---------------- */
+.auth-page { background: var(--muted); display: flex; justify-content: center; padding: 10vh 16px 48px; }
+.dark .auth-page { background: var(--background); }
+.auth-wrap { width: 100%; max-width: 400px; }
+.auth-brand { display: flex; align-items: center; justify-content: center; gap: 8px;
+              font-weight: 600; font-size: 1.05rem; margin-bottom: 20px; }
+.auth-brand svg { width: 24px; height: 24px; }
+.auth-card > header h2 { font-size: 1.125rem; line-height: 1.4; font-weight: 600; }
+.auth-card > header h2 strong { font-weight: 700; }
+.auth-card > section { display: flex; flex-direction: column; gap: 14px; }
+.auth-foot { text-align: center; margin: 16px 0 0; font-size: .875rem; color: var(--muted-foreground); }
+.auth-foot a:hover { color: var(--foreground); }
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.scopes { display: flex; flex-wrap: wrap; gap: 6px; }
+form.form { display: flex; flex-direction: column; gap: 14px; }
+
+/* 折叠的密码登录：summary 画成一条带字的分隔线 */
+details.password-login > summary { display: block; list-style: none; cursor: pointer; }
+details.password-login > summary::-webkit-details-marker { display: none; }
+details.password-login > summary:hover .sep { color: var(--foreground); }
+details.password-login[open] > summary { margin-bottom: 14px; }
+
+/* ---------------- /account 管理后台 ---------------- */
+.sb-brand { display: flex; align-items: center; gap: 8px; padding: 8px; font-weight: 600; text-decoration: none; }
+.sb-brand svg { width: 20px; height: 20px; }
+.sidebar nav li > a .nav-count { margin-left: auto; }
+.sb-foot { display: flex; flex-direction: column; gap: 10px; padding: 12px 8px; font-size: .8125rem; }
+.sb-user { display: flex; align-items: center; gap: 10px; }
+.sb-avatar { width: 32px; height: 32px; border-radius: 999px; display: grid; place-items: center; flex-shrink: 0;
+             background: var(--muted); font-weight: 600; font-size: .8125rem; text-transform: uppercase; }
+.sb-name { font-weight: 500; }
+.sb-role { color: var(--muted-foreground); font-size: .75rem; }
+.sb-links { display: flex; gap: 14px; color: var(--muted-foreground); }
+.sb-links a { text-decoration: none; }
+.sb-links a:hover { color: var(--foreground); }
+
+.dash { min-width: 0; }
+.topbar { display: none; }
+.dash-main { padding: 28px 32px 56px; max-width: 1200px; }
+.dash-main > h1 { font-size: 1.375rem; font-weight: 600; margin: 0 0 20px; }
+.dash-main .card > header h2 { font-weight: 600; }
+.dash-main > .alert, .dash-main > .card, .dash-main > .page-actions { margin-bottom: 16px; }
+.page-actions { display: flex; gap: 8px; }
+@media (max-width: 767px) {
+  .topbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-weight: 600;
+            position: sticky; top: 0; z-index: 10; background: var(--background); border-bottom: 1px solid var(--border); }
+  .dash-main { padding: 16px 16px 40px; }
+}
+
+.table td.wrap { white-space: normal; }
+.table td.fit { width: 1%; }
+.table td .badge + .badge { margin-left: 4px; }
+.empty-note { color: var(--muted-foreground); text-align: center; padding: 28px 0; font-size: .875rem; margin: 0; }
+
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; align-items: end; }
+.form-grid.narrow { max-width: 640px; }
+.form-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
+.form-foot .grow { flex: 1; }
+.check-line { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: .875rem; }
+.group-box { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; margin: 0 0 12px; }
+.group-box > legend { padding: 0 6px; font-size: .875rem; font-weight: 500; display: flex; gap: 6px; align-items: center; }
+.group-box .meta { color: var(--muted-foreground); font-size: .8125rem; margin: 4px 0 12px; }
+.card.danger { border-color: color-mix(in oklab, var(--destructive) 45%, var(--border)); }
+.res-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.res-grid > .group-box { margin: 0; }
+
+/* ---- 个人中心 / 管理后台切换（§十六），sidebar 头部 ---- */
+.space-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin: 4px 8px 0; padding: 3px;
+                border-radius: var(--radius); background: var(--muted); font-size: .8125rem; }
+.space-switch a { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 0;
+                  border-radius: calc(var(--radius) - 3px); text-decoration: none; color: var(--muted-foreground); }
+.space-switch a[aria-current] { background: var(--background); color: var(--foreground); font-weight: 500;
+                                box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+.space-switch .badge { padding: 0 6px; min-width: 0; font-size: .6875rem; }
+
+/* 键值列表（个人概览） */
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 10px 24px; margin: 0; font-size: .875rem; }
+.kv dt { color: var(--muted-foreground); }
+.kv dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.inline-icon { display: inline-flex; align-items: center; gap: 6px; }
+
+/* 管理概览统计卡 */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.card.stat { text-decoration: none; margin: 0; transition: border-color .15s; }
+.card.stat:hover { border-color: var(--ring); }
+.stat-label { color: var(--muted-foreground); font-size: .8125rem; }
+.stat-value { font-size: 1.75rem; font-weight: 600; line-height: 1.2; margin: 4px 0 2px; }
+.stat-sub { color: var(--muted-foreground); font-size: .75rem; }
+.card.stat.attention .stat-value { color: var(--destructive); }
+
+/* 审计筛选条 */
+.filter-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.filter-bar .field { width: auto; min-width: 180px; }
+
+/* consent 页：授权后去向 + DCR 未核实提示（防 consent 钓鱼） */
+.consent-target { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: .875rem; line-height: 1.5; overflow-wrap: anywhere; }
+.consent-target svg { flex-shrink: 0; margin-top: 3px; }
+.consent-warn { font-size: .8125rem; }
+.consent-warn p { margin: 0; line-height: 1.6; }

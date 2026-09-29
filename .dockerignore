@@ -1,0 +1,34 @@
+**/bin
+**/obj
+**/.vs
+**/.vscode
+**/.idea
+.git
+.gitea
+.gitignore
+.dockerignore
+*.md
+LICENSE
+README*
+docs/
+tests/
+
+# 本地运行数据与密钥：绝不能被 COPY . . 烤进镜像
+# （SQLite、RS256 私钥 PEM、DataProtection 密钥环、.env）
+data/
+**/*.db
+**/*.db-journal
+**/*.db-shm
+**/*.db-wal
+**/*.pem
+**/*.key
+**/*.pfx
+**/*.p12
+**/dp-keys
+**/.env
+**/.env.*
+
+# 部署时挂载进容器的真实配置（clients.preset.json 含 client_secret）；
+# 镜像里只带 *.example.json
+resources.json
+clients.preset.json
