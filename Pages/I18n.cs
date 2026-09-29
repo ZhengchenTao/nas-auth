@@ -34,6 +34,10 @@ public static class I18n
         ["Password"] = "密码",
         ["Authorize"] = "授权",
         ["Back to sign-in"] = "返回登录页",
+        ["Back to sign-in (password)"] = "返回登录页（可用密码登录）",
+        ["Use a different account"] = "换个账号",
+        ["Choose another Google account"] = "选择其他 Google 账号",
+        ["Choose another Microsoft account"] = "选择其他微软账号",
         ["Back to /account"] = "返回 /account",
 
         // ---- 系统：密码登录运行时开关 ----

@@ -54,6 +54,28 @@ public static class HtmlTemplates
     }
 
     /// <summary>
+    /// 「换个账号」出口（等待批准 / 被拒 / IdP 失败页）：外部按钮带 select_account=1 强制弹账号选择器，
+    /// 否则 IdP 会静默选回刚才那个账号；再给一个回原流程（授权页或登录页）的入口，那里能用密码登录。
+    /// </summary>
+    private static string SwitchAccount(SwitchAccountOptions? o)
+    {
+        if (o is null) return "";
+        var encoded = Esc(Uri.EscapeDataString(o.ReturnUrl));
+        var sb = new StringBuilder($"<div class='sep'>{T("Use a different account")}</div><div class='stack'>");
+        if (o.GoogleEnabled)
+            sb.Append($"<a class='btn block' data-variant='outline' href='/external/google/start?return_url={encoded}&amp;select_account=1'>{IconGoogle}{T("Choose another Google account")}</a>");
+        if (o.MicrosoftEnabled)
+            sb.Append($"<a class='btn block' data-variant='outline' href='/external/microsoft/start?return_url={encoded}&amp;select_account=1'>{IconMicrosoft}{T("Choose another Microsoft account")}</a>");
+        // 回原流程：return_url 是授权页就回授权页（那里有密码和其他登录方式），否则回登录页
+        var back = o.ReturnUrl.StartsWith("/authorize", StringComparison.Ordinal)
+            ? Esc(o.ReturnUrl)
+            : $"/login?return_url={encoded}";
+        sb.Append($"<a class='btn block' data-variant='ghost' href='{back}'>{(o.PasswordEnabled ? T("Back to sign-in (password)") : T("Back to sign-in"))}</a>");
+        sb.Append("</div>");
+        return sb.ToString();
+    }
+
+    /// <summary>
     /// 密码表单。fold = 有外部按钮或会话时折叠为次要入口（设计 §5.1）；
     /// 出错重渲染时保持展开，不然错误提示对着一个收起的表单。
     /// </summary>
@@ -192,13 +214,14 @@ public static class HtmlTemplates
     }
 
     /// <summary>外部登录 pending 等待页（设计 §5.2）：不建会话，让用户等管理员批准。</summary>
-    public static string ExternalPending(string provider, string? email)
+    public static string ExternalPending(string provider, string? email, SwitchAccountOptions? switchOptions = null)
     {
         var who = string.IsNullOrEmpty(email) ? T("Your account") : $"<code>{Esc(email)}</code>";
         var body = CardHeader(T("Waiting for approval")) +
                    "<section>" +
                    Alert(T("{0} ({1}) has been registered and is awaiting administrator approval.", who, Esc(provider)), error: false) +
                    $"<p class='hint'>{T("You will be able to sign in once an administrator approves this account. Nothing else is required from you right now.")}</p>" +
+                   SwitchAccount(switchOptions) +
                    "</section>";
         return Layout("Waiting for approval · nas-auth", body, LangSwitcher());
     }
@@ -220,12 +243,14 @@ public static class HtmlTemplates
     }
 
     /// <summary>外部登录失败 / 拒绝页。不暴露内部状态细节。</summary>
-    public static string ExternalError(string title, string message)
+    public static string ExternalError(string title, string message, SwitchAccountOptions? switchOptions = null)
     {
         var body = CardHeader(Esc(T(title))) +
                    "<section>" +
                    Alert(Esc(T(message)), error: true) +
-                   $"<a class='btn block' data-variant='outline' href='/login'>{T("Back to sign-in")}</a>" +
+                   (switchOptions is null
+                       ? $"<a class='btn block' data-variant='outline' href='/login'>{T("Back to sign-in")}</a>"
+                       : SwitchAccount(switchOptions)) +
                    "</section>";
         return Layout($"{title} · nas-auth", body);
     }
@@ -259,6 +284,9 @@ public static class HtmlTemplates
         return Layout(title, body);
     }
 }
+
+/// <summary>「换个账号」出口参数：回原流程的本地地址 + 哪些登录方式可用。</summary>
+public record SwitchAccountOptions(string ReturnUrl, bool GoogleEnabled, bool MicrosoftEnabled, bool PasswordEnabled);
 
 public record AccountAuthorizationView(
     string ClientId,

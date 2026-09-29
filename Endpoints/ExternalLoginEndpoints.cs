@@ -48,6 +48,10 @@ public static class ExternalLoginEndpoints
                 RedirectUri = "/external/complete",
                 Items = { [ProviderKey] = provider, [ReturnUrlKey] = returnUrl },
             };
+            // 「换个账号」入口带 select_account=1：强制 IdP 弹账号选择器。
+            // 不带的话 Google / 微软会静默选回刚才那个账号，选错账号的人永远换不掉（2026-09-30）。
+            if (ctx.Request.Query["select_account"] == "1")
+                props.SetParameter(BindPromptKey, BindPrompt);
             return Results.Challenge(props, new[] { scheme });
         });
 
@@ -86,7 +90,8 @@ public static class ExternalLoginEndpoints
 
         // IdP 回调完成后的落点：external cookie → 登录 §5.2 状态机 / 自绑定 §5.3。
         app.MapGet("/external/complete", async (HttpContext ctx,
-            ExternalSignInService signIn, AuditLogger audit) =>
+            ExternalSignInService signIn, AuditLogger audit,
+            ExternalProviderOptions providers, PasswordLoginGate passwordLogin) =>
         {
             var auth = await ctx.AuthenticateAsync(ExternalScheme);
             if (!auth.Succeeded || auth.Principal is null)
@@ -157,7 +162,8 @@ public static class ExternalLoginEndpoints
                     audit.ExternalLogin(false, provider, subject, null, ctx.RemoteIp(),
                         result.Status == ExternalSignInStatus.PendingNew ? "pending_created" : "pending");
                     return Results.Content(
-                        HtmlTemplates.ExternalPending(provider, email),
+                        HtmlTemplates.ExternalPending(provider, email,
+                            SwitchOptions(returnUrl, providers, passwordLogin)),
                         "text/html; charset=utf-8");
 
                 case ExternalSignInStatus.Rejected:
@@ -165,7 +171,8 @@ public static class ExternalLoginEndpoints
                     audit.ExternalLogin(false, provider, subject, null, ctx.RemoteIp(),
                         result.Status == ExternalSignInStatus.OrphanedActive ? "orphaned_active" : "rejected");
                     return ErrorPage(ctx, StatusCodes.Status403Forbidden,
-                        "Access denied", "This external account is not allowed to sign in.");
+                        "Access denied", "This external account is not allowed to sign in.",
+                        SwitchOptions(returnUrl, providers, passwordLogin));
             }
         });
     }
@@ -184,9 +191,15 @@ public static class ExternalLoginEndpoints
         ctx.Response.StatusCode = StatusCodes.Status502BadGateway;
         ctx.Response.ContentType = "text/html; charset=utf-8";
         ctx.HandleResponse(); // 阻止异常继续抛成 500
+        // 用户在 IdP 页取消 / 选错后返回，也给「换个账号」出口，并尽量回到原来的授权页
+        string? returnUrl = null;
+        ctx.Properties?.Items.TryGetValue(ReturnUrlKey, out returnUrl);
+        var sp = ctx.HttpContext.RequestServices;
         return ctx.Response.WriteAsync(HtmlTemplates.ExternalError(
             "External sign-in failed",
-            "The identity provider returned an error or the sign-in was cancelled. Please try again from the sign-in page."));
+            "The identity provider returned an error or the sign-in was cancelled. Please try again from the sign-in page.",
+            SwitchOptions(ReturnUrl.SafeLocal(returnUrl), sp.GetRequiredService<ExternalProviderOptions>(),
+                sp.GetRequiredService<PasswordLoginGate>())));
     }
 
     private static string? SchemeOf(string provider) => provider switch
@@ -196,9 +209,15 @@ public static class ExternalLoginEndpoints
         _ => null,
     };
 
-    private static IResult ErrorPage(HttpContext ctx, int statusCode, string title, string message)
+    private static IResult ErrorPage(HttpContext ctx, int statusCode, string title, string message,
+        SwitchAccountOptions? switchOptions = null)
     {
         ctx.Response.StatusCode = statusCode;
-        return Results.Content(HtmlTemplates.ExternalError(title, message), "text/html; charset=utf-8");
+        return Results.Content(HtmlTemplates.ExternalError(title, message, switchOptions), "text/html; charset=utf-8");
     }
+
+    /// <summary>等待批准 / 被拒 / IdP 失败页上「换个账号」出口需要的信息（此时没有会话，全靠 return_url 回原流程）。</summary>
+    private static SwitchAccountOptions SwitchOptions(string returnUrl, ExternalProviderOptions providers,
+        PasswordLoginGate passwordLogin) =>
+        new(returnUrl, providers.GoogleEnabled, providers.MicrosoftEnabled, passwordLogin.Enabled);
 }

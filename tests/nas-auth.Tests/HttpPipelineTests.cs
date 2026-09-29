@@ -354,6 +354,24 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
             Assert.Contains("prompt=select_account", loc.Query);
         }
     }
+    // ---------- 换个账号（2026-09-30）----------
+
+    [Fact]
+    public async Task ExternalStart_SelectAccount_ForcesAccountPicker()
+    {
+        var c = _app.Client();
+        foreach (var provider in new[] { "google", "microsoft" })
+        {
+            var plain = await c.GetAsync($"/external/{provider}/start?return_url=%2Faccount");
+            Assert.Equal(HttpStatusCode.Redirect, plain.StatusCode);
+            Assert.DoesNotContain("prompt=select_account", plain.Headers.Location!.Query);
+
+            var picker = await c.GetAsync($"/external/{provider}/start?return_url=%2Faccount&select_account=1");
+            Assert.Equal(HttpStatusCode.Redirect, picker.StatusCode);
+            Assert.Contains("prompt=select_account", picker.Headers.Location!.Query);
+        }
+    }
+
     // ---------- RS256（与 sec/rs256 合并后补）----------
 
     [Fact]

@@ -105,6 +105,8 @@ public class NoInlineScriptTests
                 redirectUri: uri, selfRegistered: dcr);
         yield return HtmlTemplates.Login(x, x, x, googleEnabled: true, microsoftEnabled: true);
         yield return HtmlTemplates.ExternalPending(x, x);
+        yield return HtmlTemplates.ExternalPending(x, x, new SwitchAccountOptions(x, true, true, true));
+        yield return HtmlTemplates.ExternalError(x, x, new SwitchAccountOptions(x, true, true, false));
         yield return HtmlTemplates.ExternalBindResult(x, x, x);
         yield return HtmlTemplates.ExternalError(x, x);
         yield return HtmlTemplates.ForceChangePassword(x, x);
