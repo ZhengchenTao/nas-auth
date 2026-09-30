@@ -51,10 +51,12 @@ services:
       - "9091:8080"               # 前面要有 HTTPS 反代
     volumes:
       - ./data:/app/data          # SQLite、RSA 私钥、cookie 密钥，记得备份
-      - ./resources.json:/app/resources.json:ro
-      - ./clients.preset.json:/app/clients.preset.json:ro
+      # 挂目录而不是挂这两个文件：单文件挂载在编辑器或 `mv` 替换文件后，容器里看到的还是旧文件
+      - ./config:/app/config:ro
     env_file: .env
     environment:
+      - Auth__ResourcesPath=/app/config/resources.json
+      - Auth__ClientsPresetPath=/app/config/clients.preset.json
       - Auth__Issuer=https://auth.example.com
       - Auth__Admin__Username=admin
 ```
@@ -71,7 +73,7 @@ MS_CLIENT_SECRET=
 EZBK_MCP_TOKEN=
 ```
 
-1. 把 `resources.example.json` 复制成 `resources.json`，`clients.preset.example.json` 复制成 `clients.preset.json`，只留自己在用的条目。
+1. 把 `resources.example.json` 复制成 `config/resources.json`，`clients.preset.example.json` 复制成 `config/clients.preset.json`，只留自己在用的条目。两个文件都只在启动时读一次，改完要重启。
 2. 让容器用户（`appuser`）能写 `./data`，`docker compose run --rm --entrypoint id nas-auth` 可以看它的 uid。
 3. `docker compose up -d`，通过 HTTPS 对外。纯 HTTP 下登录会话存不住。
 4. 用 `admin` 登录 `https://auth.example.com/login`。

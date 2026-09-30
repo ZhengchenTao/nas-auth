@@ -48,10 +48,10 @@ public static class ExternalLoginEndpoints
                 RedirectUri = "/external/complete",
                 Items = { [ProviderKey] = provider, [ReturnUrlKey] = returnUrl },
             };
-            // 「换个账号」入口带 select_account=1：强制 IdP 弹账号选择器。
-            // 不带的话 Google / 微软会静默选回刚才那个账号，选错账号的人永远换不掉（2026-09-30）。
-            if (ctx.Request.Query["select_account"] == "1")
-                props.SetParameter(BindPromptKey, BindPrompt);
+            // 一律强制 IdP 弹账号选择器（2026-09-30 起；此前只有「换个账号」入口的 select_account=1 才带，参数现保留兼容）。
+            // 不带的话 Google / 微软会静默选浏览器里当前登着的那个账号：想换号的人换不掉；
+            // 共用电脑上前一个人退出应用（nas-auth 也联动退出）后，下一个人点「通过 Google 继续」照样被静默登成前一个人。
+            props.SetParameter(BindPromptKey, BindPrompt);
             return Results.Challenge(props, new[] { scheme });
         });
 

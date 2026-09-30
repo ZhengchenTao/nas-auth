@@ -357,14 +357,15 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
     // ---------- 换个账号（2026-09-30）----------
 
     [Fact]
-    public async Task ExternalStart_SelectAccount_ForcesAccountPicker()
+    public async Task ExternalStart_AlwaysForcesAccountPicker()
     {
         var c = _app.Client();
         foreach (var provider in new[] { "google", "microsoft" })
         {
+            // 普通登录入口也弹选择器：否则 IdP 静默选回浏览器里当前那个账号（共用电脑串号）
             var plain = await c.GetAsync($"/external/{provider}/start?return_url=%2Faccount");
             Assert.Equal(HttpStatusCode.Redirect, plain.StatusCode);
-            Assert.DoesNotContain("prompt=select_account", plain.Headers.Location!.Query);
+            Assert.Contains("prompt=select_account", plain.Headers.Location!.Query);
 
             var picker = await c.GetAsync($"/external/{provider}/start?return_url=%2Faccount&select_account=1");
             Assert.Equal(HttpStatusCode.Redirect, picker.StatusCode);

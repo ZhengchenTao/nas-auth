@@ -74,10 +74,13 @@ services:
       - "9091:8080"               # put an HTTPS reverse proxy in front
     volumes:
       - ./data:/app/data          # SQLite, RSA key, cookie keys. Back this up.
-      - ./resources.json:/app/resources.json:ro
-      - ./clients.preset.json:/app/clients.preset.json:ro
+      # mount the directory, not the two files: a single-file bind mount keeps
+      # pointing at the old file once an editor or `mv` replaces it
+      - ./config:/app/config:ro
     env_file: .env
     environment:
+      - Auth__ResourcesPath=/app/config/resources.json
+      - Auth__ClientsPresetPath=/app/config/clients.preset.json
       - Auth__Issuer=https://auth.example.com
       - Auth__Admin__Username=admin
 ```
@@ -94,9 +97,9 @@ MS_CLIENT_SECRET=
 EZBK_MCP_TOKEN=
 ```
 
-1. Copy `resources.example.json` to `resources.json` and
-   `clients.preset.example.json` to `clients.preset.json`, and keep only what
-   you run.
+1. Copy `resources.example.json` to `config/resources.json` and
+   `clients.preset.example.json` to `config/clients.preset.json`, and keep only
+   what you run. Both are read once at startup: restart after editing them.
 2. Make `./data` writable by the container user (`appuser`;
    `docker compose run --rm --entrypoint id nas-auth` prints its uid).
 3. `docker compose up -d` and publish it over HTTPS. Sessions do not work over
