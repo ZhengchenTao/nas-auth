@@ -379,6 +379,7 @@ Immich 自身没有登录失败锁定，把它的登录统一收到 IdP 上，�
 - `resources.json`：`aud = immich`，scopes `openid email profile`
 - `clients.preset.json`：`immich`，confidential、`client_secret_post`，`default_resource` 指 immich 资源；redirect 登记 web 的 `/auth/login`、`/user-settings`（有多个入口域名 / 端口就各登记一套）与手机 App 的 `app.immich:///oauth-callback`
 - Immich 按 `email` 关联已有账号：每个用户的 `users.email` 设成他在 Immich 里的账号邮箱。Immich 不开自动注册
+  - 2026-09-30 起改为**开自动注册**（账号由本 IdP 统一管，同 Gitea §7.5）：准入由审批 + `user_resources` 把关，Immich 自身没有自助注册、密码登录关着；新人首登按 `email` / `name` 建号，所以没有外部身份的纯密码用户必须先填 `users.email`。已有 Immich 账号仍按邮箱关联。
 
 ## 十五、RP-Initiated Logout（2026-09-29）
 
