@@ -59,7 +59,7 @@ public static class TokenEndpoints
             if (grantType == "authorization_code")
                 return await HandleAuthCode(ctx, form, clients, authCodes, refreshTokens, identities, users, catalog, issuer, oidcKeys, audit);
             if (grantType == "refresh_token")
-                return await HandleRefresh(ctx, form, clients, refreshTokens, catalog, issuer, audit, userResources);
+                return await HandleRefresh(ctx, form, clients, refreshTokens, catalog, issuer, audit, userResources, users);
 
             audit.Token(false, grantType, form["client_id"]!, null, null, ctx.RemoteIp(), "unsupported_grant_type");
             return Results.BadRequest(new { error = "unsupported_grant_type" });
@@ -277,7 +277,8 @@ public static class TokenEndpoints
         ResourceCatalog catalog,
         JwtIssuer issuer,
         AuditLogger audit,
-        UserResourceRepository userResources)
+        UserResourceRepository userResources,
+        UserRepository users)
     {
         var refresh = form["refresh_token"].ToString();
         var clientId = form["client_id"].ToString();
@@ -323,12 +324,15 @@ public static class TokenEndpoints
         // 否则长寿命 refresh token 会让撤销形同虚设。
         // 多资源：逐个查，撤销其一即 downscope，全撤才 access_denied。
         var rowScopes = row.scope.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        // admin_only：管理员身份被撤掉（或资源后来才标 admin_only）后，refresh 同样挡
+        var isAdmin = users.GetById(row.user_id)?.is_admin > 0;
         var grantedResources = new List<NasAuth.Config.ResourceConfig>();
         var grantedScopes = new List<string>();
         foreach (var r in resourcesList)
         {
             var rScopes = rowScopes.Where(r.Scopes.Contains).ToArray();
             if (rScopes.Length == 0) continue;
+            if (!r.AllowsUser(isAdmin)) continue;
             if (userResources.IsAllowed(row.user_id, r.Aud, rScopes))
             {
                 grantedResources.Add(r);

@@ -182,6 +182,7 @@ What can be asked for. Read at startup; restart to apply changes.
     "resource_url": "https://auth.example.com/proxy/ezbookkeeping",
     "display_name": "ezBookkeeping",
     "scopes": ["read:ezbookkeeping", "write:ezbookkeeping"],
+    "admin_only": true,
     "proxy": { "upstream": "http://ezbookkeeping:8080", "bearer_env": "EZBK_MCP_TOKEN" }
   }
 ]
@@ -191,7 +192,12 @@ What can be asked for. Read at startup; restart to apply changes.
 sub-path such as `/mcp` still matches. An entry with `proxy` is served under
 `/proxy/<aud>/…`; `upstream` has to be a bare host. A web app that signs in
 through OIDC gets an entry with `openid email profile` and a preset client
-pointing at it.
+pointing at it. `"admin_only": true` means the resource can only be granted to
+admins: use it when the resource server talks to its upstream with one fixed
+credential of yours (a personal access token, a single ledger token), so that
+granting it to someone else would hand them your data. Non-admins can't be
+granted it in the dashboard, and `/authorize` and refresh turn them away even if
+an old grant row is still there.
 
 ### clients.preset.json
 

@@ -216,8 +216,8 @@ public static class I18n
             "已重置 {0} 的密码；下次登录需修改",
 
         // ---- 资源授权编辑 ----
-        ["Per-resource maximum scopes for this user. Unchecking every scope of a resource removes the grant entirely; /authorize and token refresh then deny that resource for this user."] =
-            "该用户在每个资源上的最大 scope。某个资源全部不勾 = 整体撤销授权；之后 /authorize 与 token 刷新都会拒绝该用户访问此资源。",
+        ["Per-resource maximum scopes for this user. Unchecking every scope of a resource removes the grant entirely; /authorize and token refresh then deny that resource for this user. Resources marked \"admins only\" use the administrator's own credentials upstream and can only be granted to admins."] =
+            "该用户在每个资源上的最大 scope。某个资源全部不勾 = 整体撤销授权；之后 /authorize 与 token 刷新都会拒绝该用户访问此资源。标「仅管理员」的资源在上游用的是管理员自己的凭据，只能授给管理员。",
         ["Save grants"] = "保存授权",
         ["Back to users"] = "返回用户列表",
         ["Grants saved"] = "授权已保存",
@@ -226,6 +226,7 @@ public static class I18n
         ["User · {0}"] = "用户 · {0}",
         ["Profile"] = "基本信息",
         ["Resource grants"] = "资源授权",
+        ["admins only"] = "仅管理员",
         ["Reset password"] = "重置密码",
         ["Delete user"] = "删除用户",
         ["Revokes all of their refresh tokens and removes their external identities and resource grants. Cannot be undone."] =

@@ -146,6 +146,11 @@ user_resources 里 (当前用户, 请求的 aud) 存在
 且 请求 scope ⊆ 授予 scopes，否则 403 access_denied
 ```
 
+> 2026-09-30 增补 **`admin_only`**：`resources.json` 条目可标 `"admin_only": true`，只能授给 `is_admin` 用户。
+> 针对「资源服务拿管理员的一把固定凭据访问上游、不区分来访者」的资源（gitea-mcp 用管理员 PAT、ezBookkeeping proxy 用管理员账本 token、
+> obsidian-mcp 直读管理员 vault）：授给别人 = 把管理员的数据交出去，而原先审批页把它们和 Immich 这类「各进各的账号」的资源并排列着，一勾就授出去了。
+> 生效点：审批页不列（审批建的都是非管理员）；用户编辑页对非管理员置灰、服务端写入时丢弃；`/authorize` 与 refresh 对非管理员一律跳过该资源（库里残留的旧授权行也挡）。
+
 ## 六、上游 IdP 配置
 
 | | Google | Microsoft |
@@ -199,7 +204,7 @@ Admin → Identity & Access → Authentication sources → Add → OpenID Connec
 - Auto Discovery URL: `https://auth.example.com/.well-known/openid-configuration`
 - Client ID / Secret: 预置的 `gitea-web`
 - 回调 URI 由名称推导：`https://git.example.com/user/oauth2/nas-auth/callback`——**必须与 nas-auth 侧 `gitea-web` 预置 client 的 redirect_uri 精确一致**（redirect_uri 是精确匹配不做前缀）
-- 账号关联：开启 `ENABLE_AUTO_REGISTRATION=false`（沿用 Gitea 现有本地账号，首次 OIDC 登录时用"关联已有账号"输一次密码完成 link）
+- ~~账号关联：开启 `ENABLE_AUTO_REGISTRATION=false`（沿用 Gitea 现有本地账号，首次 OIDC 登录时用"关联已有账号"输一次密码完成 link）~~（原设计；现行做法见 §7.5）
 - 认证源可用 CLI 配置免去 UI 手点：`docker exec gitea gitea admin auth add-oauth --name nas-auth --provider openidConnect --key gitea-web --secret <secret> --auto-discover-url https://auth.example.com/.well-known/openid-configuration`
 
 ### 7.4 密码 / PAT 保持
@@ -207,6 +212,31 @@ Admin → Identity & Access → Authentication sources → Add → OpenID Connec
 - Gitea 本地密码不删：git over HTTP、API、紧急 web 登录全部照旧
 - gitea-mcp 的 admin PAT 链路不受任何影响
 - 效果 = web 登录多一个 "Sign in with nas-auth" 按钮，其余一切不变
+
+### 7.5 账号由 nas-auth 统一管：自动注册 + 「登着就关联」陷阱（2026-09-30）
+
+**目标**：Gitea 账号不再手工建。nas-auth 里批准 / 新建用户并授 `gitea-web`，这个人第一次用 nas-auth 登录 Gitea 时自动建号。
+
+**Gitea 侧配置**（`app.ini` `[oauth2_client]`，或 compose 里 `GITEA__oauth2_client__*`）：
+
+| 项 | 值 | 为什么 |
+|---|---|---|
+| `ENABLE_AUTO_REGISTRATION` | `true` | 首登自动建号。**`[service] DISABLE_REGISTRATION=true` 挡不住它**（1.27.3 `routers/web/auth/oauth.go` 只判 `!AllowOnlyInternalRegistration && EnableAutoRegistration`），注册页照样关着 |
+| `USERNAME` | `preferred_username` | Gitea 用户名 = nas-auth `user_id`（`preferred_username` 与 `sub` 同值），**建了改不了**，审批时起名要想清楚 |
+| `ACCOUNT_LINKING` | `disabled` | 用户名 / 邮箱撞上已有账号时直接报错，不按名字或邮箱自动关联（`auto` 会把新身份挂到同名 / 同邮箱的已有账号上） |
+
+自动建出来的账号 `login_type=OAuth2`、`login_source`=本 IdP、`login_name=sub`，天然满足 §十五 退出联动的前提，不用再手工 PATCH 认证源。前提：id_token / userinfo 里要有 `email`（外部身份审批建的用户都有；纯本地用户要在后台填 `users.email`）。
+
+**陷阱（2026-09-30 实测复现）：浏览器里 Gitea 已登录时再走一次 OIDC，新身份会被永久关联到当前登录的账号。**
+Gitea 回调里找不到对应用户时，先判 `ctx.Doer != nil` → `LinkAccountToUser(当前用户, 新身份)` → 303 到 `/user/settings/security`，这一支排在自动注册之前，且 `/user/oauth2/{provider}` 两个路由都不要求未登录（这是「设置 → 安全 → 关联账号」用的同一条路）。
+复现：Gitea 登着管理员账号，另一个 nas-auth 用户（Gitea 里还没号）走一次登录 → `external_login_user` 多出 `(新 sub → 管理员账号)`，此后这个人每次登录 Gitea 都进管理员账号。
+「必须先在 Gitea 建号再授权」就是在绕这个坑：建了号，Gitea 先按 `login_name=sub` 命中本人，走不到关联分支。
+
+**修法**：反代在「发起登录」那一跳（`GET /user/oauth2/<认证源名>`，不含 `/callback`）去掉请求的 `Cookie` 头。Gitea 只能新开匿名会话存 OAuth `state` 并下发新会话 cookie，浏览器里旧的登录会话 cookie 被覆盖，回调时 `ctx.Doer` 为空，走不到关联分支。
+代价：Gitea「设置 → 安全」里的关联外部账号失效——账号全由 nas-auth 管后本来就不该再用。「记住我」cookie 只在 `/user/login` 页触发自动登录（`performAutoLogin`），不影响回调。
+
+**盘点**：外链表里每个 OIDC 账号应只有自己的 `sub`：
+`select u.name, e.external_id from external_login_user e join user u on u.id = e.user_id where e.external_id <> u.login_name;` 应为空。
 
 ## 八、实施阶段
 

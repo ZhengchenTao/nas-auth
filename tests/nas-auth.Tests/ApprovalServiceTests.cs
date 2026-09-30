@@ -36,7 +36,9 @@ public class ApprovalServiceTests : IDisposable
               { "aud": "obsidian", "resource_url": "https://obsidian.example.com",
                 "display_name": "Obsidian", "scopes": ["read:obsidian", "write:obsidian"] },
               { "aud": "gitea", "resource_url": "https://gitea.example.com",
-                "display_name": "Gitea", "scopes": ["read:gitea"] }
+                "display_name": "Gitea", "scopes": ["read:gitea"] },
+              { "aud": "secrets", "resource_url": "https://secrets.example.com",
+                "display_name": "Secrets", "scopes": ["openid"], "admin_only": true }
             ]
             """);
         var catalog = new ResourceCatalog(
@@ -163,5 +165,33 @@ public class ApprovalServiceTests : IDisposable
         _users.Upsert("admin", "admin", "hash", isAdmin: true);
         _identities.BindActive("google", "sub-1", "admin", null, null);
         Assert.NotNull(_service.Reject("google", "sub-1")); // active 不能被"拒绝"
+    }
+
+    [Fact]
+    public void ApproveCreateUser_AdminOnlyResource_NotGranted()
+    {
+        _identities.InsertPending("google", "sub-1", "g@example.com", "Guest");
+
+        // 表单被篡改塞进 admin_only 的 aud：新建用户不是管理员，只落普通资源
+        var err = _service.ApproveCreateUser("google", "sub-1", "guest", new[] { "secrets", "gitea" });
+
+        Assert.Null(err);
+        var grant = Assert.Single(_userResources.ListByUser("guest"));
+        Assert.Equal("gitea", grant.aud);
+    }
+
+    [Fact]
+    public void ApproveBindExisting_AdminOnlyResource_OnlyForAdmins()
+    {
+        _users.Upsert("admin", "admin", "hash", isAdmin: true);
+        _users.Upsert("member", "member", "hash", isAdmin: false);
+        _identities.InsertPending("google", "sub-a", "a@example.com", null);
+        _identities.InsertPending("google", "sub-m", "m@example.com", null);
+
+        Assert.Null(_service.ApproveBindExisting("google", "sub-a", "admin", new[] { "secrets" }));
+        Assert.Null(_service.ApproveBindExisting("google", "sub-m", "member", new[] { "secrets" }));
+
+        Assert.Equal("secrets", Assert.Single(_userResources.ListByUser("admin")).aud);
+        Assert.Empty(_userResources.ListByUser("member"));
     }
 }

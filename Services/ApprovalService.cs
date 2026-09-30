@@ -76,10 +76,12 @@ public class ApprovalService
         if (!_identities.Approve(provider, subject, userId))
             return "Request is no longer pending";
 
+        var isAdmin = _users.GetById(userId)?.is_admin > 0;
         foreach (var aud in grantAuds)
         {
             var resource = _catalog.FindByAud(aud);
             if (resource is null) continue; // 不认识的 aud 静默跳过（表单被篡改/资源下线）
+            if (!resource.AllowsUser(isAdmin)) continue; // admin_only 不授给非管理员（审批页本就不列，这里防表单篡改）
             _userResources.Upsert(userId, aud, string.Join(' ', resource.Scopes));
         }
         return null;

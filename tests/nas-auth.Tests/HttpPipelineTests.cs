@@ -452,6 +452,37 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         Assert.Equal(HttpStatusCode.Unauthorized, (await UserInfo(idToken)).StatusCode);
     }
 
+    [Fact]
+    public async Task AdminOnlyResource_DeniedForNonAdmin_EvenWithGrantRow()
+    {
+        // resources.example.json 里 ezbookkeeping 标了 admin_only；给普通用户硬塞一条授权行（模拟标记之前授出去的）
+        const string bob = "bob-admin-only", pwd = "bob-password-123";
+        using (var scope = _app.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserRepository>();
+            users.Create(bob, bob, NasAuth.Services.PasswordHasher.Hash(pwd), mustChangePassword: false);
+            users.UpdateProfile(bob, email: null, allowPasswordLogin: true);
+            scope.ServiceProvider.GetRequiredService<UserResourceRepository>()
+                .Upsert(bob, "ezbookkeeping", "read:ezbookkeeping write:ezbookkeeping");
+        }
+
+        Task<HttpResponseMessage> Authorize(string user, string password) =>
+            _app.Client().SendAsync(Post("/authorize", Form(
+                ("response_type", "code"), ("client_id", "ezbookkeeping-mcp"),
+                ("redirect_uri", "https://book.example.com/oauth/callback"),
+                ("resource", "https://auth.example.com/proxy/ezbookkeeping"),
+                ("scope", "read:ezbookkeeping"), ("state", "st"),
+                ("code_challenge", "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"), ("code_challenge_method", "S256"),
+                ("username", user), ("password", password)),
+                secFetchSite: "same-origin"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await Authorize(bob, pwd)).StatusCode);
+        // 管理员（启动 seed 了全量授权）照常拿到 code
+        var ok = await Authorize(NasAuthAppFactory.AdminUser, NasAuthAppFactory.AdminPassword);
+        Assert.Equal(HttpStatusCode.Redirect, ok.StatusCode);
+        Assert.StartsWith("https://book.example.com/oauth/callback?code=", ok.Headers.Location!.OriginalString);
+    }
+
     private static string Base64UrlDecode(string s)
     {
         s = s.Replace('-', '+').Replace('_', '/');

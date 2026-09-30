@@ -4,6 +4,7 @@
     "resource_url": "https://auth.example.com/proxy/ezbookkeeping",
     "display_name": "ezBookkeeping",
     "scopes": ["read:ezbookkeeping", "write:ezbookkeeping"],
+    "admin_only": true,
     "proxy": {
       "upstream": "http://ezbookkeeping:8080",
       "bearer_env": "EZBK_MCP_TOKEN"
@@ -13,13 +14,15 @@
     "aud": "obsidian",
     "resource_url": "https://obsidian-mcp.example.com",
     "display_name": "Obsidian Vault",
-    "scopes": ["read:obsidian", "write:obsidian"]
+    "scopes": ["read:obsidian", "write:obsidian"],
+    "admin_only": true
   },
   {
     "aud": "gitea",
     "resource_url": "https://gitea-mcp.example.com",
     "display_name": "Gitea MCP",
-    "scopes": ["read:gitea"]
+    "scopes": ["read:gitea"],
+    "admin_only": true
   },
   {
     "aud": "gitea-web",

@@ -140,12 +140,13 @@ Auth__Dcr__AllowedCustomSchemes__0=cursor
     "resource_url": "https://auth.example.com/proxy/ezbookkeeping",
     "display_name": "ezBookkeeping",
     "scopes": ["read:ezbookkeeping", "write:ezbookkeeping"],
+    "admin_only": true,
     "proxy": { "upstream": "http://ezbookkeeping:8080", "bearer_env": "EZBK_MCP_TOKEN" }
   }
 ]
 ```
 
-`resource_url` 就是客户端传的 `resource`，末尾多个斜杠或带 `/mcp` 这样的子路径也能匹配上。带 `proxy` 的条目挂在 `/proxy/<aud>/…` 下，`upstream` 只能写到主机。用 OIDC 登录的网页应用，建一个 scope 为 `openid email profile` 的条目，再配一个指向它的预置客户端。
+`resource_url` 就是客户端传的 `resource`，末尾多个斜杠或带 `/mcp` 这样的子路径也能匹配上。带 `proxy` 的条目挂在 `/proxy/<aud>/…` 下，`upstream` 只能写到主机。用 OIDC 登录的网页应用，建一个 scope 为 `openid email profile` 的条目，再配一个指向它的预置客户端。`"admin_only": true` 表示这个资源只能授给管理员：资源服务拿你的一把固定凭据访问上游（个人访问令牌、唯一的账本 token）时就该这么标，否则授给别人就等于把你的数据交出去。后台不能把它授给非管理员；就算库里还留着旧的授权行，`/authorize` 和刷新也会拒绝非管理员。
 
 ### clients.preset.json
 

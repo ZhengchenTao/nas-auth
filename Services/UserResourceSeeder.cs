@@ -30,7 +30,7 @@ public static class UserResourceSeeder
         var allUsers = users.ListAll();
         foreach (var user in allUsers)
         {
-            foreach (var resource in catalog.All)
+            foreach (var resource in catalog.All.Where(r => r.AllowsUser(user.is_admin != 0)))
             {
                 userResources.Upsert(user.user_id, resource.Aud, string.Join(' ', resource.Scopes));
             }

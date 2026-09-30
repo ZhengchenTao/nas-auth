@@ -110,7 +110,8 @@ public static class AdminEndpoints
                     Aud: r.Aud,
                     DisplayName: r.DisplayName,
                     AllScopes: r.Scopes,
-                    GrantedScopes: granted.TryGetValue(r.Aud, out var s) ? s : Array.Empty<string>()))
+                    GrantedScopes: granted.TryGetValue(r.Aud, out var s) ? s : Array.Empty<string>(),
+                    AdminOnly: r.AdminOnly))
                 .ToList();
 
             var detail = new UserDetailView(
@@ -199,16 +200,17 @@ public static class AdminEndpoints
         {
             var form = await ctx.Request.ReadFormAsync();
             var targetId = form["user_id"].ToString();
-            if (users.GetById(targetId) is null)
+            var target = users.GetById(targetId);
+            if (target is null)
                 return RedirectTo("/admin/users", error: T("User does not exist"));
 
             // 每个 aud 一组 checkbox（name=scope:<aud>）。勾了的 scope 取与 catalog 的交集写入；
-            // 全不勾 → 删行（该资源对该用户整体撤销）。
+            // 全不勾 → 删行（该资源对该用户整体撤销）。admin_only 资源对非管理员一律按「全不勾」处理。
             foreach (var resource in catalog.All)
             {
                 var requested = form[$"scope:{resource.Aud}"]
                     .Select(v => v?.ToString() ?? "")
-                    .Where(v => resource.Scopes.Contains(v))
+                    .Where(v => resource.Scopes.Contains(v) && resource.AllowsUser(target.is_admin != 0))
                     .Distinct()
                     .ToList();
                 if (requested.Count == 0)
@@ -290,7 +292,9 @@ public static class AdminEndpoints
         {
             PendingApprovalView ToView(NasAuth.Data.ExternalIdentityRow r) =>
                 new(r.provider, r.subject, r.email, r.display_name, TimeDisplay(r.created_at));
+            // admin_only 资源不在审批页列出：审批建的是非管理员；绑到管理员头上时管理员本来就有这些授权
             var resources = catalog.All
+                .Where(r => !r.AdminOnly)
                 .Select(r => new UserResourceEditView(r.Aud, r.DisplayName, r.Scopes, Array.Empty<string>()))
                 .ToList();
             return Render(ctx, users, identities, DashboardSpace.Admin, "approvals", "Approvals",

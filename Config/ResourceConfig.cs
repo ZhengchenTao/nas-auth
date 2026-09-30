@@ -25,6 +25,18 @@ public class ResourceConfig
     /// </summary>
     [JsonPropertyName("proxy")]
     public ProxyConfig? Proxy { get; set; }
+
+    /// <summary>
+    /// 可选，默认 false。true = 只能授给管理员（users.is_admin）。
+    /// 用于资源服务端拿一把固定凭据访问上游、不区分来访者的资源（如 gitea-mcp 用管理员自己的 PAT、
+    /// ezBookkeeping proxy 用管理员的账本 token）：授给别人就等于把管理员的数据交出去。
+    /// 生效点：审批与用户编辑页不再能授给非管理员；/authorize 与 refresh 对非管理员一律拒（已有的授权行也挡）。
+    /// </summary>
+    [JsonPropertyName("admin_only")]
+    public bool AdminOnly { get; set; }
+
+    /// <summary>该用户能否持有 / 使用本资源（只看 admin_only，不看 user_resources）。</summary>
+    public bool AllowsUser(bool isAdmin) => !AdminOnly || isAdmin;
 }
 
 /// <summary>

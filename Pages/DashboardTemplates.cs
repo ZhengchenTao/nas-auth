@@ -241,6 +241,10 @@ public static class DashboardTemplates
         return sb.Append("</tbody></table></div>").ToString();
     }
 
+    private static string AdminOnlyBadge(UserResourceEditView r) => r.AdminOnly
+        ? $" <span class='badge' data-variant='secondary'>{T("admins only")}</span>"
+        : "";
+
     private static string RoleBadge(UserAdminView u) => u.IsAdmin
         ? $"<span class='badge'>{T("admin")}</span>"
         : $"<span class='badge' data-variant='outline'>{T("user")}</span>";
@@ -449,17 +453,20 @@ public static class DashboardTemplates
         var res = new StringBuilder($"<form method='post' action='/admin/users/resources'>{uid}<div class='res-grid'>");
         foreach (var r in d.Resources)
         {
-            res.Append($"<fieldset class='group-box'><legend>{Esc(r.DisplayName)} <span class='badge mono' data-variant='outline'>{Esc(r.Aud)}</span></legend>");
+            // admin_only 资源对非管理员只读展示：勾不上，也提交不进去（服务端同样会丢弃）
+            var locked = r.AdminOnly && !u.IsAdmin;
+            res.Append($"<fieldset class='group-box'><legend>{Esc(r.DisplayName)} <span class='badge mono' data-variant='outline'>{Esc(r.Aud)}</span>{AdminOnlyBadge(r)}</legend>");
             foreach (var s in r.AllScopes)
             {
-                var check = r.GrantedScopes.Contains(s) ? " checked" : "";
-                res.Append($"<label class='check-line'><input class='input' type='checkbox' name='scope:{Esc(r.Aud)}' value='{Esc(s)}'{check}><span class='mono'>{Esc(s)}</span></label>");
+                var check = r.GrantedScopes.Contains(s) && !locked ? " checked" : "";
+                var disabled = locked ? " disabled" : "";
+                res.Append($"<label class='check-line'><input class='input' type='checkbox' name='scope:{Esc(r.Aud)}' value='{Esc(s)}'{check}{disabled}><span class='mono'>{Esc(s)}</span></label>");
             }
             res.Append("</fieldset>");
         }
         res.Append($"</div><div class='form-foot'><button class='btn' type='submit'>{T("Save grants")}</button></div></form>");
         html.Append(Card(T("Resource grants"),
-            T("Per-resource maximum scopes for this user. Unchecking every scope of a resource removes the grant entirely; /authorize and token refresh then deny that resource for this user."),
+            T("Per-resource maximum scopes for this user. Unchecking every scope of a resource removes the grant entirely; /authorize and token refresh then deny that resource for this user. Resources marked \"admins only\" use the administrator's own credentials upstream and can only be granted to admins."),
             res.ToString()));
 
         // 外部身份（管理员可解绑）
@@ -759,7 +766,8 @@ public record UserResourceEditView(
     string Aud,
     string DisplayName,
     IReadOnlyList<string> AllScopes,
-    IReadOnlyList<string> GrantedScopes
+    IReadOnlyList<string> GrantedScopes,
+    bool AdminOnly = false
 );
 
 public record ClientAdminView(

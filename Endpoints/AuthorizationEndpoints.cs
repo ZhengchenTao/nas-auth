@@ -172,6 +172,7 @@ public static class AuthorizationEndpoints
             {
                 var rScopes = requestedScopes.Where(r.Scopes.Contains).ToArray();
                 if (rScopes.Length == 0) continue; // 反推集合里这个资源没被请求到 scope
+                if (!r.AllowsUser(user.is_admin != 0)) continue; // admin_only：非管理员即使有授权行也拒
                 if (userResources.IsAllowed(user.user_id, r.Aud, rScopes))
                 {
                     grantedResources.Add(r);
