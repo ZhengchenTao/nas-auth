@@ -137,6 +137,9 @@ if (externalProviders.MicrosoftEnabled)
         options.AuthorizationEndpoint = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
         options.TokenEndpoint = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
         options.Events.OnRemoteFailure = ExternalLoginEndpoints.HandleRemoteFailure;
+        // 登录名单独留一份：预绑定邮箱（§十八）要求登录名就是下发的邮箱（Email claim 可能取的是 mail）。
+        // ⚠️ 上面写死 /consumers/ 也是预绑定安全的前提：工作 / 学校账号的 email 可被租户管理员随意设置（nOAuth）
+        options.ClaimActions.MapJsonKey(ExternalClaims.MicrosoftUpnClaimType, "userPrincipalName");
     });
 }
 builder.Services.AddAuthorization();

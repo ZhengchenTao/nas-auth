@@ -78,17 +78,42 @@ public class PreBoundEmailTests : IDisposable
         Assert.Single(_invites.ListByUser("jelly"));
     }
 
-    [Fact]
-    public void Microsoft_NeverTreatedAsVerified()
+    [Theory]
+    // 个人账号的登录名注册时就验证过邮箱：登录名就是下发的邮箱 → 算已验证，与域名无关
+    [InlineData("jellymiao@outlook.com", "jellymiao@outlook.com", true)]
+    [InlineData("Someone@Hotmail.com", "someone@hotmail.com", true)]
+    [InlineData("jelly@gmail.com", "jelly@gmail.com", true)]
+    // Email claim 取的是 mail（和登录名不同）→ 不算
+    [InlineData("jellymiao@outlook.com", "other@outlook.com", false)]
+    // 登录名不是邮箱（手机号注册的个人账号）/ 缺失 → 不算
+    [InlineData("+8613800000000", "+8613800000000", false)]
+    [InlineData(null, "jellymiao@outlook.com", false)]
+    public void Microsoft_VerifiedWhenEmailIsSignInName(string? upn, string email, bool expected)
     {
-        // 微软个人账号没有 email_verified，ExternalClaims 一律判未验证
+        var claims = new List<Claim> { new(ClaimTypes.Email, email) };
+        if (upn is not null) claims.Add(new Claim(ExternalClaims.MicrosoftUpnClaimType, upn));
+        Assert.Equal(expected, ExternalClaims.IsEmailVerified("microsoft", new ClaimsPrincipal(new ClaimsIdentity(claims, "test"))));
+    }
+
+    [Fact]
+    public void Microsoft_IgnoresGoogleStyleVerifiedClaim()
+    {
         var principal = new ClaimsPrincipal(new ClaimsIdentity(new[]
         {
-            new Claim(ClaimTypes.Email, "jelly@example.com"),
+            new Claim(ClaimTypes.Email, "jelly@gmail.com"),
             new Claim(ExternalClaims.EmailVerifiedClaimType, "true"),
         }, "test"));
         Assert.False(ExternalClaims.IsEmailVerified("microsoft", principal));
         Assert.True(ExternalClaims.IsEmailVerified("google", principal));
+    }
+
+    [Fact]
+    public void MicrosoftOutlookSignIn_MatchingInvite_BindsDirectly()
+    {
+        _invites.Add("jellymiao@outlook.com", "jelly", "tao");
+        var result = _signIn.Resolve("microsoft", "ms-1", "jellymiao@outlook.com", "Jelly", emailVerified: true);
+        Assert.Equal(ExternalSignInStatus.ActiveByInvite, result.Status);
+        Assert.Equal("jelly", result.User!.user_id);
     }
 
     [Theory]

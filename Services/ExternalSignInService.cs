@@ -128,11 +128,25 @@ public static class ExternalClaims
     /// <summary>Google userinfo 的 email_verified 映射成的 claim 类型（Program.cs 里 MapJsonKey）。</summary>
     public const string EmailVerifiedClaimType = "email_verified";
 
+    /// <summary>微软账号的登录名（Graph /me 的 userPrincipalName）映射成的 claim 类型（Program.cs 里 MapJsonKey）。</summary>
+    public const string MicrosoftUpnClaimType = "ms_upn";
+
     /// <summary>
-    /// 邮箱是否经 IdP 验证（§十八 预绑定只认这个）。只信 Google：userinfo 明确给出 email_verified。
-    /// 微软个人账号经 Graph /me 拿到的 mail / userPrincipalName 没有验证标记，一律按未验证处理，走待批。
+    /// 邮箱是否经 IdP 验证（§十八 预绑定只认这个）。判据是「IdP 能不能证明他拥有这个邮箱」，与域名无关。
+    /// Google：userinfo 的 email_verified（Google 账号可用任意邮箱注册，但要收验证码才标 verified）。
+    /// 微软：只接个人账号（Program.cs 写死 /consumers/ 端点），个人账号的登录名注册时就要验证邮箱；
+    /// Graph /me 不给标记，所以认「登录名（userPrincipalName）就是下发的这个邮箱」——ASP.NET 的 Email claim
+    /// 取 mail ?? userPrincipalName，mail 可能是另一个地址，要求两者相同。
+    /// 工作 / 学校账号的 email 可由租户管理员随意设置（nOAuth），那条路不走 /consumers/ 进不来；以后若改成 /common/，这里必须重审。
     /// </summary>
-    public static bool IsEmailVerified(string provider, ClaimsPrincipal principal) =>
-        provider == "google"
-        && string.Equals(principal.FindFirstValue(EmailVerifiedClaimType), "true", StringComparison.OrdinalIgnoreCase);
+    public static bool IsEmailVerified(string provider, ClaimsPrincipal principal) => provider switch
+    {
+        "google" => string.Equals(principal.FindFirstValue(EmailVerifiedClaimType), "true", StringComparison.OrdinalIgnoreCase),
+        "microsoft" => IsSignInEmail(principal.FindFirstValue(MicrosoftUpnClaimType), GetEmail(principal)),
+        _ => false,
+    };
+
+    private static bool IsSignInEmail(string? upn, string? email) =>
+        !string.IsNullOrWhiteSpace(upn) && upn.Contains('@')
+        && string.Equals(upn.Trim(), email?.Trim(), StringComparison.OrdinalIgnoreCase);
 }

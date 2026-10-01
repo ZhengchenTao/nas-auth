@@ -398,7 +398,7 @@ public static class DashboardTemplates
         create.Append($"<div class='field'><label for='new_username'>{T("Username")}</label><input type='text' id='new_username' name='username' required pattern='[a-zA-Z0-9._-]{{1,32}}' autocomplete='off' placeholder='{T("letters, digits, . _ -")}'></div>");
         create.Append($"<div class='field'><label for='new_temp_password'>{T("Temporary password")}</label><input id='new_temp_password' name='temp_password' type='password' minlength='8' autocomplete='new-password' placeholder='{T("≥ 8 chars; only when password sign-in is allowed")}'></div>");
         create.Append($"<div class='field'><label for='new_email'>{T("Email")}</label><input type='email' id='new_email' name='email' autocomplete='off' placeholder='{T("sent to apps as the email claim")}'></div>");
-        create.Append($"<div class='field'><label for='new_invite_email'>{T("Pre-bind Google email")}</label><input type='email' id='new_invite_email' name='invite_email' autocomplete='off' placeholder='{T("optional; first Google sign-in with it binds here")}'></div>");
+        create.Append($"<div class='field'><label for='new_invite_email'>{T("Pre-bind sign-in email")}</label><input type='email' id='new_invite_email' name='invite_email' autocomplete='off' placeholder='{T("optional; first Google / Outlook sign-in with it binds here")}'></div>");
         create.Append("</div><div class='form-foot'>");
         create.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='allow_password_login' value='1' checked>{T("Allow password sign-in")}</label>");
         create.Append($"<span class='grow'></span><button class='btn' type='submit'>{T("Create")}</button>");
@@ -505,7 +505,7 @@ public static class DashboardTemplates
         ids.Append($"<input class='input' type='email' name='email' required autocomplete='off' placeholder='name@example.com' style='max-width:320px'>");
         ids.Append($"<button class='btn' data-variant='outline' type='submit'>{T("Add pre-bound email")}</button></form>");
         html.Append(Card(T("External identities"),
-            T("Pre-bound email: the first time someone signs in with Google using this email, and Google reports the email as verified, that Google account is bound to this user directly without going through approvals. Used once, then removed. Microsoft sign-ins carry no verified flag, so they still need approval."),
+            T("Pre-bound email: the first time someone signs in with this email, that account is bound to this user directly without going through approvals. Used once, then removed. Requires the provider to vouch for the email: Google must report it as verified; for a personal Microsoft account it must be the sign-in name. Otherwise it still goes to approvals."),
             ids.ToString()));
 
         // 代管已授权应用
