@@ -1,4 +1,5 @@
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.RateLimiting;
@@ -37,6 +38,7 @@ builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<SettingsRepository>();
 builder.Services.AddScoped<ExternalIdentityRepository>();
 builder.Services.AddScoped<UserResourceRepository>();
+builder.Services.AddScoped<ExternalInviteRepository>();
 builder.Services.AddSingleton<AuditRepository>(); // AuditLogger 是单例，它的仓储也得是
 
 // ---------- 服务 ----------
@@ -117,6 +119,8 @@ if (externalProviders.GoogleEnabled)
         // state + correlation cookie CSRF 防护是 RemoteAuthenticationHandler 默认行为，
         // 这里不关闭任何校验；默认 scope 已含 openid email profile
         options.Events.OnRemoteFailure = ExternalLoginEndpoints.HandleRemoteFailure;
+        // userinfo 里的 email_verified 默认不进 claim；预绑定邮箱（§十八）只认验证过的邮箱
+        options.ClaimActions.MapJsonKey(ExternalClaims.EmailVerifiedClaimType, "email_verified");
     });
 }
 if (externalProviders.MicrosoftEnabled)

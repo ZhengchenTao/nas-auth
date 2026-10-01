@@ -396,8 +396,9 @@ public static class DashboardTemplates
     {
         var create = new StringBuilder("<form method='post' action='/admin/users/create'><div class='form-grid'>");
         create.Append($"<div class='field'><label for='new_username'>{T("Username")}</label><input type='text' id='new_username' name='username' required pattern='[a-zA-Z0-9._-]{{1,32}}' autocomplete='off' placeholder='{T("letters, digits, . _ -")}'></div>");
-        create.Append($"<div class='field'><label for='new_temp_password'>{T("Temporary password")}</label><input id='new_temp_password' name='temp_password' type='password' required minlength='8' autocomplete='new-password' placeholder='{T("≥ 8 chars")}'></div>");
+        create.Append($"<div class='field'><label for='new_temp_password'>{T("Temporary password")}</label><input id='new_temp_password' name='temp_password' type='password' minlength='8' autocomplete='new-password' placeholder='{T("≥ 8 chars; only when password sign-in is allowed")}'></div>");
         create.Append($"<div class='field'><label for='new_email'>{T("Email")}</label><input type='email' id='new_email' name='email' autocomplete='off' placeholder='{T("sent to apps as the email claim")}'></div>");
+        create.Append($"<div class='field'><label for='new_invite_email'>{T("Pre-bind Google email")}</label><input type='email' id='new_invite_email' name='invite_email' autocomplete='off' placeholder='{T("optional; first Google sign-in with it binds here")}'></div>");
         create.Append("</div><div class='form-foot'>");
         create.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='allow_password_login' value='1' checked>{T("Allow password sign-in")}</label>");
         create.Append($"<span class='grow'></span><button class='btn' type='submit'>{T("Create")}</button>");
@@ -486,7 +487,26 @@ public static class DashboardTemplates
             }
             ids.Append("</tbody></table></div>");
         }
-        html.Append(Card(T("External identities"), null, ids.ToString()));
+
+        // 预绑定邮箱（§十八）：首次用 Google 登录、且 Google 验证过这个邮箱的人直接绑到本用户，不进待批
+        ids.Append($"<h3 class='subhead'>{T("Pre-bound emails")}</h3>");
+        if (d.Invites is { Count: > 0 } invites)
+        {
+            ids.Append($"<div class='table-container'><table class='table'><thead><tr><th>{T("Email")}</th><th>{T("Added")}</th><th></th></tr></thead><tbody>");
+            foreach (var i in invites)
+            {
+                ids.Append($"<tr><td class='wrap mono'>{Esc(i.Email)}</td><td>{Esc(i.CreatedAtDisplay)}</td>");
+                ids.Append($"<td class='fit'><form method='post' action='/admin/users/invites/delete'>{uid}{Hidden("email", i.Email)}");
+                ids.Append($"<button class='btn' data-variant='outline' data-size='sm' type='submit'>{T("Remove")}</button></form></td></tr>");
+            }
+            ids.Append("</tbody></table></div>");
+        }
+        ids.Append($"<form method='post' action='/admin/users/invites/add' class='form-foot'>{uid}");
+        ids.Append($"<input class='input' type='email' name='email' required autocomplete='off' placeholder='name@example.com' style='max-width:320px'>");
+        ids.Append($"<button class='btn' data-variant='outline' type='submit'>{T("Add pre-bound email")}</button></form>");
+        html.Append(Card(T("External identities"),
+            T("Pre-bound email: the first time someone signs in with Google using this email, and Google reports the email as verified, that Google account is bound to this user directly without going through approvals. Used once, then removed. Microsoft sign-ins carry no verified flag, so they still need approval."),
+            ids.ToString()));
 
         // 代管已授权应用
         var revokeAll = d.Grants.Count == 0 ? null :
@@ -797,8 +817,11 @@ public record UserDetailView(
     IReadOnlyList<UserResourceEditView> Resources,
     IReadOnlyList<BindingView> Bindings,
     IReadOnlyList<AccountAuthorizationView> Grants,
-    IReadOnlyList<AuditView> RecentLogins
+    IReadOnlyList<AuditView> RecentLogins,
+    IReadOnlyList<InviteView>? Invites = null
 );
+
+public record InviteView(string Email, string CreatedAtDisplay);
 
 public record AdminStats(int Users, int Admins, int Pending, int ActiveGrants,
     int PresetClients, int DcrClients, int Logins24h, int FailedLogins24h);

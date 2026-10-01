@@ -76,6 +76,9 @@ public record ExternalIdentityRow(
     long? approved_at
 );
 
+/// <summary>external_invites 表的一行（§十八）。</summary>
+public record ExternalInviteRow(string email, string user_id, long created_at, string? created_by);
+
 public record UserResourceRow(
     string user_id,
     string aud,

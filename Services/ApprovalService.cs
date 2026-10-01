@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using NasAuth.Data.Repositories;
 
@@ -47,18 +46,17 @@ public class ApprovalService
             return "User id may only contain letters, digits, . _ -, length 1-32";
         if (_users.GetByUsername(newUserId) is not null)
             return $"User {newUserId} already exists";
+        if (_users.IsRetiredId(newUserId))
+            return $"User id {newUserId} belonged to a deleted user and can't be reused";
 
-        // 随机 32 字节、不落任何人之手 → 密码登录对该用户事实禁用，不设强制改密
-        Span<byte> raw = stackalloc byte[32];
-        RandomNumberGenerator.Fill(raw);
-        var unusable = PasswordHasher.Hash(Convert.ToBase64String(raw));
-        _users.Create(newUserId, newUserId, unusable, mustChangePassword: false);
+        // 随机密码、不落任何人之手 → 密码登录对该用户事实禁用，不设强制改密
+        _users.Create(newUserId, newUserId, PasswordHasher.UnusableHash(), mustChangePassword: false);
 
         var err = ApproveCore(provider, subject, newUserId, grantAuds);
         if (err is not null)
         {
-            // 审批没成立（身份已不是 pending 等），回滚刚建的空用户
-            _users.Delete(newUserId);
+            // 审批没成立（身份已不是 pending 等），回滚刚建的空用户；它从没对外用过，不登记为删过的 id
+            _users.Delete(newUserId, retireId: false);
             return err;
         }
         return null;

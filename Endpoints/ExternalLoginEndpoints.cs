@@ -149,12 +149,15 @@ public static class ExternalLoginEndpoints
             }
 
             // ---- 登录模式（§5.2 状态机）----
-            var result = signIn.Resolve(provider, subject, email, displayName);
+            var result = signIn.Resolve(provider, subject, email, displayName,
+                ExternalClaims.IsEmailVerified(provider, auth.Principal));
             switch (result.Status)
             {
                 case ExternalSignInStatus.Active:
+                case ExternalSignInStatus.ActiveByInvite:
                     await AuthorizationEndpoints.SignInCookie(ctx, result.User!.user_id);
-                    audit.ExternalLogin(true, provider, subject, result.User.user_id, ctx.RemoteIp());
+                    audit.ExternalLogin(true, provider, subject, result.User.user_id, ctx.RemoteIp(),
+                        result.Status == ExternalSignInStatus.ActiveByInvite ? "invite_redeemed" : null);
                     return Results.Redirect(DashboardSupport.LandingFor(returnUrl, result.User));
 
                 case ExternalSignInStatus.PendingNew:

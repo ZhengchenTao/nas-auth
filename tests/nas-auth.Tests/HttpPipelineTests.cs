@@ -484,6 +484,46 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         Assert.StartsWith("https://book.example.com/oauth/callback?code=", ok.Headers.Location!.OriginalString);
     }
 
+    [Fact]
+    public async Task AdminCreate_ExternalOnlyUser_NoForcedPasswordChange_PreBoundEmail_IdNotReusable()
+    {
+        var c = _app.Client();
+        Assert.Equal(HttpStatusCode.Redirect, (await Login(c, "/admin/users")).StatusCode);
+
+        // 不勾「允许密码登录」、不填临时密码，顺带登记预绑定邮箱
+        var create = await c.SendAsync(Post("/admin/users/create", Form(
+            ("username", "googleonly"), ("email", "g@example.com"), ("invite_email", "G@Example.com")),
+            secFetchSite: "same-origin"));
+        Assert.Equal(HttpStatusCode.Redirect, create.StatusCode);
+        Assert.StartsWith("/admin/users/edit", create.Headers.Location!.OriginalString);
+
+        using (var scope = _app.Services.CreateScope())
+        {
+            var u = scope.ServiceProvider.GetRequiredService<UserRepository>().GetById("googleonly")!;
+            Assert.Equal(0, u.must_change_password);     // 否则 /authorize 永远拒他
+            Assert.Equal(0, u.allow_password_login);
+            var invite = Assert.Single(scope.ServiceProvider.GetRequiredService<ExternalInviteRepository>().ListByUser("googleonly"));
+            Assert.Equal("g@example.com", invite.email);
+        }
+
+        // 编辑页能看到预绑定邮箱
+        var edit = await c.GetStringAsync("/admin/users/edit?user=googleonly");
+        Assert.Contains("g@example.com", edit);
+        Assert.Contains("/admin/users/invites/delete", edit);
+
+        // 删人 → 同名（大小写不同也算）不许再建
+        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/admin/users/delete",
+            Form(("user_id", "googleonly")), secFetchSite: "same-origin"))).StatusCode);
+        var again = await c.SendAsync(Post("/admin/users/create", Form(("username", "GoogleOnly")),
+            secFetchSite: "same-origin"));
+        Assert.Equal(HttpStatusCode.Redirect, again.StatusCode);
+        using (var scope = _app.Services.CreateScope())
+        {
+            Assert.Null(scope.ServiceProvider.GetRequiredService<UserRepository>().GetById("GoogleOnly"));
+            Assert.Empty(scope.ServiceProvider.GetRequiredService<ExternalInviteRepository>().ListByUser("googleonly"));
+        }
+    }
+
     private static string Base64UrlDecode(string s)
     {
         s = s.Replace('-', '+').Replace('_', '/');

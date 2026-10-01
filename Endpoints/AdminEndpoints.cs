@@ -57,35 +57,79 @@ public static class AdminEndpoints
             Render(ctx, users, identities, DashboardSpace.Admin, "users", "Users",
                 DashboardTemplates.UsersSection(UserViews(users, AdminId(ctx)))));
 
-        admin.MapPost("/users/create", async (HttpContext ctx, UserRepository users, AuditLogger audit) =>
+        admin.MapPost("/users/create", async (HttpContext ctx, UserRepository users,
+            ExternalInviteRepository invites, AuditLogger audit) =>
         {
             var adminId = AdminId(ctx);
             var form = await ctx.Request.ReadFormAsync();
             var newUsername = form["username"].ToString().Trim();
             var tempPwd = form["temp_password"].ToString();
             var newEmail = form["email"].ToString();
+            var inviteEmail = form["invite_email"].ToString().Trim();
             var allowPassword = form["allow_password_login"].ToString() == "1";
 
             if (string.IsNullOrEmpty(newUsername))
                 return RedirectTo("/admin/users", error: T("Username is required"));
             if (!UsernamePattern.IsMatch(newUsername))
                 return RedirectTo("/admin/users", error: T("Username may only contain letters, digits, . _ -, length 1-32"));
-            if (string.IsNullOrEmpty(tempPwd) || tempPwd.Length < 8)
+            // 只有允许密码登录才要临时密码：只走 Google / 微软的人没有可改的密码，强制改密会让他永远过不了 /authorize
+            if (allowPassword && (string.IsNullOrEmpty(tempPwd) || tempPwd.Length < 8))
                 return RedirectTo("/admin/users", error: T("Temporary password must be at least 8 characters"));
             if (users.GetByUsername(newUsername) is not null)
                 return RedirectTo("/admin/users", error: T("Username {0} already exists", newUsername));
-            if (!IsValidEmail(newEmail))
+            if (users.IsRetiredId(newUsername))
+                return RedirectTo("/admin/users", error: T("User id {0} belonged to a deleted user and can't be reused: apps still map it to that person's accounts", newUsername));
+            if (!IsValidEmail(newEmail) || !IsValidEmail(inviteEmail))
                 return RedirectTo("/admin/users", error: T("Invalid email address"));
 
             users.Create(
                 userId: newUsername,
                 username: newUsername,
-                passwordHash: PasswordHasher.Hash(tempPwd),
-                mustChangePassword: true,
+                passwordHash: allowPassword ? PasswordHasher.Hash(tempPwd) : PasswordHasher.UnusableHash(),
+                mustChangePassword: allowPassword,
                 email: newEmail,
                 allowPasswordLogin: allowPassword);
-            audit.AccountAction("user-create", true, adminId, $"target={newUsername}");
-            return RedirectTo("/admin/users", notice: T("Created user {0}; must change password on first sign-in", newUsername));
+            audit.AccountAction("user-create", true, adminId, $"target={newUsername} password_login={(allowPassword ? 1 : 0)}");
+
+            if (!string.IsNullOrEmpty(inviteEmail))
+            {
+                if (!invites.Add(inviteEmail, newUsername, adminId))
+                    return RedirectTo(EditPath(newUsername), error: T("Created user {0}, but {1} is already pre-bound to another user", newUsername, inviteEmail));
+                audit.AccountAction("invite-add", true, adminId, $"target={newUsername} email={UserRepository.NormalizeEmail(inviteEmail)}");
+            }
+            return RedirectTo(allowPassword ? "/admin/users" : EditPath(newUsername),
+                notice: allowPassword
+                    ? T("Created user {0}; must change password on first sign-in", newUsername)
+                    : T("Created user {0} (external sign-in only)", newUsername));
+        });
+
+        // 预绑定邮箱（§十八）
+        admin.MapPost("/users/invites/add", async (HttpContext ctx, UserRepository users,
+            ExternalInviteRepository invites, AuditLogger audit) =>
+        {
+            var form = await ctx.Request.ReadFormAsync();
+            var targetId = form["user_id"].ToString();
+            var email = form["email"].ToString().Trim();
+            if (users.GetById(targetId) is null)
+                return RedirectTo("/admin/users", error: T("User does not exist"));
+            if (string.IsNullOrEmpty(email) || !IsValidEmail(email))
+                return RedirectTo(EditPath(targetId), error: T("Invalid email address"));
+            if (!invites.Add(email, targetId, AdminId(ctx)))
+                return RedirectTo(EditPath(targetId), error: T("{0} is already pre-bound", email));
+            audit.AccountAction("invite-add", true, AdminId(ctx), $"target={targetId} email={UserRepository.NormalizeEmail(email)}");
+            return RedirectTo(EditPath(targetId), notice: T("Pre-bound {0}", email));
+        });
+
+        admin.MapPost("/users/invites/delete", async (HttpContext ctx,
+            ExternalInviteRepository invites, AuditLogger audit) =>
+        {
+            var form = await ctx.Request.ReadFormAsync();
+            var targetId = form["user_id"].ToString();
+            var email = form["email"].ToString();
+            if (!invites.Delete(email, targetId))
+                return RedirectTo(EditPath(targetId), error: T("Pre-bound email not found"));
+            audit.AccountAction("invite-delete", true, AdminId(ctx), $"target={targetId} email={UserRepository.NormalizeEmail(email)}");
+            return RedirectTo(EditPath(targetId), notice: T("Removed pre-bound {0}", email));
         });
 
         // 单个用户编辑页：资料 / 资源授权 / 外部身份 / 授权记录 / 会话 / 重置密码 / 删除
@@ -96,7 +140,8 @@ public static class AdminEndpoints
             RefreshTokenRepository refreshTokens,
             ClientRepository clients,
             ResourceCatalog catalog,
-            AuditRepository audit) =>
+            AuditRepository audit,
+            ExternalInviteRepository invites) =>
         {
             var targetId = ctx.Request.Query["user"].ToString();
             var target = users.GetById(targetId);
@@ -119,7 +164,9 @@ public static class AdminEndpoints
                 Resources: rows,
                 Bindings: BindingViews(targetId, identities),
                 Grants: GrantViews(targetId, refreshTokens, clients, catalog),
-                RecentLogins: RecentLogins(targetId, audit, 5));
+                RecentLogins: RecentLogins(targetId, audit, 5),
+                Invites: invites.ListByUser(targetId)
+                    .Select(i => new InviteView(i.email, TimeDisplay(i.created_at))).ToList());
             return Render(ctx, users, identities, DashboardSpace.Admin, "users", T("User · {0}", target.username),
                 DashboardTemplates.UserEditSection(detail));
         });
@@ -148,6 +195,7 @@ public static class AdminEndpoints
             UserRepository users,
             ExternalIdentityRepository identities,
             UserResourceRepository userResources,
+            ExternalInviteRepository invites,
             AuditLogger audit) =>
         {
             var adminId = AdminId(ctx);
@@ -169,6 +217,7 @@ public static class AdminEndpoints
             // 连带清理外部身份与资源授权（与 refresh_tokens/auth_codes 同理，防"复活"）
             identities.DeleteByUser(targetId);
             userResources.DeleteByUser(targetId);
+            invites.DeleteByUser(targetId);
             audit.AccountAction("user-delete", true, adminId, $"target={targetId}");
             return RedirectTo("/admin/users", notice: T("Deleted user {0}", targetId));
         });

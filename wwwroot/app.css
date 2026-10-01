@@ -92,6 +92,7 @@ details.password-login[open] > summary { margin-bottom: 14px; }
 /* fieldset 默认 min-inline-size: min-content：legend 一长就把卡片撑出网格列、压到隔壁（2026-09-30 加「仅管理员」标记后出现），归零让它随列宽收窄 */
 .group-box { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; margin: 0 0 12px; min-width: 0; }
 .group-box > legend { padding: 0 6px; font-size: .875rem; font-weight: 500; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; max-width: 100%; }
+.subhead { font-size: .875rem; font-weight: 600; margin: 20px 0 8px; }
 .group-box .meta { color: var(--muted-foreground); font-size: .8125rem; margin: 4px 0 12px; }
 .card.danger { border-color: color-mix(in oklab, var(--destructive) 45%, var(--border)); }
 .res-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }

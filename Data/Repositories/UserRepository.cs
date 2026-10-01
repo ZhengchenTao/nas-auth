@@ -126,14 +126,28 @@ public class UserRepository
     /// 删除用户：连带删掉 refresh_tokens / auth_codes 里所有指向他的行，
     /// 防止已签发的 refresh token 把账号 "复活"（access JWT 还能用到过期，这是 JWT 设计代价）。
     /// </summary>
-    public void Delete(string userId)
+    /// <param name="retireId">登记为删过的 id、之后不许复用（§十八）。只有「建了又立刻回滚」这种从没对外用过的才传 false。</param>
+    public void Delete(string userId, bool retireId = true)
     {
         using var conn = _db.OpenConnection();
         using var tx = conn.BeginTransaction();
         conn.Execute("DELETE FROM refresh_tokens WHERE user_id = @id", new { id = userId }, tx);
         conn.Execute("DELETE FROM auth_codes WHERE user_id = @id", new { id = userId }, tx);
         conn.Execute("DELETE FROM users WHERE user_id = @id", new { id = userId }, tx);
+        // §十八：登记删过的 id，之后不许再建同名用户（各应用按这个 id 认账号）
+        if (retireId)
+            conn.Execute(@"INSERT INTO deleted_user_ids (user_id, deleted_at) VALUES (@id, @now)
+                       ON CONFLICT(user_id) DO NOTHING",
+            new { id = userId, now = DateTimeOffset.UtcNow.ToUnixTimeSeconds() }, tx);
         tx.Commit();
+    }
+
+    /// <summary>这个 user_id 是否被删过（大小写不敏感，§十八）。新建 / 审批建号前查。</summary>
+    public bool IsRetiredId(string userId)
+    {
+        using var conn = _db.OpenConnection();
+        return conn.ExecuteScalar<long>("SELECT COUNT(*) FROM deleted_user_ids WHERE user_id = @id",
+            new { id = userId }) > 0;
     }
 
     /// <summary>

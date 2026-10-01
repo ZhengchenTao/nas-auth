@@ -524,3 +524,27 @@ Basecoat 改版（§5.4）上线后，反馈指出「管理 nas-auth 和管理�
 
 - `HttpSecurityTests`：`ReturnUrl` 正反例（含 `/\t/evil.com`、非 ASCII、U+2028）、跨源拦截判定矩阵、安全头中间件
 - `HttpPipelineTests`：`WebApplicationFactory<Program>` 起真实管线（临时目录 SQLite、`resources.example.json`、假的外部 provider 凭证），覆盖真实端点上的 403 矩阵与豁免、`POST /login` 带外站 / 非 ASCII `return_url` 落回站内、深链 `return_url`、`/login` notice 只认 key、后台 flash 防伪造、安全头（`/login` 有、`/proxy` 没有、`/.well-known` 可缓存）、`__Host-` cookie 属性、绑定仅 POST 且带 `prompt=select_account`；与 RS256（§7.2）合并后补了：RS256 模式下 `POST /admin/rotate-jwt-key` 经加密 flash 回显说明、真实 `/authorize` + `/token` 拿到的 RS256 access token 能用 `/userinfo`、id_token 被拒
+
+## 十八、预绑定邮箱、只走外部登录的用户、user_id 不复用（2026-10-02）
+
+### 背景
+
+账号改由本 IdP 统一管、下游应用首登自动建号（§7.5）之后，暴露三个问题：
+
+1. **想给某人先开好账号、等他以后自己来登**（家人暂时没空操作）：外部身份只能等他登录一次、进待批，管理员再批。管理员得在他登录的那一刻在线。
+2. **后台新建用户一律「首次登录必须改密」**，而 `/authorize` 遇到 `must_change_password` 直接拒。只用 Google / 微软的人没有密码可改，建出来就永远登不进下游应用。
+3. **user_id 就是下发给应用的 `sub` / `preferred_username`**，Gitea（`login_name`）、Grafana（`user_auth.auth_id`）、Immich（`oauthId`）、ezBookkeeping（`external_username`）都按它认账号。删掉一个人后再建同名用户，新人会直接进旧人在各应用里的账号。
+
+### 做法
+
+| 项 | 做法 |
+|---|---|
+| 预绑定邮箱 | `external_invites(email PK 小写, user_id, created_at, created_by)`。管理员在用户编辑页「外部身份」卡片登记，或新建用户时填「预绑定 Google 邮箱」。外部登录回调时，身份**首见或仍在待批**、且 `ExternalClaims.IsEmailVerified` 为真、邮箱命中登记 → `BindActive` 绑到登记的用户并建会话（审计 reason `invite_redeemed`），预绑定用 `DELETE … RETURNING` 原子取出即删（一次性，并发登录不会用两次）。已 active（属于谁已定）/ rejected（管理员已表态）的身份不走这条 |
+| 只信 Google 的已验证邮箱 | Google handler 用 `ClaimActions.MapJsonKey("email_verified", "email_verified")` 把 userinfo 的标记映射成 claim。微软个人账号经 Graph `/me` 拿到的 `mail` / `userPrincipalName` 没有验证标记，一律按未验证，照旧进待批。所以登记的必须是对方 **Google 账号的主邮箱**（Google 账号可以用非 gmail 邮箱注册，验证过就行） |
+| 只走外部登录的新建用户 | 新建时不勾「允许密码登录」：不要求临时密码，存 `PasswordHasher.UnusableHash()`（随机 32 字节，明文不落任何人之手），`must_change_password = 0`。勾了照旧要临时密码、首次登录改密 |
+| user_id 不复用 | `deleted_user_ids(user_id PK COLLATE NOCASE)`：`UserRepository.Delete` 默认登记；后台新建、审批新建都先查 `IsRetiredId`，大小写不敏感。审批失败回滚刚建的空用户时传 `retireId: false`（那个 id 从没对外用过）。本节上线前删掉的 id（2026-09-30 ~ 10-02 的 devtest 系列测试号）没有登记，下游账号都已手工删掉 |
+| 删用户 | 连带删其预绑定（同 identities / user_resources） |
+
+### 测试
+
+`PreBoundEmailTests`：已验证邮箱命中 → 直接绑定且预绑定被消耗；未验证 → 待批且预绑定保留；微软永不算已验证；`email_verified` 的 `True` / `true` / `false` / 缺失；先进了待批、后登记预绑定 → 再登录即绑定；rejected 不被预绑定救回；别人的 active 身份不会被挪走；同一邮箱只能登记一次、只能用一次；登记的用户已删 → 回落待批；删过的 id 大小写不敏感地不可复用、审批也拒；审批回滚不占用 id。`HttpPipelineTests` 走真实管线：后台新建纯外部登录用户（不填临时密码、带预绑定邮箱）→ 不强制改密、编辑页能看到预绑定；删除后同名（大小写不同）重建被拒，预绑定随之清掉。

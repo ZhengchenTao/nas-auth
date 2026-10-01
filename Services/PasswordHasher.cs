@@ -29,6 +29,12 @@ public static class PasswordHasher
         return $"{Marker}{Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
     }
 
+    /// <summary>
+    /// 随机 32 字节当密码算出的 hash，明文不落任何人之手：密码登录对该用户事实禁用。
+    /// 用于只走 Google / 微软的用户（审批建号、管理员新建时不勾「允许密码登录」）。
+    /// </summary>
+    public static string UnusableHash() => Hash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)));
+
     public static bool Verify(string password, string encoded)
     {
         if (string.IsNullOrEmpty(password) || string.IsNullOrEmpty(encoded)) return false;

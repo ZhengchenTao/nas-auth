@@ -17,6 +17,8 @@ public enum ExternalSignInStatus
     Rejected,
     /// <summary>active 但绑定的 user 已被删除（数据残留）→ 按拒绝处理，不建会话。</summary>
     OrphanedActive,
+    /// <summary>命中管理员登记的预绑定邮箱（§十八），刚绑成 active → 调用方建立会话。</summary>
+    ActiveByInvite,
 }
 
 public record ExternalSignInResult(ExternalSignInStatus Status, UserRow? User);
@@ -30,16 +32,27 @@ public class ExternalSignInService
 {
     private readonly ExternalIdentityRepository _identities;
     private readonly UserRepository _users;
+    private readonly ExternalInviteRepository? _invites;
 
-    public ExternalSignInService(ExternalIdentityRepository identities, UserRepository users)
+    public ExternalSignInService(ExternalIdentityRepository identities, UserRepository users,
+        ExternalInviteRepository? invites = null)
     {
         _identities = identities;
         _users = users;
+        _invites = invites;
     }
 
-    public ExternalSignInResult Resolve(string provider, string subject, string? email, string? displayName)
+    /// <param name="emailVerified">IdP 是否声明 <paramref name="email"/> 已验证（只信 Google 的 email_verified，见 <see cref="ExternalClaims.IsEmailVerified"/>）。</param>
+    public ExternalSignInResult Resolve(string provider, string subject, string? email, string? displayName,
+        bool emailVerified = false)
     {
         var row = _identities.Get(provider, subject);
+
+        // §十八 预绑定邮箱：首见或仍在待批的身份，邮箱经 IdP 验证且命中管理员的登记 → 直接绑定。
+        // 已 active（属于谁已定）/ rejected（管理员已表态）的不走这条。
+        if ((row is null || row.status == "pending") && TryRedeemInvite(provider, subject, email, displayName, emailVerified) is { } invited)
+            return new ExternalSignInResult(ExternalSignInStatus.ActiveByInvite, invited);
+
         if (row is null)
         {
             // 首见：插 pending 行（email/display_name 供审批页辨认），等管理员批准
@@ -55,6 +68,17 @@ public class ExternalSignInService
             "rejected" => new ExternalSignInResult(ExternalSignInStatus.Rejected, null),
             _ => new ExternalSignInResult(ExternalSignInStatus.PendingExisting, null),
         };
+    }
+
+    private UserRow? TryRedeemInvite(string provider, string subject, string? email, string? displayName, bool emailVerified)
+    {
+        if (_invites is null || !emailVerified || string.IsNullOrWhiteSpace(email)) return null;
+        var invite = _invites.Consume(email);
+        if (invite is null) return null;
+        // 登记的用户已被删（理论上删用户会连带删预绑定）→ 预绑定作废，照常进待批
+        if (_users.GetById(invite.user_id) is not { } user) return null;
+        _identities.BindActive(provider, subject, user.user_id, email, displayName);
+        return user;
     }
 
     /// <summary>
@@ -100,4 +124,15 @@ public static class ExternalClaims
 
     public static string? GetDisplayName(ClaimsPrincipal principal) =>
         principal.FindFirstValue(ClaimTypes.Name);
+
+    /// <summary>Google userinfo 的 email_verified 映射成的 claim 类型（Program.cs 里 MapJsonKey）。</summary>
+    public const string EmailVerifiedClaimType = "email_verified";
+
+    /// <summary>
+    /// 邮箱是否经 IdP 验证（§十八 预绑定只认这个）。只信 Google：userinfo 明确给出 email_verified。
+    /// 微软个人账号经 Graph /me 拿到的 mail / userPrincipalName 没有验证标记，一律按未验证处理，走待批。
+    /// </summary>
+    public static bool IsEmailVerified(string provider, ClaimsPrincipal principal) =>
+        provider == "google"
+        && string.Equals(principal.FindFirstValue(EmailVerifiedClaimType), "true", StringComparison.OrdinalIgnoreCase);
 }

@@ -193,5 +193,22 @@ CREATE TABLE IF NOT EXISTS user_resources (
     scopes TEXT NOT NULL,
     PRIMARY KEY (user_id, aud)
 );
+
+-- 预绑定邮箱（external-auth.md §十八）：管理员给某个用户登记一个邮箱，日后首次用 Google 登录、
+-- 且 Google 声明该邮箱已验证（email_verified）的外部身份，直接绑到这个用户、不进待批。用一次即删。
+CREATE TABLE IF NOT EXISTS external_invites (
+    email TEXT NOT NULL PRIMARY KEY,   -- 小写
+    user_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    created_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_external_invites_user ON external_invites(user_id);
+
+-- 删过的 user_id（§十八）：user_id 就是下发给各应用的 sub / preferred_username，应用按它认账号；
+-- 删人后再建同名用户，新人会直接进旧人在各应用里的账号。所以删除即登记，之后新建 / 审批一律拒绝复用（大小写不敏感）。
+CREATE TABLE IF NOT EXISTS deleted_user_ids (
+    user_id TEXT NOT NULL PRIMARY KEY COLLATE NOCASE,
+    deleted_at INTEGER NOT NULL
+);
 ";
 }
