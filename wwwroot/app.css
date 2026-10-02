@@ -57,7 +57,11 @@ details.password-login[open] > summary { margin-bottom: 14px; }
 .sb-brand svg { width: 20px; height: 20px; }
 .sidebar nav li > a .nav-count { margin-left: auto; }
 .sb-foot { display: flex; flex-direction: column; gap: 10px; padding: 12px 8px; font-size: .8125rem; }
-.sb-user { display: flex; align-items: center; gap: 10px; }
+.sb-user { display: flex; align-items: center; gap: 10px; padding: 6px; margin: -6px; border-radius: var(--radius); color: inherit; text-decoration: none; }
+.sb-user:hover { background: var(--accent); }
+.sb-user > div { min-width: 0; }
+.sb-name, .sb-role { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+img.sb-avatar { object-fit: cover; }
 .sb-avatar { width: 32px; height: 32px; border-radius: 999px; display: grid; place-items: center; flex-shrink: 0;
              background: var(--muted); font-weight: 600; font-size: .8125rem; text-transform: uppercase; }
 .sb-name { font-weight: 500; }
@@ -156,3 +160,4 @@ details.password-login[open] > summary { margin-bottom: 14px; }
 .avatar-upload { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .avatar-upload input[type=file] { max-width: 260px; }
 td.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.user-cell { display: flex; align-items: center; gap: 10px; }

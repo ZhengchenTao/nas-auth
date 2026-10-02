@@ -40,7 +40,9 @@ public static class DashboardSupport
         return Results.Content(
             DashboardTemplates.Shell(space, activeKey, me?.username ?? userId, isAdmin, pendingCount, title, content,
                 notice: ReadFlash(ctx, "notice"),
-                error: ReadFlash(ctx, "error")),
+                error: ReadFlash(ctx, "error"),
+                displayName: me?.display_name,
+                avatarFile: me?.avatar),
             "text/html; charset=utf-8");
     }
 

@@ -34,7 +34,8 @@ public static class DashboardTemplates
     };
 
     public static string Shell(DashboardSpace space, string activeKey, string username, bool isAdmin,
-        int pendingCount, string title, string content, string? notice = null, string? error = null)
+        int pendingCount, string title, string content, string? notice = null, string? error = null,
+        string? displayName = null, string? avatarFile = null)
     {
         // 非 admin 永远只看到个人中心（即使调用方误传 Admin）
         if (!isAdmin) space = DashboardSpace.Personal;
@@ -68,7 +69,11 @@ public static class DashboardTemplates
         if (!string.IsNullOrEmpty(notice)) alerts.Append(Alert(Esc(notice), error: false));
         if (!string.IsNullOrEmpty(error)) alerts.Append(Alert(Esc(error), error: true));
         var (langCode, langLabel) = IsZh ? ("en", "English") : ("zh", "中文");
-        var initial = string.IsNullOrEmpty(username) ? "?" : username[..1];
+        // 侧边栏底部：昵称 + 头像（§十九），点击回个人中心概览
+        var shownName = string.IsNullOrEmpty(displayName) ? username : displayName;
+        var sbAvatar = !string.IsNullOrEmpty(avatarFile)
+            ? $"<img class=\"sb-avatar\" src=\"/avatars/{Esc(avatarFile)}\" alt=\"\">"
+            : $"<span class=\"sb-avatar\">{Esc(string.IsNullOrEmpty(shownName) ? "?" : shownName.Trim()[..1])}</span>";
 
         // sidebar 预置 data-sidebar-initialized：Basecoat 的 CSS 在 JS 初始化前把 sidebar 藏起来，
         // 预置后没 JS 也能看到菜单；sidebar.min.js 照常接管（它只在已有 toggle 方法时才跳过初始化）。
@@ -91,8 +96,8 @@ public static class DashboardTemplates
       </header>
       <section class=""scrollbar"">{groups}</section>
       <footer class=""sb-foot"">
-        <div class=""sb-user""><span class=""sb-avatar"">{Esc(initial)}</span>
-          <div><div class=""sb-name"">{Esc(username)}</div><div class=""sb-role"">{(isAdmin ? T("admin") : T("user"))}</div></div></div>
+        <a class=""sb-user"" href=""/account"" title=""{T("Overview")}"">{sbAvatar}
+          <div><div class=""sb-name"">{Esc(shownName)}</div><div class=""sb-role"">{Esc(username)} · {(isAdmin ? T("admin") : T("user"))}</div></div></a>
         <div class=""sb-links"">
           <a href=""#"" data-lang=""{langCode}"">{langLabel}</a>
           <a href=""/logout"">{T("Sign out")}</a>
@@ -465,9 +470,11 @@ public static class DashboardTemplates
         foreach (var u in users)
         {
             sb.Append("<tr>");
-            sb.Append($"<td class='wrap'><a href='{Esc(EditHref(u.UserId))}'><strong>{Esc(u.Username)}</strong></a>");
+            // §十九：头像 + 昵称；用户名（不可改）和邮箱放第二行
+            sb.Append($"<td class='wrap'><div class='user-cell'>{Avatar(u.AvatarFile, u.DisplayName ?? u.Username, "avatar-sm")}<div>");
+            sb.Append($"<a href='{Esc(EditHref(u.UserId))}'><strong>{Esc(u.DisplayName ?? u.Username)}</strong></a>");
             if (u.IsSelf) sb.Append($" <span class='badge' data-variant='secondary'>{T("you")}</span>");
-            sb.Append($"<span class='sub'>{(string.IsNullOrEmpty(u.Email) ? "—" : Esc(u.Email))}</span></td>");
+            sb.Append($"<span class='sub'><span class='mono'>{Esc(u.Username)}</span> · {(string.IsNullOrEmpty(u.Email) ? "—" : Esc(u.Email))}</span></div></div></td>");
             sb.Append($"<td>{RoleBadge(u)}</td>");
             sb.Append($"<td>{StatusBadges(u)}</td>");
             sb.Append($"<td>{(u.AllowPasswordLogin ? T("Allowed") : $"<span class='hint'>{T("Off")}</span>")}</td>");
