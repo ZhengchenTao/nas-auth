@@ -524,6 +524,72 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         }
     }
 
+    [Fact]
+    public async Task Profile_NicknameAndAvatar_UploadedServedAndSentToApps()
+    {
+        var c = _app.Client();
+        Assert.Equal(HttpStatusCode.Redirect, (await Login(c, "/account")).StatusCode);
+
+        // 改昵称
+        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/account/profile",
+            Form(("display_name", "管理员小陶")), secFetchSite: "same-origin"))).StatusCode);
+
+        // 传头像（1x1 PNG）
+        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+        var upload = new MultipartFormDataContent { { new ByteArrayContent(png), "avatar", "me.png" } };
+        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/account/avatar", upload, secFetchSite: "same-origin"))).StatusCode);
+
+        string file;
+        using (var scope = _app.Services.CreateScope())
+        {
+            var me = scope.ServiceProvider.GetRequiredService<UserRepository>().GetById(NasAuthAppFactory.AdminUser)!;
+            Assert.Equal("管理员小陶", me.display_name);
+            file = me.avatar!;
+        }
+
+        // 公开头像：不用登录、长期缓存、沙箱 CSP
+        var img = await _app.Client().GetAsync($"/avatars/{file}");
+        Assert.Equal(HttpStatusCode.OK, img.StatusCode);
+        Assert.Equal("image/png", img.Content.Headers.ContentType!.MediaType);
+        Assert.Contains("immutable", img.Headers.CacheControl!.ToString());
+        Assert.Contains("sandbox", img.Headers.GetValues("Content-Security-Policy").Single());
+        Assert.Equal(HttpStatusCode.NotFound, (await _app.Client().GetAsync("/avatars/..%2Fauth.db")).StatusCode);
+
+        // 个人中心页显示新昵称和头像
+        var page = await c.GetStringAsync("/account");
+        Assert.Contains("管理员小陶", page);
+        Assert.Contains($"/avatars/{file}", page);
+
+        // 拒非图片
+        var svg = new MultipartFormDataContent { { new ByteArrayContent("<svg xmlns='http://www.w3.org/2000/svg'/>"u8.ToArray()), "avatar", "x.png" } };
+        await c.SendAsync(Post("/account/avatar", svg, secFetchSite: "same-origin"));
+        using (var scope = _app.Services.CreateScope())
+            Assert.Equal(file, scope.ServiceProvider.GetRequiredService<UserRepository>().GetById(NasAuthAppFactory.AdminUser)!.avatar);
+
+        // 下发：真实 /authorize + /token 拿到的 access token 去 /userinfo，带新昵称与 picture
+        const string clientId = "gitea-web";
+        using var preset = JsonDocument.Parse(File.ReadAllText(Path.Combine(NasAuthAppFactory.RepoRoot(), "clients.preset.example.json")));
+        var gitea = preset.RootElement.EnumerateArray().Single(e => e.GetProperty("client_id").GetString() == clientId);
+        var redirectUri = gitea.GetProperty("redirect_uris")[0].GetString()!;
+        var auth = await c.SendAsync(Post("/authorize", Form(
+            ("response_type", "code"), ("client_id", clientId), ("redirect_uri", redirectUri),
+            ("scope", "openid email profile"), ("state", "st-p"), ("use_session", "1")), secFetchSite: "same-origin"));
+        var code = System.Web.HttpUtility.ParseQueryString(auth.Headers.Location!.Query)["code"]!;
+        var tok = await _app.Client().PostAsync("/token", Form(("grant_type", "authorization_code"), ("code", code),
+            ("redirect_uri", redirectUri), ("client_id", clientId), ("client_secret", gitea.GetProperty("client_secret").GetString()!)));
+        using var tj = JsonDocument.Parse(await tok.Content.ReadAsStringAsync());
+        var req = new HttpRequestMessage(HttpMethod.Get, "/userinfo");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tj.RootElement.GetProperty("access_token").GetString());
+        using var info = JsonDocument.Parse(await (await _app.Client().SendAsync(req)).Content.ReadAsStringAsync());
+        Assert.Equal("管理员小陶", info.RootElement.GetProperty("name").GetString());
+        Assert.EndsWith($"/avatars/{file}", info.RootElement.GetProperty("picture").GetString());
+        Assert.Equal(NasAuthAppFactory.AdminUser, info.RootElement.GetProperty("preferred_username").GetString());
+
+        // id_token 也带
+        var idPayload = Base64UrlDecode(tj.RootElement.GetProperty("id_token").GetString()!.Split('.')[1]);
+        Assert.Contains("\"picture\"", idPayload);
+    }
+
     private static string Base64UrlDecode(string s)
     {
         s = s.Replace('-', '+').Replace('_', '/');

@@ -4,7 +4,10 @@ using Microsoft.AspNetCore.Authentication.MicrosoftAccount;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.OAuth;
 using NasAuth.Config;
+using NasAuth.Data.Repositories;
 using NasAuth.Pages;
 using NasAuth.Services;
 
@@ -91,7 +94,8 @@ public static class ExternalLoginEndpoints
         // IdP 回调完成后的落点：external cookie → 登录 §5.2 状态机 / 自绑定 §5.3。
         app.MapGet("/external/complete", async (HttpContext ctx,
             ExternalSignInService signIn, AuditLogger audit,
-            ExternalProviderOptions providers, PasswordLoginGate passwordLogin) =>
+            ExternalProviderOptions providers, PasswordLoginGate passwordLogin,
+            UserRepository users, ExternalIdentityRepository identities) =>
         {
             var auth = await ctx.AuthenticateAsync(ExternalScheme);
             if (!auth.Succeeded || auth.Principal is null)
@@ -119,6 +123,7 @@ public static class ExternalLoginEndpoints
 
             var email = ExternalClaims.GetEmail(auth.Principal);
             var displayName = ExternalClaims.GetDisplayName(auth.Principal);
+            var avatar = ExternalClaims.GetAvatar(auth.Principal);
 
             // ---- 自绑定模式（§5.3）----
             auth.Properties.Items.TryGetValue(ModeKey, out var mode);
@@ -141,6 +146,9 @@ public static class ExternalLoginEndpoints
                     return ErrorPage(ctx, StatusCodes.Status409Conflict, "Binding failed", bindError);
                 }
 
+                // §十九：刷新该外部账号的名字 / 头像快照；用户自己还没设昵称 / 头像就用它补上
+                identities.UpdateSnapshot(provider, subject, displayName, avatar);
+                users.FillProfileIfEmpty(sessionUid, displayName, avatar);
                 audit.ExternalLogin(true, provider, subject, sessionUid, ctx.RemoteIp(), "bind");
                 // 绑定结果页二次展示绑到了哪个 user（§九）
                 return Results.Content(
@@ -151,10 +159,13 @@ public static class ExternalLoginEndpoints
             // ---- 登录模式（§5.2 状态机）----
             var result = signIn.Resolve(provider, subject, email, displayName,
                 ExternalClaims.IsEmailVerified(provider, auth.Principal));
+            // §十九：每次外部登录都刷新快照（待批的也存，审批通过时给新用户补昵称 / 头像）
+            identities.UpdateSnapshot(provider, subject, displayName, avatar);
             switch (result.Status)
             {
                 case ExternalSignInStatus.Active:
                 case ExternalSignInStatus.ActiveByInvite:
+                    users.FillProfileIfEmpty(result.User!.user_id, displayName, avatar);
                     await AuthorizationEndpoints.SignInCookie(ctx, result.User!.user_id);
                     audit.ExternalLogin(true, provider, subject, result.User.user_id, ctx.RemoteIp(),
                         result.Status == ExternalSignInStatus.ActiveByInvite ? "invite_redeemed" : null);
@@ -178,6 +189,18 @@ public static class ExternalLoginEndpoints
                         SwitchOptions(returnUrl, providers, passwordLogin));
             }
         });
+    }
+
+    /// <summary>
+    /// §十九：在 IdP 回调建票据时把外部头像下载存好，文件名作为 claim 随外部登录 cookie 带到 /external/complete。
+    /// 只存文件名不存图片本身：外部 cookie 有大小上限。下载失败不影响登录。
+    /// </summary>
+    public static async Task AttachAvatarAsync(OAuthCreatingTicketContext ctx, string url, string? bearerToken)
+    {
+        var sp = ctx.HttpContext.RequestServices;
+        var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient(ProfileService.HttpClientName);
+        var file = await sp.GetRequiredService<ProfileService>().DownloadAsync(http, url, bearerToken, ctx.HttpContext.RequestAborted);
+        if (file is not null) ctx.Identity?.AddClaim(new Claim(ExternalClaims.AvatarClaimType, file));
     }
 
     /// <summary>

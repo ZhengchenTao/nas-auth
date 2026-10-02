@@ -186,6 +186,8 @@ public static class AdminEndpoints
                 return RedirectTo(EditPath(targetId), error: T("Invalid email address"));
 
             users.UpdateProfile(targetId, email, allowPassword);
+            if (form.ContainsKey("display_name"))
+                users.UpdateDisplayName(targetId, form["display_name"].ToString());   // §十九 昵称
             audit.AccountAction("user-update", true, AdminId(ctx),
                 $"target={targetId} allow_password_login={(allowPassword ? 1 : 0)} email_set={(!string.IsNullOrWhiteSpace(email)).ToString().ToLowerInvariant()}");
             return RedirectTo(EditPath(targetId), notice: T("Saved {0}", targetId));

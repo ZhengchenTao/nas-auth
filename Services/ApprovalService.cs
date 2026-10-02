@@ -74,6 +74,10 @@ public class ApprovalService
         if (!_identities.Approve(provider, subject, userId))
             return "Request is no longer pending";
 
+        // §十九：用申请时缓存的外部账号名字 / 头像给用户补空（新建用户的昵称就是这么来的）
+        if (_identities.Get(provider, subject) is { } identity)
+            _users.FillProfileIfEmpty(userId, identity.display_name, identity.avatar);
+
         var isAdmin = _users.GetById(userId)?.is_admin > 0;
         foreach (var aud in grantAuds)
         {

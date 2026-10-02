@@ -39,6 +39,13 @@ builder.Services.AddScoped<SettingsRepository>();
 builder.Services.AddScoped<ExternalIdentityRepository>();
 builder.Services.AddScoped<UserResourceRepository>();
 builder.Services.AddScoped<ExternalInviteRepository>();
+builder.Services.AddSingleton<ProfileService>();
+// 取外部头像用：短超时，拿不到就算了，不能拖慢登录
+builder.Services.AddHttpClient(ProfileService.HttpClientName, c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(5);
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("nas-auth");
+});
 builder.Services.AddSingleton<AuditRepository>(); // AuditLogger 是单例，它的仓储也得是
 
 // ---------- 服务 ----------
@@ -121,6 +128,13 @@ if (externalProviders.GoogleEnabled)
         options.Events.OnRemoteFailure = ExternalLoginEndpoints.HandleRemoteFailure;
         // userinfo 里的 email_verified 默认不进 claim；预绑定邮箱（§十八）只认验证过的邮箱
         options.ClaimActions.MapJsonKey(ExternalClaims.EmailVerifiedClaimType, "email_verified");
+        // §十九：顺手把 Google 头像存一份（picture 地址默认 96px，换成 256px）
+        options.Events.OnCreatingTicket = async ctx =>
+        {
+            if (!ctx.User.TryGetProperty("picture", out var pic) || pic.GetString() is not { Length: > 0 } url) return;
+            url = System.Text.RegularExpressions.Regex.Replace(url, @"=s\d+(-c)?$", "=s256-c");
+            await ExternalLoginEndpoints.AttachAvatarAsync(ctx, url, bearerToken: null);
+        };
     });
 }
 if (externalProviders.MicrosoftEnabled)
@@ -140,6 +154,9 @@ if (externalProviders.MicrosoftEnabled)
         // 登录名单独留一份：预绑定邮箱（§十八）要求登录名就是下发的邮箱（Email claim 可能取的是 mail）。
         // ⚠️ 上面写死 /consumers/ 也是预绑定安全的前提：工作 / 学校账号的 email 可被租户管理员随意设置（nOAuth）
         options.ClaimActions.MapJsonKey(ExternalClaims.MicrosoftUpnClaimType, "userPrincipalName");
+        // §十九：微软头像在 Graph 上，要用这次登录拿到的 access token 取；没设照片时 404，当作没有
+        options.Events.OnCreatingTicket = ctx => ExternalLoginEndpoints.AttachAvatarAsync(
+            ctx, "https://graph.microsoft.com/v1.0/me/photos/240x240/$value", ctx.AccessToken);
     });
 }
 builder.Services.AddAuthorization();
@@ -336,6 +353,7 @@ app.MapTokenEndpoints();
 app.MapAccountEndpoints();
 app.MapAdminEndpoints();
 app.MapExternalLoginEndpoints();
+app.MapProfileEndpoints();
 app.MapProxyEndpoints();
 
 // 简单 health check

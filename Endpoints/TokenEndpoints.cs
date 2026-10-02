@@ -51,13 +51,14 @@ public static class TokenEndpoints
             JwtIssuer issuer,
             OidcKeyService oidcKeys,
             AuditLogger audit,
-            UserResourceRepository userResources) =>
+            UserResourceRepository userResources,
+            ProfileService profiles) =>
         {
             var form = await ctx.Request.ReadFormAsync();
             var grantType = form["grant_type"].ToString();
 
             if (grantType == "authorization_code")
-                return await HandleAuthCode(ctx, form, clients, authCodes, refreshTokens, identities, users, catalog, issuer, oidcKeys, audit);
+                return await HandleAuthCode(ctx, form, clients, authCodes, refreshTokens, identities, users, catalog, issuer, oidcKeys, audit, profiles);
             if (grantType == "refresh_token")
                 return await HandleRefresh(ctx, form, clients, refreshTokens, catalog, issuer, audit, userResources, users);
 
@@ -164,7 +165,8 @@ public static class TokenEndpoints
         ResourceCatalog catalog,
         JwtIssuer issuer,
         OidcKeyService oidcKeys,
-        AuditLogger audit)
+        AuditLogger audit,
+        ProfileService profiles)
     {
         var code = form["code"].ToString();
         var clientId = form["client_id"].ToString();
@@ -248,7 +250,7 @@ public static class TokenEndpoints
         // 非 openid 流（MCP 客户端）响应形状不变，不掺 id_token 字段。
         if (row.scope.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("openid"))
         {
-            var (email, name) = OidcEndpoints.ResolveProfile(identities, users, row.user_id);
+            var (email, name, picture) = profiles.Resolve(identities, users, row.user_id);
             return Results.Ok(new
             {
                 access_token = access,
@@ -256,7 +258,7 @@ public static class TokenEndpoints
                 expires_in = issuer.AccessTokenLifetimeSeconds(),
                 refresh_token = refreshPlain,
                 scope = row.scope,
-                id_token = oidcKeys.IssueIdToken(row.user_id, client.client_id, email, name, row.nonce),
+                id_token = oidcKeys.IssueIdToken(row.user_id, client.client_id, email, name, row.nonce, picture),
             });
         }
 

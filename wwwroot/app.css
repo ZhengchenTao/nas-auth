@@ -141,4 +141,18 @@ details.password-login[open] > summary { margin-bottom: 14px; }
   animation: nas-busy-spin .7s linear infinite;
 }
 @keyframes nas-busy-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .btn[aria-busy="true"]::before { animation-duration: 2s; } }
+@media (prefers-reduced-motion: reduce) { .btn[aria-busy="true"]::before { animation-duration: 2s; } }
+
+/* 头像（§十九） */
+.avatar { border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--muted); }
+.avatar-lg { width: 64px; height: 64px; }
+.avatar-sm { width: 28px; height: 28px; }
+.avatar-initial { display: inline-flex; align-items: center; justify-content: center; font-weight: 600; color: var(--muted-foreground); }
+.avatar-lg.avatar-initial { font-size: 1.5rem; }
+.avatar-sm.avatar-initial { font-size: .8125rem; }
+.profile-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.profile-head .sub { display: block; }
+.avatar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
+.avatar-upload { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.avatar-upload input[type=file] { max-width: 260px; }
+td.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }

@@ -48,7 +48,7 @@ public record RefreshTokenRow(
 // 必须排在 created_at/updated_at 之后，否则 SELECT * 对老 DB 会 materialization 失败。
 // CREATE TABLE 的列序也要与此一致。修改顺序前先确认所有 INSERT/SELECT 也同步更新。
 // email / allow_password_login / failed_login_count / locked_until 同理追加在最后（external-auth.md §十四），
-// session_version 再其后（§十六）。
+// session_version 再其后（§十六）；display_name / avatar 再其后（§十九，带默认值，老代码 new UserRow(...) 不用改）。
 public record UserRow(
     string user_id,
     string username,
@@ -61,7 +61,9 @@ public record UserRow(
     long allow_password_login,
     long failed_login_count,
     long? locked_until,
-    long session_version
+    long session_version,
+    string? display_name = null,
+    string? avatar = null
 );
 
 // status 语义见 AuthDb 建表注释：pending（user_id 为 NULL）/ active / rejected。
@@ -73,7 +75,8 @@ public record ExternalIdentityRow(
     string? display_name,
     string status,
     long created_at,
-    long? approved_at
+    long? approved_at,
+    string? avatar = null
 );
 
 /// <summary>external_invites 表的一行（§十八）。</summary>

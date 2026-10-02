@@ -14,7 +14,7 @@ public class ExternalIdentityRepository
     public ExternalIdentityRepository(AuthDb db) => _db = db;
 
     private const string Cols =
-        "provider, subject, user_id, email, display_name, status, created_at, approved_at";
+        "provider, subject, user_id, email, display_name, status, created_at, approved_at, avatar";
 
     public ExternalIdentityRow? Get(string provider, string subject)
     {
@@ -58,6 +58,21 @@ public class ExternalIdentityRepository
                 status = 'active',
                 approved_at = @now",
             new { provider, subject, user_id = userId, email, display_name = displayName, now });
+    }
+
+    /// <summary>
+    /// 每次外部登录后刷新该外部账号的名字 / 头像快照（§十九）：供用户手动「用这个账号的头像 / 昵称」，
+    /// 以及审批时给新用户补空。传 null 的字段保持原值。
+    /// </summary>
+    public void UpdateSnapshot(string provider, string subject, string? displayName, string? avatarFile)
+    {
+        using var conn = _db.OpenConnection();
+        conn.Execute(@"
+            UPDATE external_identities SET
+                display_name = COALESCE(@n, display_name),
+                avatar = COALESCE(@a, avatar)
+            WHERE provider = @provider AND subject = @subject",
+            new { provider, subject, n = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(), a = avatarFile });
     }
 
     /// <summary>管理员批准 pending 申请：绑定到 userId 并置 active。只对 pending 行生效。</summary>

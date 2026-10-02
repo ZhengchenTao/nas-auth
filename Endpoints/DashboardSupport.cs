@@ -67,7 +67,9 @@ public static class DashboardSupport
         Email: u.email,
         AllowPasswordLogin: u.allow_password_login != 0,
         LockedUntilDisplay: u.locked_until is { } lu && lu > DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-            ? TimeDisplay(lu) : null);
+            ? TimeDisplay(lu) : null,
+        DisplayName: u.display_name,
+        AvatarFile: u.avatar);
 
     /// <summary>某用户的已授权应用：按 (client, resource) 聚合其有效 refresh token。</summary>
     public static List<AccountAuthorizationView> GrantViews(string userId,
@@ -99,7 +101,7 @@ public static class DashboardSupport
         identities.ListByUser(userId)
             .Where(r => r.status == "active")
             .Select(r => new BindingView(r.provider, r.subject, r.email, r.display_name,
-                TimeDisplay(r.approved_at ?? r.created_at)))
+                TimeDisplay(r.approved_at ?? r.created_at), r.avatar))
             .ToList();
 
     public static List<AuditView> AuditViews(IEnumerable<AuditRow> rows) =>

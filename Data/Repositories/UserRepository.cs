@@ -10,7 +10,7 @@ public class UserRepository
     // 显式列序：必须与 UserRow 构造参数顺序一致，Dapper positional record 按列序绑定。
     private const string UserCols =
         "user_id, username, password_hash, created_at, updated_at, is_admin, must_change_password, " +
-        "email, allow_password_login, failed_login_count, locked_until, session_version";
+        "email, allow_password_login, failed_login_count, locked_until, session_version, display_name, avatar";
 
     /// <summary>邮箱统一存小写、去空白；空串视为未设置（null）。</summary>
     public static string? NormalizeEmail(string? email)
@@ -65,14 +65,14 @@ public class UserRepository
     /// <paramref name="allowPasswordLogin"/>：本地密码用户要开；外部登录用户（密码不可用）保持关。
     /// </summary>
     public void Create(string userId, string username, string passwordHash, bool mustChangePassword,
-        string? email = null, bool allowPasswordLogin = false)
+        string? email = null, bool allowPasswordLogin = false, string? displayName = null)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         using var conn = _db.OpenConnection();
         conn.Execute(@"
             INSERT INTO users (user_id, username, password_hash, is_admin, must_change_password,
-                               created_at, updated_at, email, allow_password_login)
-            VALUES (@user_id, @username, @password_hash, 0, @must_change, @now, @now, @email, @allow)",
+                               created_at, updated_at, email, allow_password_login, display_name)
+            VALUES (@user_id, @username, @password_hash, 0, @must_change, @now, @now, @email, @allow, @display_name)",
             new
             {
                 user_id = userId,
@@ -82,7 +82,47 @@ public class UserRepository
                 now,
                 email = NormalizeEmail(email),
                 allow = allowPasswordLogin ? 1 : 0,
+                display_name = NormalizeDisplayName(displayName),
             });
+    }
+
+    /// <summary>昵称去首尾空白、截到 64 字符；空串视为未设置（null）。</summary>
+    public static string? NormalizeDisplayName(string? name)
+    {
+        var n = name?.Trim();
+        if (string.IsNullOrEmpty(n)) return null;
+        return n.Length > 64 ? n[..64] : n;
+    }
+
+    /// <summary>改昵称（§十九）。null / 空串 = 清空，下发时回落到外部账号名 / user_id。</summary>
+    public void UpdateDisplayName(string userId, string? displayName)
+    {
+        using var conn = _db.OpenConnection();
+        conn.Execute("UPDATE users SET display_name = @n, updated_at = @now WHERE user_id = @id",
+            new { n = NormalizeDisplayName(displayName), now = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), id = userId });
+    }
+
+    /// <summary>换头像（§十九）：存 avatars/ 下的文件名；null = 去掉头像。</summary>
+    public void UpdateAvatar(string userId, string? avatarFile)
+    {
+        using var conn = _db.OpenConnection();
+        conn.Execute("UPDATE users SET avatar = @a, updated_at = @now WHERE user_id = @id",
+            new { a = avatarFile, now = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), id = userId });
+    }
+
+    /// <summary>
+    /// 首次绑定外部账号时用它的昵称 / 头像补空（§十九）：只填空着的，不覆盖用户自己设过的。
+    /// 单条 UPDATE 用 COALESCE 完成，不先读后写。
+    /// </summary>
+    public void FillProfileIfEmpty(string userId, string? displayName, string? avatarFile)
+    {
+        using var conn = _db.OpenConnection();
+        conn.Execute(@"
+            UPDATE users SET
+                display_name = COALESCE(NULLIF(display_name, ''), @n),
+                avatar = COALESCE(avatar, @a)
+            WHERE user_id = @id",
+            new { n = NormalizeDisplayName(displayName), a = avatarFile, id = userId });
     }
 
     /// <summary>管理员编辑用户的邮箱与「允许密码登录」开关。</summary>

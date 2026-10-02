@@ -306,5 +306,7 @@ public record UserAdminView(
     string CreatedAtDisplay,
     string? Email = null,
     bool AllowPasswordLogin = false,
-    string? LockedUntilDisplay = null
+    string? LockedUntilDisplay = null,
+    string? DisplayName = null,
+    string? AvatarFile = null
 );

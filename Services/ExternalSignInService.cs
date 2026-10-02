@@ -125,6 +125,11 @@ public static class ExternalClaims
     public static string? GetDisplayName(ClaimsPrincipal principal) =>
         principal.FindFirstValue(ClaimTypes.Name);
 
+    /// <summary>§十九：回调时下载好的外部头像文件名（<see cref="Endpoints.ExternalLoginEndpoints.AttachAvatarAsync"/> 加的）。</summary>
+    public const string AvatarClaimType = "nas_avatar";
+
+    public static string? GetAvatar(ClaimsPrincipal principal) => principal.FindFirstValue(AvatarClaimType);
+
     /// <summary>Google userinfo 的 email_verified 映射成的 claim 类型（Program.cs 里 MapJsonKey）。</summary>
     public const string EmailVerifiedClaimType = "email_verified";
 

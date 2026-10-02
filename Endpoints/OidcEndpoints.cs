@@ -38,7 +38,7 @@ public static class OidcEndpoints
                 scopes_supported = new[] { "openid", "email", "profile" }
                     .Concat(catalog.AllScopes()).Distinct().ToArray(),
                 token_endpoint_auth_methods_supported = new[] { "client_secret_post", "none" },
-                claims_supported = new[] { "sub", "email", "name", "preferred_username", "iss", "aud", "iat", "exp" },
+                claims_supported = new[] { "sub", "email", "name", "preferred_username", "picture", "iss", "aud", "iat", "exp" },
             });
         });
 
@@ -53,7 +53,8 @@ public static class OidcEndpoints
     private static IResult HandleUserInfo(HttpContext ctx,
         JwtValidator validator,
         UserRepository users,
-        ExternalIdentityRepository identities)
+        ExternalIdentityRepository identities,
+        ProfileService profiles)
     {
         var auth = ctx.Request.Headers.Authorization.ToString();
         if (!auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
@@ -65,32 +66,23 @@ public static class OidcEndpoints
         if (string.IsNullOrEmpty(userId) || users.GetById(userId) is null)
             return Unauthorized(ctx);
 
-        var (email, name) = ResolveProfile(identities, users, userId);
+        var (email, name, picture) = profiles.Resolve(identities, users, userId);
         return Results.Ok(new
         {
             sub = userId,
             preferred_username = userId,
             email,
             name,
+            picture,
         });
     }
 
-    /// <summary>
-    /// email：优先用户自己的 <c>users.email</c>（管理员在后台设，external-auth.md §十四）；
-    /// 没设才退回第一条 active 外部身份的邮箱（google 优先于 microsoft，按 provider 字典序）。
-    /// <para>为什么要自己的邮箱：下游（如 Immich）按 email 把 OIDC 身份关联到它自己的账号。
-    /// 一个用户可能同时绑了 Google 和 Microsoft 两个外部账号，退回逻辑只会下发其中一个的邮箱 ——
-    /// 它未必是该用户在下游应用里的账号邮箱，甚至可能恰好是下游另一个账号的邮箱，于是关联到错误的账号。
-    /// 纯本地密码用户没有外部身份，不设就没有 email 可发。</para>
-    /// name：第一条 active 外部身份的 display_name，没有就是 user_id。
-    /// </summary>
+    /// <summary>email / name 的取值规则，见 <see cref="ProfileService.ResolveCore"/>（§十四、§十九）。</summary>
     public static (string? Email, string? Name) ResolveProfile(
         ExternalIdentityRepository identities, UserRepository users, string userId)
     {
-        var first = identities.ListByUser(userId)
-            .FirstOrDefault(r => r.status == "active" && !string.IsNullOrEmpty(r.email));
-        var own = users.GetById(userId)?.email;
-        return (string.IsNullOrEmpty(own) ? first?.email : own, first?.display_name ?? userId);
+        var (email, name, _) = ProfileService.ResolveCore(identities, users, userId);
+        return (email, name);
     }
 
     private static IResult Unauthorized(HttpContext ctx)

@@ -73,7 +73,7 @@ public class OidcKeyService
 
     /// <summary>id_token：RS256，短寿命 1h（§九）。aud = client_id（OIDC Core §2）。</summary>
     public string IssueIdToken(string userId, string clientId,
-        string? email, string? name, string? nonce)
+        string? email, string? name, string? nonce, string? picture = null)
     {
         var now = DateTimeOffset.UtcNow;
         var claims = new List<Claim>
@@ -84,6 +84,7 @@ public class OidcKeyService
         };
         if (!string.IsNullOrEmpty(email)) claims.Add(new Claim("email", email));
         if (!string.IsNullOrEmpty(name)) claims.Add(new Claim("name", name));
+        if (!string.IsNullOrEmpty(picture)) claims.Add(new Claim("picture", picture));
         if (!string.IsNullOrEmpty(nonce)) claims.Add(new Claim("nonce", nonce));
 
         // header typ 保持默认 JWT：JwtValidator 只收 typ=at+jwt 的 RS256 token，id_token 不能冒充 access token

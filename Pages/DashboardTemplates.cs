@@ -273,8 +273,10 @@ public static class DashboardTemplates
             : "");
         if (methods.Length == 0) methods.Append($"<span class='hint'>—</span>");
 
-        var info = new StringBuilder("<dl class='kv'>");
+        var info = new StringBuilder($"<div class='profile-head'>{Avatar(u.AvatarFile, u.DisplayName ?? u.Username, "avatar-lg")}<div><strong>{Esc(u.DisplayName ?? u.Username)}</strong><span class='sub mono'>{Esc(u.Username)}</span></div></div>");
+        info.Append("<dl class='kv'>");
         info.Append($"<dt>{T("Username")}</dt><dd><strong>{Esc(u.Username)}</strong> {RoleBadge(u)}</dd>");
+        info.Append($"<dt>{T("Nickname")}</dt><dd>{(string.IsNullOrEmpty(u.DisplayName) ? "<span class='hint'>—</span>" : Esc(u.DisplayName))}</dd>");
         info.Append($"<dt>{T("Email")}</dt><dd>{(string.IsNullOrEmpty(u.Email) ? "<span class='hint'>—</span>" : Esc(u.Email))}</dd>");
         info.Append($"<dt>{T("Sign-in methods")}</dt><dd>{methods}</dd>");
         info.Append($"<dt>{T("Latest sign-in")}</dt><dd>{(p.PreviousLogin is { } l ? $"{Esc(l.TimeDisplay)} · <span class='inline-icon'>{LoginMethod(l)}</span> · <span class='mono'>{Esc(l.Ip ?? "-")}</span>" : "<span class='hint'>—</span>")}</dd>");
@@ -282,6 +284,7 @@ public static class DashboardTemplates
         info.Append("</dl>");
         var html = Card(T("My account"), null, info.ToString(), action:
             $"<a class='btn' data-variant='outline' data-size='sm' href='/account/security'>{T("Sign-in & security")}</a>");
+        html += ProfileEditCard(u, p.Bindings);
 
         var apps = new StringBuilder();
         if (p.Apps.Count == 0)
@@ -300,6 +303,58 @@ public static class DashboardTemplates
         html += Card(T("Apps I can use"), T("What the administrator has opened for your account. Whether an app is actually connected is under Authorized apps."), apps.ToString(),
             action: $"<a class='btn' data-variant='outline' data-size='sm' href='/account/grants'>{T("Authorized apps")} · {p.GrantCount}</a>");
         return html;
+    }
+
+    /// <summary>
+    /// §十九 资料卡片：昵称、头像（上传 / 去掉 / 用已绑定外部账号的）。用户名（user_id）不可改：各应用按它认人。
+    /// </summary>
+    private static string ProfileEditCard(UserAdminView u, IReadOnlyList<BindingView> bindings)
+    {
+        var sb = new StringBuilder();
+        sb.Append("<form method='post' action='/account/profile'><div class='form-grid narrow'>");
+        sb.Append($"<div class='field'><label for='display_name'>{T("Nickname")}</label><input id='display_name' name='display_name' maxlength='64' value='{Esc(u.DisplayName ?? "")}' placeholder='{Esc(u.Username)}' autocomplete='nickname'></div>");
+        sb.Append($"</div><div class='form-foot'><button class='btn' type='submit'>{T("Save")}</button></div></form>");
+
+        sb.Append($"<h3 class='subhead'>{T("Avatar")}</h3><div class='avatar-row'>{Avatar(u.AvatarFile, u.DisplayName ?? u.Username, "avatar-lg")}");
+        sb.Append("<form method='post' action='/account/avatar' enctype='multipart/form-data' class='avatar-upload'>");
+        sb.Append("<input class='input' type='file' name='avatar' accept='image/png,image/jpeg,image/webp' required>");
+        sb.Append($"<button class='btn' data-variant='outline' type='submit'>{T("Upload")}</button></form>");
+        if (!string.IsNullOrEmpty(u.AvatarFile))
+            sb.Append($"<form method='post' action='/account/avatar/remove'><button class='btn' data-variant='ghost' type='submit'>{T("Remove")}</button></form>");
+        sb.Append("</div>");
+
+        var copyable = bindings.Where(b => !string.IsNullOrEmpty(b.AvatarFile) || !string.IsNullOrEmpty(b.DisplayName)).ToList();
+        if (copyable.Count > 0)
+        {
+            sb.Append($"<h3 class='subhead'>{T("Use a linked account")}</h3><div class='table-container'><table class='table'><tbody>");
+            foreach (var b in copyable)
+            {
+                sb.Append($"<tr><td class='fit'>{Avatar(b.AvatarFile, b.DisplayName ?? b.Provider, "avatar-sm")}</td>");
+                sb.Append($"<td class='wrap'>{ProviderBadge(b.Provider)} {Esc(b.DisplayName ?? "-")}<span class='sub'>{Esc(b.Email ?? b.Subject)}</span></td><td class='fit actions'>");
+                if (!string.IsNullOrEmpty(b.AvatarFile))
+                    sb.Append(CopyFromIdentityForm(b, "avatar", T("Use this avatar")));
+                if (!string.IsNullOrEmpty(b.DisplayName))
+                    sb.Append(CopyFromIdentityForm(b, "name", T("Use this name")));
+                sb.Append("</td></tr>");
+            }
+            sb.Append("</tbody></table></div>");
+        }
+        return Card(T("Nickname & avatar"),
+            T("Your nickname and avatar are what apps (Gitea, Immich, Open WebUI…) show. Your username can't be changed: apps use it to recognise you. Grafana and Open WebUI pick up changes the next time you sign in to them; Gitea updates the avatar on next sign-in; Immich and ezBookkeeping only take them when the account is first created."),
+            sb.ToString());
+    }
+
+    private static string CopyFromIdentityForm(BindingView b, string field, string label) =>
+        $"<form method='post' action='/account/profile/from-identity'>{Hidden("provider", b.Provider)}{Hidden("subject", b.Subject)}{Hidden("field", field)}" +
+        $"<button class='btn' data-variant='outline' data-size='sm' type='submit'>{label}</button></form>";
+
+    /// <summary>头像：有就是 /avatars/ 下的图片，没有就是名字首字母的圆。</summary>
+    private static string Avatar(string? file, string name, string cls)
+    {
+        if (!string.IsNullOrEmpty(file))
+            return $"<img class='avatar {cls}' src='/avatars/{Esc(file)}' alt=''>";
+        var initial = string.IsNullOrEmpty(name) ? "?" : char.ToUpperInvariant(name.Trim()[0]).ToString();
+        return $"<span class='avatar avatar-initial {cls}' aria-hidden='true'>{Esc(initial)}</span>";
     }
 
     public static string GrantsSection(IReadOnlyList<AccountAuthorizationView> rows) =>
@@ -439,8 +494,16 @@ public static class DashboardTemplates
         profile.Append($"<p style='margin:0 0 16px'>{RoleBadge(u)} {StatusBadges(u)}");
         if (u.IsSelf) profile.Append($" <span class='badge' data-variant='secondary'>{T("you")}</span>");
         profile.Append($" <span class='hint' style='margin-left:6px'>{T("Created")} {Esc(u.CreatedAtDisplay)}</span></p>");
+        profile.Append($"<div class='avatar-row'>{Avatar(u.AvatarFile, u.DisplayName ?? u.Username, "avatar-lg")}");
+        profile.Append($"<form method='post' action='/admin/users/avatar' enctype='multipart/form-data' class='avatar-upload'>{uid}");
+        profile.Append("<input class='input' type='file' name='avatar' accept='image/png,image/jpeg,image/webp' required>");
+        profile.Append($"<button class='btn' data-variant='outline' type='submit'>{T("Upload avatar")}</button></form>");
+        if (!string.IsNullOrEmpty(u.AvatarFile))
+            profile.Append($"<form method='post' action='/admin/users/avatar/remove'>{uid}<button class='btn' data-variant='ghost' type='submit'>{T("Remove")}</button></form>");
+        profile.Append("</div>");
         profile.Append($"<form method='post' action='/admin/users/update'>{uid}");
         profile.Append("<div class='form-grid narrow'>");
+        profile.Append($"<div class='field'><label for='display_name'>{T("Nickname")}</label><input id='display_name' name='display_name' maxlength='64' value='{Esc(u.DisplayName ?? "")}' placeholder='{Esc(u.Username)}' autocomplete='off'></div>");
         profile.Append($"<div class='field'><label for='email'>{T("Email")}</label><input type='email' id='email' name='email' value='{Esc(u.Email)}' autocomplete='off' placeholder='{T("sent to apps as the email claim")}'></div>");
         profile.Append("</div><div class='form-foot'>");
         profile.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='allow_password_login' value='1'{(u.AllowPasswordLogin ? " checked" : "")}>{T("Allow password sign-in")}</label>");
@@ -771,7 +834,8 @@ public record BindingView(
     string Subject,
     string? Email,
     string? DisplayName,
-    string BoundAtDisplay
+    string BoundAtDisplay,
+    string? AvatarFile = null
 );
 
 public record PendingApprovalView(

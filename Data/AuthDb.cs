@@ -61,6 +61,44 @@ public class AuthDb
         // 会话版本（external-auth.md §十六）：cookie 里记登录时的版本，对不上即作废。
         // 默认 0，老 cookie 没有这个 claim 也按 0 算，升级不掉线。
         TryAddColumn(conn, "ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0");
+        // 昵称与头像（external-auth.md §十九）：用户 id 不可改、各应用按它认人；昵称（下发 name）与头像（下发 picture）可改。
+        // external_identities.avatar = 该外部账号最近一次登录时缓存下来的头像文件，供用户手动选用。
+        TryAddColumn(conn, "ALTER TABLE users ADD COLUMN display_name TEXT");
+        TryAddColumn(conn, "ALTER TABLE users ADD COLUMN avatar TEXT");
+        TryAddColumn(conn, "ALTER TABLE external_identities ADD COLUMN avatar TEXT");
+        BackfillDisplayNamesOnce(conn);
+    }
+
+    /// <summary>
+    /// §十九 一次性回填：老用户的昵称取他第一条 active 外部身份的名字（google 优先，按 provider 字典序），没有就用 user_id ——
+    /// 与升级前下发的 name 一致，升级后各应用看到的名字不变。只跑一次（settings 标志位），之后为空的昵称留给「首次绑定时从外部账号取」。
+    /// </summary>
+    private static void BackfillDisplayNamesOnce(Microsoft.Data.Sqlite.SqliteConnection conn)
+    {
+        const string flag = "display_name_backfilled_v1";
+        using (var check = conn.CreateCommand())
+        {
+            check.CommandText = "SELECT COUNT(*) FROM settings WHERE key = $k";
+            check.Parameters.AddWithValue("$k", flag);
+            if ((long)check.ExecuteScalar()! > 0) return;
+        }
+        using var tx = conn.BeginTransaction();
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = @"
+                UPDATE users SET display_name = COALESCE(
+                    (SELECT e.display_name FROM external_identities e
+                      WHERE e.user_id = users.user_id AND e.status = 'active'
+                        AND e.display_name IS NOT NULL AND e.display_name <> ''
+                      ORDER BY e.provider LIMIT 1),
+                    users.user_id)
+                WHERE display_name IS NULL OR display_name = '';
+                INSERT INTO settings (key, value, updated_at) VALUES ($k, '1', strftime('%s','now'));";
+            cmd.Parameters.AddWithValue("$k", flag);
+            cmd.ExecuteNonQuery();
+        }
+        tx.Commit();
     }
 
     private static void TryAddColumn(Microsoft.Data.Sqlite.SqliteConnection conn, string sql)
