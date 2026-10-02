@@ -548,3 +548,35 @@ Basecoat 改版（§5.4）上线后，反馈指出「管理 nas-auth 和管理�
 ### 测试
 
 `PreBoundEmailTests`：已验证邮箱命中 → 直接绑定且预绑定被消耗；未验证 → 待批且预绑定保留；微软永不算已验证；`email_verified` 的 `True` / `true` / `false` / 缺失；先进了待批、后登记预绑定 → 再登录即绑定；rejected 不被预绑定救回；别人的 active 身份不会被挪走；同一邮箱只能登记一次、只能用一次；登记的用户已删 → 回落待批；删过的 id 大小写不敏感地不可复用、审批也拒；审批回滚不占用 id。`HttpPipelineTests` 走真实管线：后台新建纯外部登录用户（不填临时密码、带预绑定邮箱）→ 不强制改密、编辑页能看到预绑定；删除后同名（大小写不同）重建被拒，预绑定随之清掉。
+
+## 十九、昵称与头像（2026-10-02）
+
+### 背景
+
+`name` 原先直接取外部账号的名字，用户没法改；没有头像。用户 id（`sub` / `preferred_username`）是各应用认人的依据，不能改，所以昵称要与它分开。
+
+### 做法
+
+| 项 | 做法 |
+|---|---|
+| 数据 | `users.display_name`（昵称）、`users.avatar`（头像文件名）；`external_identities.avatar` = 该外部账号最近一次登录时缓存的头像 |
+| 下发 | `name` = 昵称 → 第一条 active 外部身份的名字 → user_id；`picture` = `<issuer>/avatars/<文件名>`（userinfo 与 id_token 都带，discovery 的 `claims_supported` 加了 `picture`） |
+| 头像存储 | auth.db 同目录 `avatars/`，文件名 = 内容 SHA-256 前 32 位 + 扩展名（内容变地址就变，可长期缓存、天然去重）。只收 PNG / JPEG / WebP，**按文件头判断**，≤ 2 MB；SVG（能带脚本）、GIF 不收。`GET /avatars/{file}` 不要求登录（各应用服务端要拉），`Cache-Control: public, max-age=31536000, immutable`、`nosniff`、`CSP: default-src 'none'; sandbox`，文件名不合规（防路径穿越）一律 404。孤儿文件不清理（量小） |
+| 从外部账号取 | Google / 微软 handler 的 `OnCreatingTicket` 里下载对方头像（Google 用 userinfo 的 `picture`，96px 换成 256px；微软用这次登录的 access token 取 Graph `/me/photos/240x240/$value`，没设照片 404 当没有），文件名作为 claim 随外部登录 cookie 带到 `/external/complete`（cookie 有大小上限，不带图片本身）。下载 5 秒超时、任何失败只记日志，不挡登录 |
+| 补空 | 每次外部登录都刷新该外部账号的名字 / 头像快照；用户昵称 / 头像为空时用它补（`FillProfileIfEmpty`，只填空的、不覆盖）。首次绑定、自绑定、审批通过（用申请时缓存的快照）都会补 |
+| 手动 | 个人中心「昵称与头像」：改昵称、传 / 去头像、「用已绑定账号的头像 / 名字」（取最近一次登录时的快照）；管理后台用户页可替人改（昵称随「基本信息」保存，头像单独上传） |
+| 老库回填 | 一次性（settings 标志位）：昵称取第一条 active 外部身份的名字，与升级前下发的 `name` 一致；**没有外部身份的留空**（下发时回落 user_id）——首版填了 user_id，挡住了预建用户首次绑定时取外部账号名，同日改掉 |
+
+### 各应用跟不跟（2026-10-02 实查源码，只靠登录时下发、nas-auth 不持有任何应用的管理员权限）
+
+| 应用 | 昵称 | 头像 |
+|---|---|---|
+| Grafana 11.2 | 每次登录按 `name` 更新 | 不支持 OAuth 头像 |
+| Open WebUI 0.11.4 | `OAUTH_UPDATE_NAME_ON_LOGIN=true` 每次登录更新 | `OAUTH_UPDATE_PICTURE_ON_LOGIN=true` 每次登录更新 |
+| Gitea 1.27.3 | OIDC 建号不设全名，同步不了 | `[oauth2_client] UPDATE_AVATAR=true` 每次登录服务端拉 `picture`；**拉取受 `[security] ALLOWED_HOST_LIST` 防 SSRF 白名单管**，默认 `external` 会拒内网解析的 IdP 地址，要加上 IdP 主机名 |
+| Immich 3.1 | 只在建号时取 | 只在用户还没有头像时取一次 |
+| ezBookkeeping（fork） | 只在建号时取 | 不读 |
+
+### 测试
+
+`ProfileTests`：文件头识别只认位图、存储按内容寻址且拒非图片 / 超大、`PathFor` 拒路径穿越与非存储名、昵称回落顺序与 picture 地址、补空不覆盖用户设过的、快照 null 不冲掉旧值、老库回填只取外部账号名且只跑一次。`HttpPipelineTests`：改昵称 → 传头像 → `/avatars` 的类型与缓存 / 沙箱头 → 个人中心页显示 → 拒 SVG → 真实 `/authorize` + `/token` 拿到的 token 调 `/userinfo` 带新昵称与 `picture`、id_token 也带。
