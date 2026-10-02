@@ -116,7 +116,7 @@ public class ProfileTests : IDisposable
     }
 
     [Fact]
-    public void OldDatabase_BackfillsNicknameOnce_FromExternalNameElseUserId()
+    public void OldDatabase_BackfillsNicknameOnce_FromExternalNameOnly()
     {
         // 新库：先建用户，再模拟「老库还没回填」——清掉标志位重跑 EnsureCreated
         _users.Create("withext", "withext", "h", mustChangePassword: false);
@@ -131,11 +131,13 @@ public class ProfileTests : IDisposable
 
         _db.EnsureCreated();
         Assert.Equal("With Ext", _users.GetById("withext")!.display_name);
-        Assert.Equal("plain", _users.GetById("plain")!.display_name);
+        // 没有外部身份的留空：下发时回落到 user_id；留空才能让以后首次绑定时补上外部账号的名字
+        Assert.Null(_users.GetById("plain")!.display_name);
+        Assert.Equal("plain", _profiles.Resolve(_identities, _users, "plain").Name);
 
         // 只跑一次：之后清空的昵称不会被下次启动又填回去
-        _users.UpdateDisplayName("plain", null);
+        _users.UpdateDisplayName("withext", null);
         _db.EnsureCreated();
-        Assert.Null(_users.GetById("plain")!.display_name);
+        Assert.Null(_users.GetById("withext")!.display_name);
     }
 }

@@ -70,8 +70,10 @@ public class AuthDb
     }
 
     /// <summary>
-    /// §十九 一次性回填：老用户的昵称取他第一条 active 外部身份的名字（google 优先，按 provider 字典序），没有就用 user_id ——
-    /// 与升级前下发的 name 一致，升级后各应用看到的名字不变。只跑一次（settings 标志位），之后为空的昵称留给「首次绑定时从外部账号取」。
+    /// §十九 一次性回填：老用户的昵称取他第一条 active 外部身份的名字（google 优先，按 provider 字典序）——
+    /// 与升级前下发的 name 一致，升级后各应用看到的名字不变。没有外部身份的留空：下发时本来就回落到 user_id，
+    /// 填了反而挡住「首次绑定时从外部账号取昵称」（2026-10-02 首版填了 user_id，预建好等人来登的 jelly 因此拿不到微软账号的名字）。
+    /// 只跑一次（settings 标志位）。
     /// </summary>
     private static void BackfillDisplayNamesOnce(Microsoft.Data.Sqlite.SqliteConnection conn)
     {
@@ -87,12 +89,11 @@ public class AuthDb
         {
             cmd.Transaction = tx;
             cmd.CommandText = @"
-                UPDATE users SET display_name = COALESCE(
+                UPDATE users SET display_name =
                     (SELECT e.display_name FROM external_identities e
                       WHERE e.user_id = users.user_id AND e.status = 'active'
                         AND e.display_name IS NOT NULL AND e.display_name <> ''
-                      ORDER BY e.provider LIMIT 1),
-                    users.user_id)
+                      ORDER BY e.provider LIMIT 1)
                 WHERE display_name IS NULL OR display_name = '';
                 INSERT INTO settings (key, value, updated_at) VALUES ($k, '1', strftime('%s','now'));";
             cmd.Parameters.AddWithValue("$k", flag);
