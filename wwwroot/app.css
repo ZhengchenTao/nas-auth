@@ -131,3 +131,14 @@ details.password-login[open] > summary { margin-bottom: 14px; }
 .consent-target svg { flex-shrink: 0; margin-top: 3px; }
 .consent-warn { font-size: .8125rem; }
 .consent-warn p { margin: 0; line-height: 1.6; }
+
+/* 提交中（theme.js 加 aria-busy，2026-10-02）：按钮最前面转圈、图标让位、不可再点 */
+.btn[aria-busy="true"] { pointer-events: none; opacity: .8; cursor: progress; }
+.btn[aria-busy="true"] > svg { display: none; }
+.btn[aria-busy="true"]::before {
+  content: ""; flex-shrink: 0; width: 1em; height: 1em; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: nas-busy-spin .7s linear infinite;
+}
+@keyframes nas-busy-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .btn[aria-busy="true"]::before { animation-duration: 2s; } }
