@@ -18,10 +18,11 @@ MCP 客户端从 MCP 服务的元数据里找到授权服务，自己注册，�
 
 - 授权码 + PKCE（只支持 S256）、refresh token 轮换、动态客户端注册（RFC 7591）、资源指示（RFC 8707）、撤销和内省、受保护资源元数据（RFC 9728）。
 - 给网页应用用的最小 OIDC：发现文档、`id_token`、JWKS、`/userinfo`、RP 发起的退出。
-- 用 Google 或微软个人账号登录。新的外部账号要管理员批准，不会因为登录一次就自动开户。本地密码（argon2id）作为兜底，可以关掉。
+- 用 Google 或微软个人账号登录。新的外部账号要管理员批准，不会因为登录一次就自动开户；管理员也可以提前登记对方的邮箱，对方第一次登录就直接绑到指定用户上。本地密码（argon2id）作为兜底，可以关掉。
+- 用户 id 和显示用的昵称、头像分开：id 固定不变，下游应用按它认人；昵称和头像可以改，随 `name` / `picture` 下发给应用。
 - 按用户授权：哪个用户能用哪个资源、到哪些 scope。
 - `/proxy/{aud}`：上游只认一个固定 token 时用。nas-auth 先验自己的 JWT，再换成上游 token 流式转发。
-- 每个用户都有 `/account`（已授权应用、绑定的账号、密码、登录会话），管理员另有 `/admin`（用户、审批、客户端、审计日志）。界面有中英文。
+- 每个用户都有 `/account`（已授权应用、昵称与头像、绑定的账号、密码、登录会话），管理员另有 `/admin`（用户、审批、客户端、审计日志）。界面有中英文。
 
 access token 是 RS256 签名的 JWT，`typ: at+jwt`，可以用 `/.well-known/jwks.json` 验证。对称密钥的 HS256 模式还留着，给老部署用。
 
@@ -50,7 +51,7 @@ services:
     ports:
       - "9091:8080"               # 前面要有 HTTPS 反代
     volumes:
-      - ./data:/app/data          # SQLite、RSA 私钥、cookie 密钥，记得备份
+      - ./data:/app/data          # SQLite、RSA 私钥、cookie 密钥、头像，记得备份
       # 挂目录而不是挂这两个文件：单文件挂载在编辑器或 `mv` 替换文件后，容器里看到的还是旧文件
       - ./config:/app/config:ro
     env_file: .env
@@ -87,7 +88,7 @@ EZBK_MCP_TOKEN=
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `Auth__Issuer` | – | 对外地址，也是 `iss`。必填。 |
-| `Auth__Database` | `Data Source=/app/data/auth.db` | RSA 私钥（`oidc_rs256_*.pem`）和 cookie 密钥（`dp-keys/`）放在同一个目录。 |
+| `Auth__Database` | `Data Source=/app/data/auth.db` | RSA 私钥（`oidc_rs256_*.pem`）、cookie 密钥（`dp-keys/`）和头像（`avatars/`）放在同一个目录。 |
 | `Auth__ResourcesPath` | `/app/resources.json` | 必须有，启动时读一次。 |
 | `Auth__ClientsPresetPath` | `/app/clients.preset.json` | 可选。 |
 | `Auth__Admin__Username` | `admin` | 启动时创建，始终是管理员。 |
@@ -166,9 +167,19 @@ Auth__Dcr__AllowedCustomSchemes__0=cursor
 
 ### 用户
 
-管理员按配置创建。其他用户有两个来源：管理员手动建（给临时密码，首次登录必须改），或者批准一次 Google / 微软登录。外部账号第一次登录只会生成一条申请，管理员在 `/admin/approvals` 里批准，绑到已有用户或新建用户，同时勾选这个用户能用哪些资源。已登录的用户可以自己再绑定别的 Google / 微软账号。
+管理员按配置创建。其他用户有三个来源：
+
+- **批准一次 Google / 微软登录。** 外部账号第一次登录只会生成一条申请，管理员在 `/admin/approvals` 里批准，绑到已有用户或新建用户，同时勾选这个用户能用哪些资源。
+- **管理员先建好，等对方来登。** 新建用户时不勾「允许密码登录」，这个用户就没有密码，只能用 Google / 微软登录；同时填上「预绑定登录邮箱」。对方第一次用这个邮箱的账号登录时直接绑到这个用户上，不经过审批。
+- **管理员建一个用密码的用户。** 勾「允许密码登录」并给临时密码，对方首次登录必须改。
+
+预绑定只在登录服务商能证明对方拥有这个邮箱时生效：Google 要求 `email_verified`，微软要求登录名就是这个邮箱。对不上就照常生成一条申请。一条预绑定用一次就删除。已登录的用户可以自己再绑定别的 Google / 微软账号。
+
+用户 id 就是下游应用拿到的 `sub` 和 `preferred_username`，建好不能改，删掉的 id 也不能再用：应用按它认账号，同名的新用户会进到旧用户在各应用里的账号。昵称（`name`）和头像（`picture`）与 id 分开，用户在 `/account` 里改，管理员也能替人改；没设过的，取绑定的 Google / 微软账号的名字和头像。头像只收 PNG、JPEG、WebP，不超过 2 MB，通过 `/avatars/<文件名>` 提供，不需要登录，因为下游应用的服务端要来拉。
 
 每次 `/authorize` 和每次刷新都会重新检查授权，所以撤掉授权后，下次刷新就生效。用户在 nas-auth 里的邮箱，就是下游应用在 `email` claim 里看到的值，比如 Immich 靠它找对应账号。
+
+下游应用可以打开自己的 OIDC 自动建号，这样加人只需要在 nas-auth 里做一次。能不能进由这里把关：没批准的外部账号拿不到任何 token，批准了但没授这个资源的用户在 `/authorize` 就被拒。应用自带的注册和密码登录入口要关掉。
 
 ## 资源服务怎么验 token
 
@@ -181,6 +192,8 @@ Auth__Dcr__AllowedCustomSchemes__0=cursor
 在 ASP.NET Core 里就是 JwtBearer 配 `Authority = <issuer>`，加上常规的 issuer / audience 检查和 `ValidTypes`。obsidian-mcp 和 gitea-mcp 正是这么做的：`Jwt__Algorithm=RS256`，`Jwt__ValidTypes__0=at+jwt`。
 
 token 里的 claim：`iss`、`sub`、`aud`（字符串；一个 token 覆盖多个资源时是数组）、`client_id`、`scope`、`resource`、`iat`、`nbf`、`exp`、`jti`。
+
+`id_token` 和 `/userinfo` 里是用户信息：`sub` 和 `preferred_username`（都是用户 id）、`email`、`name`（昵称）、`picture`（头像地址）。
 
 **换密钥。** 把 `oidc_rs256_current.pem` 改名成 `oidc_rs256_previous.pem` 后重启，会生成新的。旧钥仍在 JWKS 里，至少留满一个 access token 的有效期（默认 30 天）再换下一次。资源服务会自己拿到新公钥。
 
@@ -205,6 +218,7 @@ token 里的 claim：`iss`、`sub`、`aud`（字符串；一个 token 覆盖多�
 | `/revoke`、`/introspect` | RFC 7009 / RFC 7662 |
 | `/userinfo`、`/logout` | OIDC |
 | `/login`、`/account`、`/admin` | 页面 |
+| `/avatars/{file}` | 头像（公开，供下游应用拉取） |
 | `/external/{provider}/start` | Google / 微软登录 |
 | `/proxy/{aud}/…` | 换 token 的反代（及其 RFC 9728 元数据） |
 | `/healthz` | 健康检查 |
@@ -221,7 +235,7 @@ dotnet test tests/nas-auth.Tests
 
 `EZBK_MCP_TOKEN` 只是因为示例资源里有一个代理条目。用 Chrome 或 Firefox 打开 `http://localhost:5000/login`。要拿 token 测 MCP 服务，就走一遍真实流程，比如用 MCP Inspector。
 
-测试（xUnit，约 390 个）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
+测试（xUnit，约 430 个）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
 
 ## 镜像与 CI
 

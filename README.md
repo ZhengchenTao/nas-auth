@@ -36,13 +36,18 @@ OAuth server, and nas-auth can front any service that verifies JWTs.
   `/userinfo`, RP-initiated logout.
 - Sign-in with Google or a personal Microsoft account. A new external account
   waits for an admin to approve it; nobody gets an account just by signing in.
-  Local passwords (argon2id) are the fallback and can be turned off.
+  The admin can also register someone's email ahead of time, so that their
+  first sign-in is linked straight to a chosen user. Local passwords (argon2id)
+  are the fallback and can be turned off.
+- A user id that never changes, which downstream apps use to recognise the
+  user, and a separate nickname and avatar that can be edited and are sent to
+  apps as `name` / `picture`.
 - Per-user grants: which user may use which resource, and with which scopes.
 - `/proxy/{aud}`: for an upstream that only understands one static token.
   nas-auth checks its own JWT, swaps in the upstream token and streams the
   request through.
-- `/account` for every user (authorized apps, linked accounts, password,
-  sessions) and `/admin` for the admin (users, approvals, clients, audit log).
+- `/account` for every user (authorized apps, nickname and avatar, linked
+  accounts, password, sessions) and `/admin` for the admin (users, approvals, clients, audit log).
   English and Simplified Chinese.
 
 Access tokens are RS256 JWTs with `typ: at+jwt`, verifiable through
@@ -73,7 +78,7 @@ services:
     ports:
       - "9091:8080"               # put an HTTPS reverse proxy in front
     volumes:
-      - ./data:/app/data          # SQLite, RSA key, cookie keys. Back this up.
+      - ./data:/app/data          # SQLite, RSA key, cookie keys, avatars. Back this up.
       # mount the directory, not the two files: a single-file bind mount keeps
       # pointing at the old file once an editor or `mv` replaces it
       - ./config:/app/config:ro
@@ -122,7 +127,7 @@ Environment variables, with `__` for nesting (`Auth__Issuer` is `Auth:Issuer`).
 | Variable | Default | Notes |
 |---|---|---|
 | `Auth__Issuer` | – | Public base URL, used as `iss`. Required. |
-| `Auth__Database` | `Data Source=/app/data/auth.db` | The RSA key (`oidc_rs256_*.pem`) and cookie keys (`dp-keys/`) are kept next to it. |
+| `Auth__Database` | `Data Source=/app/data/auth.db` | The RSA key (`oidc_rs256_*.pem`), cookie keys (`dp-keys/`) and avatars (`avatars/`) are kept next to it. |
 | `Auth__ResourcesPath` | `/app/resources.json` | Required; read once at startup. |
 | `Auth__ClientsPresetPath` | `/app/clients.preset.json` | Optional. |
 | `Auth__Admin__Username` | `admin` | Created at startup, always an admin. |
@@ -220,17 +225,46 @@ still hold a valid refresh token.
 
 ### Users
 
-The admin is created from the configuration. Other users are either created by
-the admin (with a temporary password they must change) or come from an
-approved Google/Microsoft sign-in: the first sign-in only files a request, and
-the admin approves it under `/admin/approvals`, attaching it to an existing
-user or a new one and choosing which resources that user gets. A signed-in
-user can link more Google/Microsoft accounts to themselves.
+The admin is created from the configuration. Other users come from one of
+three places:
+
+- **An approved Google/Microsoft sign-in.** The first sign-in only files a
+  request. The admin approves it under `/admin/approvals`, attaching it to an
+  existing user or a new one and choosing which resources that user gets.
+- **A user the admin sets up in advance.** Create the user without "Allow
+  password sign-in": it has no password and can only sign in through Google or
+  Microsoft. Fill in "Pre-bind sign-in email" at the same time. The first time
+  someone signs in with an account for that email, it is linked to this user
+  directly, with no approval step.
+- **A password user created by the admin.** Tick "Allow password sign-in" and
+  give a temporary password, which the user must change at first sign-in.
+
+A pre-bound email only counts when the provider vouches that the person owns
+it: Google must report `email_verified`, and for Microsoft the sign-in name
+must be that email. Otherwise the sign-in files a request as usual. A
+pre-bound email is removed once it has been used. A signed-in user can link
+more Google/Microsoft accounts to themselves.
+
+The user id is what downstream apps receive as `sub` and
+`preferred_username`. It can't be changed, and the id of a deleted user can't
+be used again: apps find their account by it, so a new user with an old id
+would land in the old user's account in every app. The nickname (`name`) and
+avatar (`picture`) are separate from the id. Users edit them under `/account`
+and the admin can edit them for anyone; when they are not set, they come from
+the linked Google/Microsoft account. Avatars must be PNG, JPEG or WebP, up to
+2 MB, and are served from `/avatars/<file>` without sign-in, because
+downstream apps fetch them from their servers.
 
 Grants are checked on every `/authorize` and every refresh, so taking one away
 takes effect at the next refresh. The email a user has in nas-auth is what
 downstream apps see in the `email` claim; Immich, for example, uses it to find
 the matching account.
+
+Downstream apps can turn on their own OIDC auto-provisioning, so adding a
+person is done once, in nas-auth. Admission is decided here: an unapproved
+external account gets no token at all, and an approved user without a grant
+for that resource is turned away at `/authorize`. Turn off the app's own
+registration and password sign-in.
 
 ## Verifying tokens in a resource server
 
@@ -251,6 +285,10 @@ exactly this with `Jwt__Algorithm=RS256` and `Jwt__ValidTypes__0=at+jwt`.
 Token claims: `iss`, `sub`, `aud` (a string, or an array when one token covers
 several resources), `client_id`, `scope`, `resource`, `iat`, `nbf`, `exp`,
 `jti`.
+
+The `id_token` and `/userinfo` carry the user's details: `sub` and
+`preferred_username` (both the user id), `email`, `name` (the nickname) and
+`picture` (the avatar URL).
 
 **Rotating the key.** Rename `oidc_rs256_current.pem` to
 `oidc_rs256_previous.pem` and restart; a new key is generated. The old one
@@ -295,6 +333,7 @@ start with an HS256 key configured.
 | `/revoke`, `/introspect` | RFC 7009 / RFC 7662 |
 | `/userinfo`, `/logout` | OIDC |
 | `/login`, `/account`, `/admin` | Pages |
+| `/avatars/{file}` | Avatars (public, fetched by downstream apps) |
 | `/external/{provider}/start` | Google / Microsoft sign-in |
 | `/proxy/{aud}/…` | Token-swapping proxy (plus its RFC 9728 metadata) |
 | `/healthz` | Health check |
@@ -313,7 +352,7 @@ dotnet test tests/nas-auth.Tests
 entry. Open `http://localhost:5000/login` in Chrome or Firefox. To get a token
 for testing an MCP server, run the real flow, for example with MCP Inspector.
 
-The test suite (xUnit, about 390 tests) needs nothing external. It covers the
+The test suite (xUnit, about 430 tests) needs nothing external. It covers the
 protocol pieces, accounts and approvals, the page templates, and the full HTTP
 pipeline through `WebApplicationFactory`.
 
