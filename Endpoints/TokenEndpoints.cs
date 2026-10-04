@@ -73,8 +73,13 @@ public static class TokenEndpoints
         {
             var form = await ctx.Request.ReadFormAsync();
             var token = form["token"].ToString();
-            var clientId = form["client_id"].ToString();
-            var clientSecret = form["client_secret"].ToString();
+            var credError = ReadCredentials(ctx, form, out var creds);
+            var clientId = creds.ClientId;
+            if (credError is not null)
+            {
+                audit.Revoke(false, clientId, ctx.RemoteIp(), "bad_client_credentials");
+                return credError;
+            }
 
             if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(token))
             {
@@ -82,10 +87,10 @@ public static class TokenEndpoints
                 return Results.BadRequest(new { error = "invalid_request" });
             }
 
-            if (!TryAuthenticateClient(clients, clientId, clientSecret, out var client))
+            if (!TryAuthenticateClient(clients, creds, out var client))
             {
                 audit.Revoke(false, clientId, ctx.RemoteIp(), "client_auth_failed");
-                return Results.Json(new { error = "invalid_client" }, statusCode: 401);
+                return InvalidClient(ctx, creds);
             }
 
             // RFC 7009：不区分 access vs refresh token，处理 refresh token；access token 是 JWT，到期自动失效。
@@ -107,13 +112,18 @@ public static class TokenEndpoints
         {
             var form = await ctx.Request.ReadFormAsync();
             var token = form["token"].ToString();
-            var clientId = form["client_id"].ToString();
-            var clientSecret = form["client_secret"].ToString();
-
-            if (!TryAuthenticateClient(clients, clientId, clientSecret, out var client))
+            var credError = ReadCredentials(ctx, form, out var creds);
+            var clientId = creds.ClientId;
+            if (credError is not null)
             {
                 audit.Introspect(false, clientId, ctx.RemoteIp());
-                return Results.Json(new { error = "invalid_client" }, statusCode: 401);
+                return credError;
+            }
+
+            if (!TryAuthenticateClient(clients, creds, out var client))
+            {
+                audit.Introspect(false, clientId, ctx.RemoteIp());
+                return InvalidClient(ctx, creds);
             }
 
             if (string.IsNullOrEmpty(token))
@@ -169,10 +179,15 @@ public static class TokenEndpoints
         ProfileService profiles)
     {
         var code = form["code"].ToString();
-        var clientId = form["client_id"].ToString();
-        var clientSecret = form["client_secret"].ToString();
         var redirectUri = form["redirect_uri"].ToString();
         var verifier = form["code_verifier"].ToString();
+        var credError = ReadCredentials(ctx, form, out var creds);
+        var clientId = creds.ClientId;
+        if (credError is not null)
+        {
+            audit.Token(false, "authorization_code", clientId, null, null, ctx.RemoteIp(), "bad_client_credentials");
+            return credError;
+        }
 
         // verifier 在这里不强制：code 没带 challenge（confidential 客户端跳过 PKCE）时
         // 自然不需要；带了 challenge 的 code 在下面验 PKCE 时缺 verifier 一样会失败。
@@ -183,10 +198,10 @@ public static class TokenEndpoints
             return Results.BadRequest(new { error = "invalid_request" });
         }
 
-        if (!TryAuthenticateClient(clients, clientId, clientSecret, out var client))
+        if (!TryAuthenticateClient(clients, creds, out var client))
         {
             audit.Token(false, "authorization_code", clientId, null, null, ctx.RemoteIp(), "client_auth_failed");
-            return Results.Json(new { error = "invalid_client" }, statusCode: 401);
+            return InvalidClient(ctx, creds);
         }
 
         // 原子消费 → 一次性
@@ -283,8 +298,13 @@ public static class TokenEndpoints
         UserRepository users)
     {
         var refresh = form["refresh_token"].ToString();
-        var clientId = form["client_id"].ToString();
-        var clientSecret = form["client_secret"].ToString();
+        var credError = ReadCredentials(ctx, form, out var creds);
+        var clientId = creds.ClientId;
+        if (credError is not null)
+        {
+            audit.Token(false, "refresh_token", clientId, null, null, ctx.RemoteIp(), "bad_client_credentials");
+            return Task.FromResult(credError);
+        }
 
         if (string.IsNullOrEmpty(refresh) || string.IsNullOrEmpty(clientId))
         {
@@ -292,10 +312,10 @@ public static class TokenEndpoints
             return Task.FromResult(Results.BadRequest(new { error = "invalid_request" }));
         }
 
-        if (!TryAuthenticateClient(clients, clientId, clientSecret, out var client))
+        if (!TryAuthenticateClient(clients, creds, out var client))
         {
             audit.Token(false, "refresh_token", clientId, null, null, ctx.RemoteIp(), "client_auth_failed");
-            return Task.FromResult(Results.Json(new { error = "invalid_client" }, statusCode: 401));
+            return Task.FromResult(InvalidClient(ctx, creds));
         }
 
         var hash = JwtIssuer.HashRefreshToken(refresh);
@@ -398,13 +418,46 @@ public static class TokenEndpoints
         => ResolveResources(catalog, resourceColumn).Select(r => r.Aud).Distinct().ToList();
 
     /// <summary>
-    /// public client（PKCE）允许 client_id only；confidential 必须给 secret。
+    /// 读客户端认证材料（表单 = client_secret_post，Authorization: Basic 头 = client_secret_basic）。
+    /// 写法本身有问题（坏的 Basic 头、头和表单同时带 secret、两处 client_id 不一致）时返回错误响应，否则 null。
+    /// </summary>
+    private static IResult? ReadCredentials(HttpContext ctx, IFormCollection form, out ClientCredentials creds)
+    {
+        var error = ClientCredentialsReader.Read(ctx.Request.Headers.Authorization.ToString(),
+            form["client_id"].ToString(), form["client_secret"].ToString(), out creds);
+        return error switch
+        {
+            ClientCredentialsError.None => null,
+            ClientCredentialsError.MalformedBasic => InvalidClient(ctx, creds),
+            ClientCredentialsError.MultipleMethods => Results.BadRequest(new
+            {
+                error = "invalid_request",
+                error_description = "send the client secret either in the Authorization header or in the body, not both",
+            }),
+            _ => Results.BadRequest(new
+            {
+                error = "invalid_request",
+                error_description = "client_id in the body does not match the Authorization header",
+            }),
+        };
+    }
+
+    /// <summary>RFC 6749 §5.2：客户端是用 Authorization 头来认证的，401 要带对应 scheme 的 WWW-Authenticate。</summary>
+    private static IResult InvalidClient(HttpContext ctx, ClientCredentials creds)
+    {
+        if (creds.ViaBasic)
+            ctx.Response.Headers.WWWAuthenticate = "Basic realm=\"nas-auth\", charset=\"UTF-8\"";
+        return Results.Json(new { error = "invalid_client" }, statusCode: 401);
+    }
+
+    /// <summary>
+    /// public client（PKCE）允许 client_id only；confidential 必须给 secret（表单或 Basic 头，两种都收）。
     /// introspect / revoke 要求 client 认证。
     /// </summary>
-    private static bool TryAuthenticateClient(ClientRepository clients, string clientId,
-        string? clientSecret, out ClientRow? client)
+    private static bool TryAuthenticateClient(ClientRepository clients, ClientCredentials creds, out ClientRow? client)
     {
-        client = string.IsNullOrEmpty(clientId) ? null : clients.GetById(clientId);
+        client = string.IsNullOrEmpty(creds.ClientId) ? null : clients.GetById(creds.ClientId);
+        if (client is null && !string.IsNullOrEmpty(creds.RawClientId)) client = clients.GetById(creds.RawClientId);
         if (client is null) return false;
 
         if (client.token_endpoint_auth_method == "none")
@@ -412,15 +465,16 @@ public static class TokenEndpoints
             return true; // public client，依赖 PKCE 防伪造
         }
 
-        // client_secret_post
-        if (string.IsNullOrEmpty(clientSecret) || string.IsNullOrEmpty(client.client_secret_hash))
+        if (creds.Secrets.Count == 0 || string.IsNullOrEmpty(client.client_secret_hash))
             return false;
 
-        Span<byte> h = stackalloc byte[32];
-        SHA256.TryHashData(Encoding.UTF8.GetBytes(clientSecret), h, out _);
-        var actual = Convert.ToHexString(h);
-        return CryptographicOperations.FixedTimeEquals(
-            Encoding.ASCII.GetBytes(actual),
-            Encoding.ASCII.GetBytes(client.client_secret_hash));
+        var expected = Encoding.ASCII.GetBytes(client.client_secret_hash);
+        var ok = false;
+        foreach (var secret in creds.Secrets)
+        {
+            var actual = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(secret)));
+            ok |= CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(actual), expected);
+        }
+        return ok;
     }
 }

@@ -115,7 +115,8 @@ public static class RegistrationEndpoints
             var redirectUris = req.RedirectUris!;
 
             var authMethod = string.IsNullOrEmpty(req.TokenEndpointAuthMethod) ? "none" : req.TokenEndpointAuthMethod!;
-            if (authMethod != "none" && authMethod != "client_secret_post")
+            // 带 secret 的两种写法（post / basic）在 /token 上都收，登记哪一种只是客户端自己的偏好
+            if (authMethod != "none" && authMethod != "client_secret_post" && authMethod != "client_secret_basic")
             {
                 audit.Register(false, clientName, ctx.RemoteIp(), "unsupported_auth_method");
                 return Results.BadRequest(new { error = "invalid_client_metadata", error_description = "unsupported token_endpoint_auth_method" });
@@ -124,7 +125,7 @@ public static class RegistrationEndpoints
             var clientId = "c_" + GenerateRandomToken(16);
             string? clientSecret = null;
             string? secretHash = null;
-            if (authMethod == "client_secret_post")
+            if (authMethod != "none")
             {
                 clientSecret = GenerateRandomToken(32);
                 Span<byte> h = stackalloc byte[32];

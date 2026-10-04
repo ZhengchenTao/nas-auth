@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -522,6 +523,136 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
             Assert.Null(scope.ServiceProvider.GetRequiredService<UserRepository>().GetById("GoogleOnly"));
             Assert.Empty(scope.ServiceProvider.GetRequiredService<ExternalInviteRepository>().ListByUser("googleonly"));
         }
+    }
+
+    // ---------- client_secret_basic ----------
+
+    private static AuthenticationHeaderValue BasicAuth(string id, string secret) =>
+        new("Basic", Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
+            $"{Uri.EscapeDataString(id)}:{Uri.EscapeDataString(secret)}")));
+
+    private static HttpRequestMessage TokenRequest(string path, AuthenticationHeaderValue? auth, params (string K, string V)[] kv)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Post, path) { Content = Form(kv) };
+        req.Headers.Authorization = auth;
+        return req;
+    }
+
+    /// <summary>预置 confidential 客户端 gitea-web 走一遍 /authorize，拿一个授权码。</summary>
+    private async Task<(string ClientId, string Secret, string RedirectUri, string Code)> GiteaAuthCode()
+    {
+        const string clientId = "gitea-web";
+        using var preset = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(NasAuthAppFactory.RepoRoot(), "clients.preset.example.json")));
+        var gitea = preset.RootElement.EnumerateArray().Single(e => e.GetProperty("client_id").GetString() == clientId);
+        var redirectUri = gitea.GetProperty("redirect_uris")[0].GetString()!;
+
+        var c = _app.Client();
+        Assert.Equal(HttpStatusCode.Redirect, (await Login(c, "/account")).StatusCode);
+        var auth = await c.SendAsync(Post("/authorize", Form(
+            ("response_type", "code"), ("client_id", clientId), ("redirect_uri", redirectUri),
+            ("scope", "openid email profile"), ("state", "st-basic"), ("use_session", "1")), secFetchSite: "same-origin"));
+        Assert.Equal(HttpStatusCode.Redirect, auth.StatusCode);
+        var code = System.Web.HttpUtility.ParseQueryString(auth.Headers.Location!.Query)["code"]!;
+        return (clientId, gitea.GetProperty("client_secret").GetString()!, redirectUri, code);
+    }
+
+    [Fact]
+    public async Task ClientSecretBasic_WorksOnTokenRefreshIntrospectRevoke()
+    {
+        var (clientId, secret, redirectUri, code) = await GiteaAuthCode();
+        var basic = BasicAuth(clientId, secret);
+
+        // 换 token：认证材料只在头里，表单不带 client_id / client_secret
+        var tok = await _app.Client().SendAsync(TokenRequest("/token", basic,
+            ("grant_type", "authorization_code"), ("code", code), ("redirect_uri", redirectUri)));
+        var body = await tok.Content.ReadAsStringAsync();
+        Assert.True(tok.StatusCode == HttpStatusCode.OK, body);
+        using var json = JsonDocument.Parse(body);
+        Assert.False(string.IsNullOrEmpty(json.RootElement.GetProperty("id_token").GetString()));
+        var refresh = json.RootElement.GetProperty("refresh_token").GetString()!;
+
+        // 刷新
+        var ref2 = await _app.Client().SendAsync(TokenRequest("/token", basic,
+            ("grant_type", "refresh_token"), ("refresh_token", refresh)));
+        var refBody = await ref2.Content.ReadAsStringAsync();
+        Assert.True(ref2.StatusCode == HttpStatusCode.OK, refBody);
+        using var refJson = JsonDocument.Parse(refBody);
+        var refresh2 = refJson.RootElement.GetProperty("refresh_token").GetString()!;
+
+        // 内省 / 吊销
+        var intro = await _app.Client().SendAsync(TokenRequest("/introspect", basic, ("token", refresh2)));
+        using (var introJson = JsonDocument.Parse(await intro.Content.ReadAsStringAsync()))
+            Assert.True(introJson.RootElement.GetProperty("active").GetBoolean());
+        Assert.Equal(HttpStatusCode.OK, (await _app.Client().SendAsync(TokenRequest("/revoke", basic, ("token", refresh2)))).StatusCode);
+        var intro2 = await _app.Client().SendAsync(TokenRequest("/introspect", basic, ("token", refresh2)));
+        using (var introJson = JsonDocument.Parse(await intro2.Content.ReadAsStringAsync()))
+            Assert.False(introJson.RootElement.GetProperty("active").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ClientSecretBasic_BadCredentials_AreRejected_WithoutBurningTheCode()
+    {
+        var (clientId, secret, redirectUri, code) = await GiteaAuthCode();
+        (string, string)[] grant = { ("grant_type", "authorization_code"), ("code", code), ("redirect_uri", redirectUri) };
+
+        // 错 secret → 401，且因为对方用的是 Basic 头，要带 WWW-Authenticate（RFC 6749 §5.2）
+        var wrong = await _app.Client().SendAsync(TokenRequest("/token", BasicAuth(clientId, "not-the-secret"), grant));
+        Assert.Equal(HttpStatusCode.Unauthorized, wrong.StatusCode);
+        Assert.StartsWith("Basic", wrong.Headers.WwwAuthenticate.Single().ToString());
+
+        // 坏 base64 → 同样 401 + WWW-Authenticate
+        var bad = TokenRequest("/token", null, grant);
+        bad.Headers.TryAddWithoutValidation("Authorization", "Basic !!!not-base64!!!");
+        var badResp = await _app.Client().SendAsync(bad);
+        Assert.Equal(HttpStatusCode.Unauthorized, badResp.StatusCode);
+        Assert.NotEmpty(badResp.Headers.WwwAuthenticate);
+
+        // 头和表单都带 secret → 400 invalid_request（一次请求只许一种认证方式）
+        var both = await _app.Client().SendAsync(TokenRequest("/token", BasicAuth(clientId, secret),
+            grant.Append(("client_id", clientId)).Append(("client_secret", secret)).ToArray()));
+        Assert.Equal(HttpStatusCode.BadRequest, both.StatusCode);
+        Assert.Contains("invalid_request", await both.Content.ReadAsStringAsync());
+
+        // 表单 client_id 与头里的不一致 → 400
+        var mismatch = await _app.Client().SendAsync(TokenRequest("/token", BasicAuth(clientId, secret),
+            grant.Append(("client_id", "immich")).ToArray()));
+        Assert.Equal(HttpStatusCode.BadRequest, mismatch.StatusCode);
+
+        // 表单写法（client_secret_post）错 secret：401，不带 WWW-Authenticate
+        var postWrong = await _app.Client().SendAsync(TokenRequest("/token", null,
+            grant.Append(("client_id", clientId)).Append(("client_secret", "nope")).ToArray()));
+        Assert.Equal(HttpStatusCode.Unauthorized, postWrong.StatusCode);
+        Assert.Empty(postWrong.Headers.WwwAuthenticate);
+
+        // 以上失败都发生在消费授权码之前：正确的 Basic 仍然能换到 token；表单里重复一遍相同的 client_id 是允许的
+        var ok = await _app.Client().SendAsync(TokenRequest("/token", BasicAuth(clientId, secret),
+            grant.Append(("client_id", clientId)).ToArray()));
+        Assert.True(ok.StatusCode == HttpStatusCode.OK, await ok.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task ClientSecretBasic_IsAdvertised_AndRegistrable()
+    {
+        foreach (var doc in new[] { "/.well-known/openid-configuration", "/.well-known/oauth-authorization-server" })
+        {
+            using var meta = JsonDocument.Parse(await _app.Client().GetStringAsync(doc));
+            var methods = meta.RootElement.GetProperty("token_endpoint_auth_methods_supported")
+                .EnumerateArray().Select(e => e.GetString()).ToArray();
+            Assert.Equal(new[] { "client_secret_post", "client_secret_basic", "none" }, methods);
+        }
+
+        var reg = await _app.Client().PostAsJsonAsync("/register", new
+        {
+            client_name = "basic-client",
+            redirect_uris = new[] { "https://app.example.com/callback" },
+            token_endpoint_auth_method = "client_secret_basic",
+        });
+        var regBody = await reg.Content.ReadAsStringAsync();
+        Assert.True(reg.StatusCode == HttpStatusCode.Created, regBody);
+        using var regJson = JsonDocument.Parse(regBody);
+        Assert.Equal("client_secret_basic", regJson.RootElement.GetProperty("token_endpoint_auth_method").GetString());
+        Assert.False(string.IsNullOrEmpty(regJson.RootElement.GetProperty("client_secret").GetString()));
     }
 
     [Fact]

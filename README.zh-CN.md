@@ -160,7 +160,7 @@ Auth__Dcr__AllowedCustomSchemes__0=cursor
 | `client_id`、`client_name` | |
 | `client_secret` | 只有机密客户端需要，应用那边填同一个值。 |
 | `redirect_uris` | 精确匹配，可以用 `app.immich:///oauth-callback` 这类自定义 scheme。 |
-| `token_endpoint_auth_method` | `none`（公共客户端，必须 PKCE）或 `client_secret_post`。 |
+| `token_endpoint_auth_method` | `none`（公共客户端，必须 PKCE）、`client_secret_post` 或 `client_secret_basic`。带 secret 的客户端两种写法都收（表单字段，或 `Authorization: Basic` 头），与这里登记的是哪一种无关。 |
 | `default_resource` | 客户端不传 `resource` 时用它，大多数 OIDC 应用都不传。 |
 
 自己注册的客户端 30 天没用就会被清掉，除非手里还有有效的 refresh token。
@@ -235,7 +235,7 @@ dotnet test tests/nas-auth.Tests
 
 `EZBK_MCP_TOKEN` 只是因为示例资源里有一个代理条目。用 Chrome 或 Firefox 打开 `http://localhost:5000/login`。要拿 token 测 MCP 服务，就走一遍真实流程，比如用 MCP Inspector。
 
-测试（xUnit，约 430 个）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
+测试（xUnit，约 450 个）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
 
 ## 镜像与 CI
 

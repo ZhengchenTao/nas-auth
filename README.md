@@ -217,7 +217,7 @@ Applied at startup.
 | `client_id`, `client_name` | |
 | `client_secret` | Confidential clients only. Put the same value into the app. |
 | `redirect_uris` | Exact match. Custom schemes such as `app.immich:///oauth-callback` are fine here. |
-| `token_endpoint_auth_method` | `none` (public, PKCE required) or `client_secret_post`. |
+| `token_endpoint_auth_method` | `none` (public, PKCE required), `client_secret_post` or `client_secret_basic`. A client with a secret may send it either way (form field or `Authorization: Basic` header), whichever is listed here. |
 | `default_resource` | Used when the client sends no `resource`, which most OIDC apps don't. |
 
 Self-registered clients are deleted after 30 days without use, unless they
@@ -354,7 +354,7 @@ dotnet test tests/nas-auth.Tests
 entry. Open `http://localhost:5000/login` in Chrome or Firefox. To get a token
 for testing an MCP server, run the real flow, for example with MCP Inspector.
 
-The test suite (xUnit, about 430 tests) needs nothing external. It covers the
+The test suite (xUnit, about 450 tests) needs nothing external. It covers the
 protocol pieces, accounts and approvals, the page templates, and the full HTTP
 pipeline through `WebApplicationFactory`.
 

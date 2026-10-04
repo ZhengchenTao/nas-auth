@@ -580,3 +580,33 @@ Basecoat 改版（§5.4）上线后，反馈指出「管理 nas-auth 和管理�
 ### 测试
 
 `ProfileTests`：文件头识别只认位图、存储按内容寻址且拒非图片 / 超大、`PathFor` 拒路径穿越与非存储名、昵称回落顺序与 picture 地址、补空不覆盖用户设过的、快照 null 不冲掉旧值、老库回填只取外部账号名且只跑一次。`HttpPipelineTests`：改昵称 → 传头像 → `/avatars` 的类型与缓存 / 沙箱头 → 个人中心页显示 → 拒 SVG → 真实 `/authorize` + `/token` 拿到的 token 调 `/userinfo` 带新昵称与 `picture`、id_token 也带。
+
+## 二十、客户端认证加 `client_secret_basic`（2026-10-04）
+
+### 背景
+
+`/token` 原先只收表单里的 `client_id` + `client_secret`（`client_secret_post`）。OIDC 规范的默认写法是把它们放在 `Authorization: Basic` 头里（`client_secret_basic`），不少应用只会这一种或默认用它（要接的 Homepage 基于 NextAuth，默认就是 basic）。逐个应用去试哪种能用不划算。
+
+这是**应用后端向本 IdP 证明「我是哪个客户端」**，与用户密码无关：secret 是随机长串，单独拿到也换不出 token，还得有用户刚登录产生的一次性授权码。同一个 secret 现在放表单里就能用，所以加这个写法不增加攻击面。
+
+### 做法
+
+| 项 | 做法 |
+|---|---|
+| 读取 | `Services/ClientCredentials.cs` 的 `ClientCredentialsReader.Read`：有 `Authorization: Basic` 头就从头里取，否则读表单；别的 scheme（Bearer 等）不理。`/token`（授权码、刷新）、`/revoke`、`/introspect` 四条路径共用 |
+| 两种都收 | 带 secret 的客户端不管登记的是 `client_secret_post` 还是 `client_secret_basic`，两种写法都通过——secret 是同一个，按登记区分没有安全收益，还会让换写法的应用白白失败 |
+| 表单编码 | RFC 6749 §2.3.1 要求 id 和 secret 先做表单编码再 base64（Go 的 oauth2、openid-client 都这么做），但也有客户端直接塞原文。两种读法都当候选，任一命中即通过；比较仍是定长时间 |
+| 一次一种 | 头和表单同时带 secret → `400 invalid_request`；表单里重复 `client_id` 且与头一致放行，不一致同样 400 |
+| 失败响应 | 用 Basic 头来认证而失败（含坏 base64、没有冒号、非 UTF-8）→ `401 invalid_client` 并带 `WWW-Authenticate: Basic`（RFC 6749 §5.2）；表单写法失败不带 |
+| 公开客户端 | 不变，仍只靠 PKCE；`client_id` 放头里（secret 留空）也认 |
+| 宣告 | 两份发现文档的 `token_endpoint_auth_methods_supported` = `client_secret_post`、`client_secret_basic`、`none`（post 仍排第一，对按顺序挑的老客户端行为不变） |
+| DCR / 预置 | `/register` 与 `clients.preset.json` 的 `token_endpoint_auth_method` 可写 `client_secret_basic`，同样发 secret |
+| 顺序 | 认证失败发生在消费授权码之前：先用错写法试一次（Go 的自动探测就是先 basic 后 post）不会把码烧掉 |
+
+### 风险
+
+发现文档宣告 basic 之后，会按宣告自动选方式的客户端可能从 post 换成 basic。两种都实现了，理论上无感；上线后仍要把已接的应用逐个重新登录一遍确认。
+
+### 测试
+
+`ClientCredentialsTests`：表单 / Basic 头 / 别的 scheme 忽略、scheme 大小写、表单编码与原文两种读法、secret 含冒号、公开客户端空 secret、各种坏头、头与表单同带、两处 `client_id` 不一致。`HttpPipelineTests`：预置 confidential 客户端只用 Basic 头走完换码 → 刷新 → 内省 → 吊销；错 secret / 坏 base64 得 401 且带 `WWW-Authenticate`，头与表单同带、`client_id` 不一致得 400，这些失败之后同一个授权码仍可用正确的 Basic 换到 token；发现文档宣告与 DCR 注册 `client_secret_basic`。

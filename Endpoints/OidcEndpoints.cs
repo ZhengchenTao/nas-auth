@@ -37,7 +37,7 @@ public static class OidcEndpoints
                 code_challenge_methods_supported = new[] { "S256" },
                 scopes_supported = new[] { "openid", "email", "profile" }
                     .Concat(catalog.AllScopes()).Distinct().ToArray(),
-                token_endpoint_auth_methods_supported = new[] { "client_secret_post", "none" },
+                token_endpoint_auth_methods_supported = new[] { "client_secret_post", "client_secret_basic", "none" },
                 claims_supported = new[] { "sub", "email", "name", "preferred_username", "picture", "iss", "aud", "iat", "exp" },
             });
         });

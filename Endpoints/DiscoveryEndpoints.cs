@@ -32,7 +32,7 @@ public static class DiscoveryEndpoints
                 grant_types_supported = new[] { "authorization_code", "refresh_token" },
                 code_challenge_methods_supported = new[] { "S256" },
                 scopes_supported = catalog.AllScopes(),
-                token_endpoint_auth_methods_supported = new[] { "client_secret_post", "none" },
+                token_endpoint_auth_methods_supported = new[] { "client_secret_post", "client_secret_basic", "none" },
             });
         });
     }
