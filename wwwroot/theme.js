@@ -50,6 +50,54 @@
     document.querySelectorAll('[aria-busy="true"]').forEach(function (b) { b.removeAttribute('aria-busy'); b.disabled = false; });
   });
 
+  // 密码框的显示 / 隐藏按钮（2026-10-04）：每个 input[type=password] 右侧加一个眼睛按钮，按一下显示明文、再按一下隐藏。
+  // 管理员替家人设密码时看不见自己打了什么，容易设错。
+  // 包一层 .pw-wrap 放按钮；Basecoat 只给 .field 的直接子 input 上样式，包了之后靠 .input 类保住样式。
+  var EYE = '<svg class="eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>' +
+    '<svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.1"/><path d="M6.6 6.6A17.3 17.3 0 0 0 2 12s3.5 7 10 7a10.3 10.3 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M3 3l18 18"/></svg>';
+  function pwLabel(shown) {
+    var zh = /^zh/i.test(document.documentElement.lang || '');
+    return shown ? (zh ? '隐藏密码' : 'Hide password') : (zh ? '显示密码' : 'Show password');
+  }
+  function setPwShown(btn, shown) {
+    var inp = btn.parentNode.querySelector('input');
+    if (!inp) return;
+    inp.type = shown ? 'text' : 'password';
+    btn.setAttribute('aria-pressed', shown ? 'true' : 'false');
+    btn.setAttribute('aria-label', pwLabel(shown));
+    btn.title = pwLabel(shown);
+  }
+  function addPwToggles() {
+    document.querySelectorAll('input[type=password]').forEach(function (inp) {
+      if (inp.parentNode.classList.contains('pw-wrap')) return;
+      var wrap = document.createElement('div');
+      wrap.className = 'pw-wrap';
+      inp.parentNode.insertBefore(wrap, inp);
+      wrap.appendChild(inp);
+      inp.classList.add('input');
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'pw-toggle';
+      btn.innerHTML = EYE;
+      wrap.appendChild(btn);
+      setPwShown(btn, false);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addPwToggles);
+  else addPwToggles();
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('.pw-toggle') : null;
+    if (!btn) return;
+    setPwShown(btn, btn.getAttribute('aria-pressed') !== 'true');
+    var inp = btn.parentNode.querySelector('input');
+    if (inp) inp.focus();
+  });
+  // 提交前一律变回密码框：明文状态提交的话，浏览器会把它当普通文本记进表单自动填充历史，密码管理器也不认
+  document.addEventListener('submit', function () {
+    document.querySelectorAll('.pw-toggle[aria-pressed="true"]').forEach(function (btn) { setPwShown(btn, false); });
+  }, true);
+
   document.addEventListener('click', function (e) {
     var t = e.target && e.target.closest ? e.target.closest('[data-lang], [data-sidebar-toggle]') : null;
     if (!t) return;

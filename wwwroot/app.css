@@ -161,3 +161,14 @@ img.sb-avatar { object-fit: cover; }
 .avatar-upload input[type=file] { max-width: 260px; }
 td.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .user-cell { display: flex; align-items: center; gap: 10px; }
+
+/* 密码框右侧的显示 / 隐藏按钮（theme.js 加的）。Edge 自带的眼睛关掉，免得出现两个 */
+.pw-wrap { position: relative; }
+.pw-wrap > input { width: 100%; padding-right: 2.5rem; }
+.pw-wrap > input::-ms-reveal { display: none; }
+.pw-toggle { position: absolute; top: 0; right: 0; height: 100%; width: 2.5rem; display: grid; place-items: center;
+             padding: 0; border: 0; background: none; color: var(--muted-foreground); cursor: pointer; border-radius: 6px; }
+.pw-toggle:hover { color: var(--foreground); }
+.pw-toggle svg { width: 18px; height: 18px; }
+.pw-toggle .eye-off, .pw-toggle[aria-pressed="true"] .eye { display: none; }
+.pw-toggle[aria-pressed="true"] .eye-off { display: block; }
