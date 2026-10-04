@@ -230,14 +230,15 @@ public class UserRepository
     }
 
     /// <summary>
-    /// 管理员重置某用户密码：写新 hash + 置 must_change_password=1，强制对方下次登录改。
+    /// 管理员重置某用户密码：写新 hash；<paramref name="mustChangePassword"/> 为 true 时强制对方下次登录改，
+    /// 否则清掉标志（管理员定的密码就是正式密码，家人用不着再改一次）。
     /// </summary>
-    public void ResetPasswordForceChange(string userId, string newHash)
+    public void ResetPassword(string userId, string newHash, bool mustChangePassword)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         using var conn = _db.OpenConnection();
         conn.Execute(
-            "UPDATE users SET password_hash = @hash, must_change_password = 1, updated_at = @now WHERE user_id = @id",
-            new { hash = newHash, now, id = userId });
+            "UPDATE users SET password_hash = @hash, must_change_password = @must, updated_at = @now WHERE user_id = @id",
+            new { hash = newHash, must = mustChangePassword ? 1 : 0, now, id = userId });
     }
 }

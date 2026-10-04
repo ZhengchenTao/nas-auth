@@ -456,11 +456,12 @@ public static class DashboardTemplates
     {
         var create = new StringBuilder("<form method='post' action='/admin/users/create'><div class='form-grid'>");
         create.Append($"<div class='field'><label for='new_username'>{T("Username")}</label><input type='text' id='new_username' name='username' required pattern='[a-zA-Z0-9._-]{{1,32}}' autocomplete='off' placeholder='{T("letters, digits, . _ -")}'></div>");
-        create.Append($"<div class='field'><label for='new_temp_password'>{T("Temporary password")}</label><input id='new_temp_password' name='temp_password' type='password' minlength='8' autocomplete='new-password' placeholder='{T("≥ 8 chars; only when password sign-in is allowed")}'></div>");
+        create.Append($"<div class='field'><label for='new_temp_password'>{T("Password")}</label><input id='new_temp_password' name='temp_password' type='password' minlength='8' autocomplete='new-password' placeholder='{T("≥ 8 chars; only when password sign-in is allowed")}'></div>");
         create.Append($"<div class='field'><label for='new_email'>{T("Email")}</label><input type='email' id='new_email' name='email' autocomplete='off' placeholder='{T("sent to apps as the email claim")}'></div>");
         create.Append($"<div class='field'><label for='new_invite_email'>{T("Pre-bind sign-in email")}</label><input type='email' id='new_invite_email' name='invite_email' autocomplete='off' placeholder='{T("optional; first Google / Outlook sign-in with it binds here")}'></div>");
         create.Append("</div><div class='form-foot'>");
         create.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='allow_password_login' value='1' checked>{T("Allow password sign-in")}</label>");
+        create.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='must_change_password' value='1'>{T("Must change password on first sign-in")}</label>");
         create.Append($"<span class='grow'></span><button class='btn' type='submit'>{T("Create")}</button>");
         create.Append("</div></form>");
         create.Append($"<p class='hint' style='margin-top:12px'>{T("Email is what apps (e.g. Immich) use to match this person to their own account — set it to the email of their account in that app. Accounts that sign in with Google / Microsoft should usually have password sign-in turned off.")}</p>");
@@ -485,7 +486,7 @@ public static class DashboardTemplates
         sb.Append("</tbody></table></div>");
 
         return Card(T("Users"), null, sb.ToString()) +
-               Card(T("Create user"), T("Share the temporary password with the user; they must change it on first sign-in."), create.ToString());
+               Card(T("Create user"), T("Tell the user their password. Turn on \"Must change password on first sign-in\" if they should pick their own."), create.ToString());
     }
 
     // ---- 单个用户：资料 / 资源授权 / 外部身份 / 已授权应用 / 会话 / 重置密码 / 删除 ----
@@ -599,10 +600,10 @@ public static class DashboardTemplates
         if (!u.IsSelf && !u.IsAdmin)
         {
             var reset = new StringBuilder($"<form method='post' action='/admin/users/reset-password'>{uid}");
-            reset.Append($"<div class='form-grid narrow'><div class='field'><label for='temp_password'>{T("Temporary password")}</label><input id='temp_password' name='temp_password' type='password' required minlength='8' placeholder='{T("new temporary password")}' autocomplete='off'></div></div>");
-            reset.Append($"<div class='form-foot'><button class='btn' data-variant='outline' type='submit'>{T("Reset password")}</button></div>");
+            reset.Append($"<div class='form-grid narrow'><div class='field'><label for='temp_password'>{T("New password")}</label><input id='temp_password' name='temp_password' type='password' required minlength='8' placeholder='{T("≥ 8 chars")}' autocomplete='off'></div></div>");
+            reset.Append($"<div class='form-foot'><label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='must_change_password' value='1'>{T("Must change password on first sign-in")}</label><span class='grow'></span><button class='btn' data-variant='outline' type='submit'>{T("Reset password")}</button></div>");
             reset.Append("</form>");
-            html.Append(Card(T("Reset password"), T("Set a temporary password; they must change it on next sign-in. Their current sessions end immediately."), reset.ToString()));
+            html.Append(Card(T("Reset password"), T("Set a new password and tell them. Their current sessions end immediately."), reset.ToString()));
 
             var del = new StringBuilder($"<form method='post' action='/admin/users/delete' {Confirm(T("Delete user {0}? All of their refresh tokens will be revoked.", u.Username))}>{uid}");
             del.Append($"<button class='btn' data-variant='destructive' type='submit'>{T("Delete user")}</button></form>");

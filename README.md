@@ -237,7 +237,9 @@ three places:
   someone signs in with an account for that email, it is linked to this user
   directly, with no approval step.
 - **A password user created by the admin.** Tick "Allow password sign-in" and
-  give a temporary password, which the user must change at first sign-in.
+  set a password. By default that is the user's password from then on; tick
+  "Must change password on first sign-in" if they should pick their own. The
+  same choice is offered when the admin resets a password.
 
 A pre-bound email only counts when the provider vouches that the person owns
 it: Google must report `email_verified`, and for Microsoft the sign-in name

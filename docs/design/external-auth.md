@@ -541,7 +541,7 @@ Basecoat 改版（§5.4）上线后，反馈指出「管理 nas-auth 和管理�
 |---|---|
 | 预绑定邮箱 | `external_invites(email PK 小写, user_id, created_at, created_by)`。管理员在用户编辑页「外部身份」卡片登记，或新建用户时填「预绑定 Google 邮箱」。外部登录回调时，身份**首见或仍在待批**、且 `ExternalClaims.IsEmailVerified` 为真、邮箱命中登记 → `BindActive` 绑到登记的用户并建会话（审计 reason `invite_redeemed`），预绑定用 `DELETE … RETURNING` 原子取出即删（一次性，并发登录不会用两次）。已 active（属于谁已定）/ rejected（管理员已表态）的身份不走这条 |
 | 什么算「邮箱已验证」 | 判据是**登录服务商能不能证明他拥有这个邮箱**，与域名无关。**Google**：handler 用 `ClaimActions.MapJsonKey("email_verified", "email_verified")` 把 userinfo 的标记映射成 claim（Google 账号可用任意邮箱注册，但要收验证码才标 verified）。**微软**：只接个人账号（`/consumers/` 端点写死；个人账号注册时验证登录邮箱，微软对消费者租户的邮箱视为已验证）。Graph `/me` 没有标记，ASP.NET 的 Email claim 取 `mail ?? userPrincipalName`，另把 `userPrincipalName`（登录名）映射成 `ms_upn`，要求**登录名就是 Email claim**才算已验证（`mail` 与登录名不同、或登录名是手机号的不算）。工作 / 学校账号的 email 可被租户管理员随意设置（2023 nOAuth），它们走不进 `/consumers/`；**以后若改成 `/common/`，这里必须重审**。（同日先做过一版「只认微软自有域名」，用户指出 Google 也能用任意邮箱注册、真正的判据是服务商是否担保，改成现在这样） |
-| 只走外部登录的新建用户 | 新建时不勾「允许密码登录」：不要求临时密码，存 `PasswordHasher.UnusableHash()`（随机 32 字节，明文不落任何人之手），`must_change_password = 0`。勾了照旧要临时密码、首次登录改密 |
+| 只走外部登录的新建用户 | 新建时不勾「允许密码登录」：不要求临时密码，存 `PasswordHasher.UnusableHash()`（随机 32 字节，明文不落任何人之手），`must_change_password = 0`。勾了照旧要临时密码、首次登录改密（**2026-10-04 起改密可选**：新建与重置密码表单各有「首次登录必须改密」开关，默认不勾，管理员设的密码就是正式密码——给家人开的账号不会去改密，强制只添麻烦；不许密码登录的用户该开关无效） |
 | user_id 不复用 | `deleted_user_ids(user_id PK COLLATE NOCASE)`：`UserRepository.Delete` 默认登记；后台新建、审批新建都先查 `IsRetiredId`，大小写不敏感。审批失败回滚刚建的空用户时传 `retireId: false`（那个 id 从没对外用过）。本节上线前删掉的 id（2026-09-30 ~ 10-02 的 devtest 系列测试号）没有登记，下游账号都已手工删掉 |
 | 删用户 | 连带删其预绑定（同 identities / user_resources） |
 

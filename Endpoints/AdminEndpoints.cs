@@ -67,14 +67,17 @@ public static class AdminEndpoints
             var newEmail = form["email"].ToString();
             var inviteEmail = form["invite_email"].ToString().Trim();
             var allowPassword = form["allow_password_login"].ToString() == "1";
+            // 首次登录强制改密是可选的（默认不强制）：给家人开的账号，管理员定的密码就是正式密码。
+            // 不许密码登录的用户没有可改的密码，这个开关对他无意义，一律不置。
+            var mustChange = allowPassword && form["must_change_password"].ToString() == "1";
 
             if (string.IsNullOrEmpty(newUsername))
                 return RedirectTo("/admin/users", error: T("Username is required"));
             if (!UsernamePattern.IsMatch(newUsername))
                 return RedirectTo("/admin/users", error: T("Username may only contain letters, digits, . _ -, length 1-32"));
-            // 只有允许密码登录才要临时密码：只走 Google / 微软的人没有可改的密码，强制改密会让他永远过不了 /authorize
+            // 只有允许密码登录才要密码：只走 Google / 微软的人没有可改的密码，强制改密会让他永远过不了 /authorize
             if (allowPassword && (string.IsNullOrEmpty(tempPwd) || tempPwd.Length < 8))
-                return RedirectTo("/admin/users", error: T("Temporary password must be at least 8 characters"));
+                return RedirectTo("/admin/users", error: T("Password must be at least 8 characters"));
             if (users.GetByUsername(newUsername) is not null)
                 return RedirectTo("/admin/users", error: T("Username {0} already exists", newUsername));
             if (users.IsRetiredId(newUsername))
@@ -86,10 +89,10 @@ public static class AdminEndpoints
                 userId: newUsername,
                 username: newUsername,
                 passwordHash: allowPassword ? PasswordHasher.Hash(tempPwd) : PasswordHasher.UnusableHash(),
-                mustChangePassword: allowPassword,
+                mustChangePassword: mustChange,
                 email: newEmail,
                 allowPasswordLogin: allowPassword);
-            audit.AccountAction("user-create", true, adminId, $"target={newUsername} password_login={(allowPassword ? 1 : 0)}");
+            audit.AccountAction("user-create", true, adminId, $"target={newUsername} password_login={(allowPassword ? 1 : 0)} must_change={(mustChange ? 1 : 0)}");
 
             if (!string.IsNullOrEmpty(inviteEmail))
             {
@@ -98,9 +101,11 @@ public static class AdminEndpoints
                 audit.AccountAction("invite-add", true, adminId, $"target={newUsername} email={UserRepository.NormalizeEmail(inviteEmail)}");
             }
             return RedirectTo(allowPassword ? "/admin/users" : EditPath(newUsername),
-                notice: allowPassword
-                    ? T("Created user {0}; must change password on first sign-in", newUsername)
-                    : T("Created user {0} (external sign-in only)", newUsername));
+                notice: !allowPassword
+                    ? T("Created user {0} (external sign-in only)", newUsername)
+                    : mustChange
+                        ? T("Created user {0}; must change password on first sign-in", newUsername)
+                        : T("Created user {0}", newUsername));
         });
 
         // 预绑定邮箱（§十八）
@@ -230,20 +235,23 @@ public static class AdminEndpoints
             var form = await ctx.Request.ReadFormAsync();
             var targetId = form["user_id"].ToString();
             var tempPwd = form["temp_password"].ToString();
+            var mustChange = form["must_change_password"].ToString() == "1";
 
             if (string.IsNullOrEmpty(targetId))
                 return RedirectTo("/admin/users", error: T("Missing parameters"));
             if (users.GetById(targetId) is null)
                 return RedirectTo("/admin/users", error: T("User does not exist"));
             if (string.IsNullOrEmpty(tempPwd) || tempPwd.Length < 8)
-                return RedirectTo(EditPath(targetId), error: T("Temporary password must be at least 8 characters"));
+                return RedirectTo(EditPath(targetId), error: T("Password must be at least 8 characters"));
             if (targetId == adminId)
                 return RedirectTo(EditPath(targetId), error: T("Use \"Change password\" under Sign-in & security for your own password"));
 
-            users.ResetPasswordForceChange(targetId, PasswordHasher.Hash(tempPwd));
+            users.ResetPassword(targetId, PasswordHasher.Hash(tempPwd), mustChange);
             users.BumpSessionVersion(targetId); // 重置密码 = 旧会话一并作废（§十六）
-            audit.AccountAction("user-reset-password", true, adminId, $"target={targetId}");
-            return RedirectTo(EditPath(targetId), notice: T("Reset password for {0}; they must change it on next sign-in", targetId));
+            audit.AccountAction("user-reset-password", true, adminId, $"target={targetId} must_change={(mustChange ? 1 : 0)}");
+            return RedirectTo(EditPath(targetId), notice: mustChange
+                ? T("Reset password for {0}; they must change it on next sign-in", targetId)
+                : T("Reset password for {0}", targetId));
         });
 
         admin.MapPost("/users/resources", async (HttpContext ctx,

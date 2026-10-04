@@ -525,6 +525,48 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
     }
 
     [Fact]
+    public async Task AdminCreateAndReset_ForcedPasswordChange_IsOptIn()
+    {
+        var c = _app.Client();
+        Assert.Equal(HttpStatusCode.Redirect, (await Login(c, "/admin/users")).StatusCode);
+
+        long MustChange(string id)
+        {
+            using var scope = _app.Services.CreateScope();
+            return scope.ServiceProvider.GetRequiredService<UserRepository>().GetById(id)!.must_change_password;
+        }
+
+        // 默认：管理员设的密码就是正式密码，不强制改
+        var page = await c.GetStringAsync("/admin/users");
+        Assert.Contains("name='must_change_password'", page);
+        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/admin/users/create", Form(
+            ("username", "family1"), ("temp_password", "family-password"), ("allow_password_login", "1")),
+            secFetchSite: "same-origin"))).StatusCode);
+        Assert.Equal(0, MustChange("family1"));
+
+        // 勾了才强制
+        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/admin/users/create", Form(
+            ("username", "strict1"), ("temp_password", "strict-password"), ("allow_password_login", "1"),
+            ("must_change_password", "1")), secFetchSite: "same-origin"))).StatusCode);
+        Assert.Equal(1, MustChange("strict1"));
+
+        // 不许密码登录的用户：勾了也不置（没有可改的密码，置了 /authorize 永远拒他）
+        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/admin/users/create", Form(
+            ("username", "extonly1"), ("must_change_password", "1")), secFetchSite: "same-origin"))).StatusCode);
+        Assert.Equal(0, MustChange("extonly1"));
+
+        // 重置密码同理：默认清掉标志，勾了才置
+        Assert.Contains("name='must_change_password'", await c.GetStringAsync("/admin/users/edit?user=strict1"));
+        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/admin/users/reset-password", Form(
+            ("user_id", "strict1"), ("temp_password", "another-password")), secFetchSite: "same-origin"))).StatusCode);
+        Assert.Equal(0, MustChange("strict1"));
+        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/admin/users/reset-password", Form(
+            ("user_id", "family1"), ("temp_password", "another-password"), ("must_change_password", "1")),
+            secFetchSite: "same-origin"))).StatusCode);
+        Assert.Equal(1, MustChange("family1"));
+    }
+
+    [Fact]
     public async Task Profile_NicknameAndAvatar_UploadedServedAndSentToApps()
     {
         var c = _app.Client();

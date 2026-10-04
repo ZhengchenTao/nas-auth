@@ -166,10 +166,12 @@ public static class I18n
 
         // ---- 用户管理 ----
         ["Create user"] = "新建用户",
-        ["Share the temporary password with the user; they must change it on first sign-in."] =
-            "把临时密码交给该用户；首次登录会强制改密。",
+        ["Tell the user their password. Turn on \"Must change password on first sign-in\" if they should pick their own."] =
+            "把密码告诉该用户。想让对方自己另设密码，就打开「首次登录必须改密」。",
+        ["Must change password on first sign-in"] = "首次登录必须改密",
+        ["Created user {0}"] = "已创建用户 {0}",
+        ["Reset password for {0}"] = "已重置 {0} 的密码",
         ["letters, digits, . _ -"] = "字母、数字、. _ -",
-        ["Temporary password"] = "临时密码",
         ["≥ 8 chars"] = "≥ 8 个字符",
         ["Create"] = "创建",
         ["Role"] = "角色",
@@ -181,11 +183,10 @@ public static class I18n
         ["active"] = "正常",
         ["Reset"] = "重置",
         ["Delete"] = "删除",
-        ["new temporary password"] = "新临时密码",
         ["Username is required"] = "用户名必填",
         ["Username may only contain letters, digits, . _ -, length 1-32"] =
             "用户名只能包含字母、数字、. _ -，长度 1-32",
-        ["Temporary password must be at least 8 characters"] = "临时密码至少 8 个字符",
+        ["Password must be at least 8 characters"] = "密码至少 8 个字符",
         // ---- §十四 统一账号中心：邮箱 / 按用户的密码登录 / 锁定 ----
         ["Email"] = "邮箱",
         ["email"] = "邮箱",
@@ -348,8 +349,8 @@ public static class I18n
         ["{0} has been signed out on all devices"] = "{0} 已在所有设备上下线",
         ["To sign yourself out elsewhere, use Sign-in & security"] = "要退出自己在其他设备上的登录，请用「登录与安全」页",
         ["Use \"Change password\" under Sign-in & security for your own password"] = "修改自己的密码请用「登录与安全」页",
-        ["Set a temporary password; they must change it on next sign-in. Their current sessions end immediately."] =
-            "设一个临时密码，对方下次登录时必须修改；对方当前的登录立即失效。",
+        ["Set a new password and tell them. Their current sessions end immediately."] =
+            "设一个新密码并告诉对方；对方当前的登录立即失效。",
         ["Resource catalog"] = "资源",
         ["From resources.json (read-only; edit the file and restart to change). Users = accounts granted this resource under Users → Resource grants."] =
             "来自 resources.json（只读，改文件后重启生效）。开通用户数 = 在「用户 → 资源授权」里开了这个资源的账号数。",
