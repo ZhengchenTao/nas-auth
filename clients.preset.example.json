@@ -15,7 +15,11 @@
       "https://git.example.com/user/oauth2/nas-auth/callback"
     ],
     "token_endpoint_auth_method": "client_secret_post",
-    "default_resource": "https://git.example.com"
+    "default_resource": "https://git.example.com",
+    "extra_claims": {
+      "app_roles": ["viewer"],
+      "tenant": "home"
+    }
   },
   {
     "client_id": "immich",

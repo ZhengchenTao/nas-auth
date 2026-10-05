@@ -655,6 +655,77 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         Assert.False(string.IsNullOrEmpty(regJson.RootElement.GetProperty("client_secret").GetString()));
     }
 
+    // ---------- 按客户端附加的 claim / email_verified（§二十一） ----------
+
+    [Fact]
+    public async Task ExtraClaims_AndEmailVerified_ReachIdTokenAndUserInfo_OnlyForThatClient()
+    {
+        void SetAdminEmail(string? email)
+        {
+            using var scope = _app.Services.CreateScope();
+            scope.ServiceProvider.GetRequiredService<UserRepository>()
+                .UpdateProfile(NasAuthAppFactory.AdminUser, email: email, allowPasswordLogin: true);
+        }
+
+        async Task<JsonElement> UserInfo(string accessToken)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, "/userinfo");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            var resp = await _app.Client().SendAsync(req);
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            return JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement.Clone();
+        }
+
+        try
+        {
+            // gitea-web 在示例预置里配了 extra_claims: { app_roles: ["viewer"], tenant: "home" }
+            SetAdminEmail("admin@example.com");
+            var (clientId, secret, redirectUri, code) = await GiteaAuthCode();
+            var tok = await _app.Client().SendAsync(TokenRequest("/token", BasicAuth(clientId, secret),
+                ("grant_type", "authorization_code"), ("code", code), ("redirect_uri", redirectUri)));
+            var body = await tok.Content.ReadAsStringAsync();
+            Assert.True(tok.StatusCode == HttpStatusCode.OK, body);
+            using var json = JsonDocument.Parse(body);
+
+            using (var id = JsonDocument.Parse(Base64UrlDecode(json.RootElement.GetProperty("id_token").GetString()!.Split('.')[1])))
+            {
+                var p = id.RootElement;
+                Assert.Equal(JsonValueKind.Array, p.GetProperty("app_roles").ValueKind);
+                Assert.Equal("viewer", p.GetProperty("app_roles")[0].GetString());
+                Assert.Equal("home", p.GetProperty("tenant").GetString());
+                Assert.Equal("admin@example.com", p.GetProperty("email").GetString());
+                Assert.Equal(JsonValueKind.True, p.GetProperty("email_verified").ValueKind);
+                Assert.Equal(NasAuthAppFactory.AdminUser, p.GetProperty("sub").GetString());
+            }
+
+            var info = await UserInfo(json.RootElement.GetProperty("access_token").GetString()!);
+            Assert.Equal("viewer", info.GetProperty("app_roles")[0].GetString());
+            Assert.Equal("home", info.GetProperty("tenant").GetString());
+            Assert.Equal(JsonValueKind.True, info.GetProperty("email_verified").ValueKind);
+            Assert.Equal(NasAuthAppFactory.AdminUser, info.GetProperty("sub").GetString());
+
+            // 没有邮箱：email_verified 不出现（不是 false）
+            SetAdminEmail(null);
+            var info2 = await UserInfo(json.RootElement.GetProperty("access_token").GetString()!);
+            Assert.False(info2.TryGetProperty("email_verified", out _));
+            Assert.Equal("home", info2.GetProperty("tenant").GetString());
+
+            // 发现文档宣告
+            using var meta = JsonDocument.Parse(await _app.Client().GetStringAsync("/.well-known/openid-configuration"));
+            Assert.Contains("email_verified", meta.RootElement.GetProperty("claims_supported").EnumerateArray().Select(e => e.GetString()));
+
+            // 管理后台的客户端列表标出哪个客户端带附加字段
+            var c = _app.Client();
+            Assert.Equal(HttpStatusCode.Redirect, (await Login(c, "/admin/apps")).StatusCode);
+            var apps = await c.GetStringAsync("/admin/apps");
+            Assert.Contains("app_roles, tenant", apps);
+        }
+        finally
+        {
+            SetAdminEmail(null);
+        }
+    }
+
     [Fact]
     public async Task AdminCreateAndReset_ForcedPasswordChange_IsOptIn()
     {

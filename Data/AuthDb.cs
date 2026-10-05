@@ -52,6 +52,8 @@ public class AuthDb
         // （非 RFC 8707 客户端如 Gitea 不发 resource 参数，按 client 兜底）。
         TryAddColumn(conn, "ALTER TABLE auth_codes ADD COLUMN nonce TEXT");
         TryAddColumn(conn, "ALTER TABLE clients ADD COLUMN default_resource TEXT");
+        // 按客户端附加的固定 claim（§二十一）：JSON 对象，值为字符串或字符串数组；只有预置客户端会有
+        TryAddColumn(conn, "ALTER TABLE clients ADD COLUMN extra_claims TEXT");
         // 统一账号中心（external-auth.md §十四）：用户自己的邮箱、按用户的密码登录开关、按账号失败锁定。
         // allow_password_login 默认 0：升级前密码登录是全局开关、常见做法是关闭，全员 0 与升级前的实际行为一致。
         TryAddColumn(conn, "ALTER TABLE users ADD COLUMN email TEXT");
@@ -135,7 +137,8 @@ CREATE TABLE IF NOT EXISTS clients (
     auto_registered INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     last_used_at INTEGER,
-    default_resource TEXT
+    default_resource TEXT,
+    extra_claims TEXT
 );
 
 CREATE TABLE IF NOT EXISTS auth_codes (

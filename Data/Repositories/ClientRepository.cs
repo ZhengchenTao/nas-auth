@@ -55,22 +55,23 @@ public class ClientRepository
     /// <summary>
     /// 预置 client upsert：相同 client_id 覆盖（除 created_at），auto_registered 强制 0。
     /// </summary>
-    public void UpsertPreset(PresetClientConfig preset, string? secretHash)
+    public void UpsertPreset(PresetClientConfig preset, string? secretHash, string? extraClaimsJson = null)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         using var conn = _db.OpenConnection();
         conn.Execute(@"
             INSERT INTO clients (client_id, client_secret_hash, client_name, redirect_uris,
-                                 token_endpoint_auth_method, auto_registered, created_at, default_resource)
+                                 token_endpoint_auth_method, auto_registered, created_at, default_resource, extra_claims)
             VALUES (@client_id, @client_secret_hash, @client_name, @redirect_uris,
-                    @token_endpoint_auth_method, 0, @created_at, @default_resource)
+                    @token_endpoint_auth_method, 0, @created_at, @default_resource, @extra_claims)
             ON CONFLICT(client_id) DO UPDATE SET
                 client_secret_hash = excluded.client_secret_hash,
                 client_name = excluded.client_name,
                 redirect_uris = excluded.redirect_uris,
                 token_endpoint_auth_method = excluded.token_endpoint_auth_method,
                 auto_registered = 0,
-                default_resource = excluded.default_resource",
+                default_resource = excluded.default_resource,
+                extra_claims = excluded.extra_claims",
             new
             {
                 client_id = preset.ClientId,
@@ -80,6 +81,7 @@ public class ClientRepository
                 token_endpoint_auth_method = preset.TokenEndpointAuthMethod,
                 created_at = now,
                 default_resource = preset.DefaultResource,
+                extra_claims = extraClaimsJson,
             });
     }
 

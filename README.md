@@ -219,6 +219,7 @@ Applied at startup.
 | `redirect_uris` | Exact match. Custom schemes such as `app.immich:///oauth-callback` are fine here. |
 | `token_endpoint_auth_method` | `none` (public, PKCE required), `client_secret_post` or `client_secret_basic`. A client with a secret may send it either way (form field or `Authorization: Basic` header), whichever is listed here. |
 | `default_resource` | Used when the client sends no `resource`, which most OIDC apps don't. |
+| `extra_claims` | Optional. Fixed claims added to this client's `id_token` and `/userinfo`. Values are strings or arrays of strings, for example `{ "dozzle_roles": ["all"] }`. For apps that refuse to sign anyone in without a role or group claim. Every user of the client gets the same values. Protocol and identity claims such as `sub`, `email` or `name` can't be overridden; trying to makes startup fail. |
 
 Self-registered clients are deleted after 30 days without use, unless they
 still hold a valid refresh token.
@@ -289,8 +290,12 @@ several resources), `client_id`, `scope`, `resource`, `iat`, `nbf`, `exp`,
 `jti`.
 
 The `id_token` and `/userinfo` carry the user's details: `sub` and
-`preferred_username` (both the user id), `email`, `name` (the nickname) and
-`picture` (the avatar URL).
+`preferred_username` (both the user id), `email`, `email_verified`, `name`
+(the nickname) and `picture` (the avatar URL), plus the client's
+`extra_claims`. `email_verified` is always `true` when there is an email. It
+means the admin vouches for the address (only the admin can set it); nas-auth
+never sends a verification mail. There are no groups or roles; if an app needs
+one, give it a fixed value through `extra_claims`.
 
 **Rotating the key.** Rename `oidc_rs256_current.pem` to
 `oidc_rs256_previous.pem` and restart; a new key is generated. The old one
@@ -354,7 +359,7 @@ dotnet test tests/nas-auth.Tests
 entry. Open `http://localhost:5000/login` in Chrome or Firefox. To get a token
 for testing an MCP server, run the real flow, for example with MCP Inspector.
 
-The test suite (xUnit, about 450 tests) needs nothing external. It covers the
+The test suite (xUnit, about 480 tests) needs nothing external. It covers the
 protocol pieces, accounts and approvals, the page templates, and the full HTTP
 pipeline through `WebApplicationFactory`.
 

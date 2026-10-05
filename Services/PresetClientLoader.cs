@@ -57,7 +57,8 @@ public static class PresetClientLoader
                 secretHash = Convert.ToHexString(h);
             }
 
-            clients.UpsertPreset(preset, secretHash);
+            // extra_claims 不合法（撞保留名、值不是字符串 / 字符串数组）在这里抛错，启动即失败
+            clients.UpsertPreset(preset, secretHash, ExtraClaims.Normalize(preset.ClientId, preset.ExtraClaims));
             logger.LogInformation("预置 client upsert: {ClientId} ({Name})",
                 preset.ClientId, preset.ClientName);
         }

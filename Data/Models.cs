@@ -13,7 +13,8 @@ public record ClientRow(
     long auto_registered,
     long created_at,
     long? last_used_at,
-    string? default_resource
+    string? default_resource,
+    string? extra_claims = null
 );
 
 public record AuthCodeRow(

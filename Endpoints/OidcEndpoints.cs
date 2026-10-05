@@ -38,7 +38,7 @@ public static class OidcEndpoints
                 scopes_supported = new[] { "openid", "email", "profile" }
                     .Concat(catalog.AllScopes()).Distinct().ToArray(),
                 token_endpoint_auth_methods_supported = new[] { "client_secret_post", "client_secret_basic", "none" },
-                claims_supported = new[] { "sub", "email", "name", "preferred_username", "picture", "iss", "aud", "iat", "exp" },
+                claims_supported = new[] { "sub", "email", "email_verified", "name", "preferred_username", "picture", "iss", "aud", "iat", "exp" },
             });
         });
 
@@ -54,7 +54,8 @@ public static class OidcEndpoints
         JwtValidator validator,
         UserRepository users,
         ExternalIdentityRepository identities,
-        ProfileService profiles)
+        ProfileService profiles,
+        ClientRepository clients)
     {
         var auth = ctx.Request.Headers.Authorization.ToString();
         if (!auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
@@ -67,14 +68,26 @@ public static class OidcEndpoints
             return Unauthorized(ctx);
 
         var (email, name, picture) = profiles.Resolve(identities, users, userId);
-        return Results.Ok(new
+        var body = new Dictionary<string, object?>
         {
-            sub = userId,
-            preferred_username = userId,
-            email,
-            name,
-            picture,
-        });
+            ["sub"] = userId,
+            ["preferred_username"] = userId,
+            ["email"] = email,
+            ["name"] = name,
+            ["picture"] = picture,
+        };
+        // 与 id_token 一致：有邮箱才带 email_verified（含义是「管理员担保」，见 external-auth.md §二十一）
+        if (!string.IsNullOrEmpty(email)) body["email_verified"] = true;
+
+        // 按客户端附加的固定 claim（§二十一）：access token 是发给哪个客户端的，就带哪个客户端的；
+        // 保留名在入库前已拒，这里再用 TryAdd 兜一层，绝不覆盖上面的身份字段
+        var clientId = principal?.FindFirst("client_id")?.Value;
+        if (!string.IsNullOrEmpty(clientId) && clients.GetById(clientId) is { } client)
+        {
+            foreach (var (type, value) in ExtraClaims.Parse(client.extra_claims))
+                body.TryAdd(type, value);
+        }
+        return Results.Ok(body);
     }
 
     /// <summary>email / name 的取值规则，见 <see cref="ProfileService.ResolveCore"/>（§十四、§十九）。</summary>

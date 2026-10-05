@@ -610,3 +610,46 @@ Basecoat 改版（§5.4）上线后，反馈指出「管理 nas-auth 和管理�
 ### 测试
 
 `ClientCredentialsTests`：表单 / Basic 头 / 别的 scheme 忽略、scheme 大小写、表单编码与原文两种读法、secret 含冒号、公开客户端空 secret、各种坏头、头与表单同带、两处 `client_id` 不一致。`HttpPipelineTests`：预置 confidential 客户端只用 Basic 头走完换码 → 刷新 → 内省 → 吊销；错 secret / 坏 base64 得 401 且带 `WWW-Authenticate`，头与表单同带、`client_id` 不一致得 400，这些失败之后同一个授权码仍可用正确的 Basic 换到 token；发现文档宣告与 DCR 注册 `client_secret_basic`。
+
+## 二十一、按客户端附加的固定 claim、`email_verified`（2026-10-05）
+
+### 背景
+
+要接的 Dozzle v11.2.0 两种 OIDC 接法都过不了：`oidc` 模式要从 id_token 或 userinfo 里读到角色（`dozzle_roles` / `roles` 等），一个都没有就拒绝登录；`simple` 模式把缺失的 `email_verified` 当 false，同样拒绝。本 IdP 原先只下发 `sub` / `preferred_username` / `email` / `name` / `picture`，没有角色、没有组、没有 `email_verified`。以后要接的应用里还有要 `groups` 的。
+
+### A：按客户端附加固定 claim
+
+| 项 | 做法 |
+|---|---|
+| 配置 | `clients.preset.json` 的客户端条目里写 `"extra_claims": { "dozzle_roles": ["all"], "tenant": "home" }`。值只能是字符串或字符串数组（各 ≤ 256 字符，数组 ≤ 64 项，一个客户端 ≤ 16 个） |
+| 下发 | 对这个客户端签发的 id_token 带上；`/userinfo` 按 access token 里的 `client_id` 找到客户端后也带上。access token 本身不带（那是给资源服务器看的） |
+| 数组形状 | 数组一律写成 JSON 数组，只有一项也是数组（多个同名 Claim 只有一项时默认会被序列化成字符串，要 `groups` 是数组的应用会认不出） |
+| 保留名 | 协议字段（`iss` `sub` `aud` `exp` `nbf` `iat` `jti` `nonce` `auth_time` `acr` `amr` `azp` `at_hash` `c_hash` `s_hash` `sid` `typ` `cnf` `scope` `client_id` `resource`）和本 IdP 自己下发的身份字段（`email` `email_verified` `name` `preferred_username` `picture`）不许配，大小写不敏感。**撞名或值的形状不对 → 启动即失败**，与 `clients.preset.json` 的其他错误一致，不带着半套配置跑 |
+| 存储 | `clients.extra_claims`（JSON 文本），启动时随预置 upsert；从配置里删掉这个字段，下次启动即清空。读库时再过滤一次保留名、`/userinfo` 用 `TryAdd`，手改库也覆盖不了身份字段。DCR 客户端没有这个字段 |
+| 局限 | 同一客户端所有用户拿到相同的值，**分不了人**。能不能进这个应用仍由 `user_resources` 把关；这里只解决「应用非要某个 claim 才放行」。以后要按用户区分，在条目里另加一层（如 `extra_claims_by_user`）叠在这上面，不改现有格式 |
+| 后台 | 「应用与资源」的客户端列表在名字下标出带了哪些附加字段 |
+
+### B：`email_verified`
+
+id_token 和 `/userinfo` 里只要有 `email` 就带 `email_verified: true`（JSON 布尔）；没有邮箱时这个字段不出现。发现文档 `claims_supported` 同步加上。
+
+**含义是「管理员为这个邮箱担保」，不是「发过验证邮件」。** `email` 的取值是 `users.email`（只有管理员能在后台填，用户自己改不了），为空才回落到已绑定外部身份的邮箱（那个身份要么经管理员审批，要么经预绑定邮箱且服务商证明过归属，§十八）。本 IdP 从不发验证邮件。下游应用如果把它当成「用户本人确认过这个邮箱」，在这套部署里等价于「管理员确认过」。
+
+### 对已接应用的影响（2026-10-05，按线上版本读源码）
+
+字段从缺失变成 `true`，六个应用行为都不变——它们的 OIDC 客户端代码都不读这个字段：
+
+| 应用 | 依据 |
+|---|---|
+| Gitea 1.27.3 | goth 的 OIDC provider 只定义了常量没使用；找人只按 `sub`；`ACCOUNT_LINKING=disabled` 下不按邮箱关联 |
+| Immich 3.1.0 | `auth.service.ts` 的回调全程不看它；按邮箱关联已有账号这件事本来就是无条件的（§十四），改动前后一样 |
+| Grafana 11.2.0 | generic OAuth 的用户结构里没有它（只有 Google / GitLab 专用 connector 读）；按邮箱找人只看 `oauth_allow_insecure_email_lookup`（未开） |
+| Open WebUI 0.11.4 | 合并只看 `OAUTH_MERGE_ACCOUNTS_BY_EMAIL`（线上 false） |
+| ezBookkeeping（fork） | OIDC claims 结构只有用户名、名字、邮箱；按 username 认人 |
+| Home Assistant hass-oidc-auth 1.2.1 | 只取 `name` / `preferred_username` / `groups`，按 `sub` 找人 |
+
+没核实的：Gitea 认证源里的 `RequiredClaimName`、Immich 的 `roleClaim` 等自定义项存在各自数据库里，没读；只有把它们配成 `email_verified` 才会受影响。
+
+### 测试
+
+`ExtraClaimsTests`：字符串与字符串数组往返、空配置、保留名（含大小写不同）全拒、数字 / 布尔 / 对象 / 嵌套数组 / 空串 / 坏名字全拒、读库时过滤保留名、id_token 里单项数组仍是数组、`email_verified` 是布尔且只在有邮箱时出现。`HttpPipelineTests`：示例预置的 `gitea-web` 走真实流程，id_token 与 userinfo 都带附加字段和 `email_verified`，清掉邮箱后 userinfo 不再带 `email_verified`，发现文档宣告，后台列表标出附加字段。

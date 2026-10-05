@@ -169,6 +169,7 @@ public static class I18n
         ["Tell the user their password. Turn on \"Must change password on first sign-in\" if they should pick their own."] =
             "把密码告诉该用户。想让对方自己另设密码，就打开「首次登录必须改密」。",
         ["Must change password on first sign-in"] = "首次登录必须改密",
+        ["extra claims"] = "附加字段",
         ["Created user {0}"] = "已创建用户 {0}",
         ["Reset password for {0}"] = "已重置 {0} 的密码",
         ["letters, digits, . _ -"] = "字母、数字、. _ -",

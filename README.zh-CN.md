@@ -162,6 +162,7 @@ Auth__Dcr__AllowedCustomSchemes__0=cursor
 | `redirect_uris` | 精确匹配，可以用 `app.immich:///oauth-callback` 这类自定义 scheme。 |
 | `token_endpoint_auth_method` | `none`（公共客户端，必须 PKCE）、`client_secret_post` 或 `client_secret_basic`。带 secret 的客户端两种写法都收（表单字段，或 `Authorization: Basic` 头），与这里登记的是哪一种无关。 |
 | `default_resource` | 客户端不传 `resource` 时用它，大多数 OIDC 应用都不传。 |
+| `extra_claims` | 可选。给这个客户端的 `id_token` 和 `/userinfo` 附加的固定字段，值是字符串或字符串数组，例如 `{ "dozzle_roles": ["all"] }`。给那些读不到角色或组就不让登录的应用用。同一客户端所有用户拿到的值相同；不能覆盖 `sub`、`email`、`name` 这类协议和身份字段，写了会启动失败。 |
 
 自己注册的客户端 30 天没用就会被清掉，除非手里还有有效的 refresh token。
 
@@ -193,7 +194,7 @@ Auth__Dcr__AllowedCustomSchemes__0=cursor
 
 token 里的 claim：`iss`、`sub`、`aud`（字符串；一个 token 覆盖多个资源时是数组）、`client_id`、`scope`、`resource`、`iat`、`nbf`、`exp`、`jti`。
 
-`id_token` 和 `/userinfo` 里是用户信息：`sub` 和 `preferred_username`（都是用户 id）、`email`、`name`（昵称）、`picture`（头像地址）。
+`id_token` 和 `/userinfo` 里是用户信息：`sub` 和 `preferred_username`（都是用户 id）、`email`、`email_verified`、`name`（昵称）、`picture`（头像地址），再加上这个客户端配置的 `extra_claims`。有邮箱时 `email_verified` 恒为 `true`，意思是管理员为这个邮箱担保（邮箱只有管理员能填），nas-auth 不发验证邮件。没有组和角色的概念，应用需要的话用 `extra_claims` 给一个固定值。
 
 **换密钥。** 把 `oidc_rs256_current.pem` 改名成 `oidc_rs256_previous.pem` 后重启，会生成新的。旧钥仍在 JWKS 里，至少留满一个 access token 的有效期（默认 30 天）再换下一次。资源服务会自己拿到新公钥。
 
@@ -235,7 +236,7 @@ dotnet test tests/nas-auth.Tests
 
 `EZBK_MCP_TOKEN` 只是因为示例资源里有一个代理条目。用 Chrome 或 Firefox 打开 `http://localhost:5000/login`。要拿 token 测 MCP 服务，就走一遍真实流程，比如用 MCP Inspector。
 
-测试（xUnit，约 450 个）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
+测试（xUnit，约 480 个）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
 
 ## 镜像与 CI
 

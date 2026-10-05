@@ -273,7 +273,8 @@ public static class TokenEndpoints
                 expires_in = issuer.AccessTokenLifetimeSeconds(),
                 refresh_token = refreshPlain,
                 scope = row.scope,
-                id_token = oidcKeys.IssueIdToken(row.user_id, client.client_id, email, name, row.nonce, picture),
+                id_token = oidcKeys.IssueIdToken(row.user_id, client.client_id, email, name, row.nonce, picture,
+                    ExtraClaims.Parse(client.extra_claims)),
             });
         }
 

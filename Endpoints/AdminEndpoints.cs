@@ -445,7 +445,8 @@ public static class AdminEndpoints
                     RedirectUris: ClientRepository.ParseRedirectUris(c.redirect_uris),
                     CreatedAtDisplay: TimeDisplay(c.created_at),
                     LastUsedDisplay: c.last_used_at is { } t ? TimeDisplay(t) : "-",
-                    ActiveGrants: grantsByClient.TryGetValue(c.client_id, out var g) ? g : 0))
+                    ActiveGrants: grantsByClient.TryGetValue(c.client_id, out var g) ? g : 0,
+                    ExtraClaimNames: ExtraClaims.Parse(c.extra_claims).Keys.OrderBy(k => k, StringComparer.Ordinal).ToList()))
                 .ToList();
 
             return Render(ctx, users, identities, DashboardSpace.Admin, "apps", "Apps & resources",

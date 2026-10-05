@@ -711,7 +711,10 @@ public static class DashboardTemplates
             foreach (var c in clients)
             {
                 sb.Append("<tr>");
-                sb.Append($"<td class='wrap'>{Esc(ClientDisplayName(c.ClientName))}<span class='sub'>{Esc(c.ClientId)}</span></td>");
+                sb.Append($"<td class='wrap'>{Esc(ClientDisplayName(c.ClientName))}<span class='sub'>{Esc(c.ClientId)}</span>");
+                if (c.ExtraClaimNames is { Count: > 0 })
+                    sb.Append($"<span class='sub'>{T("extra claims")}: {Esc(string.Join(", ", c.ExtraClaimNames))}</span>");
+                sb.Append("</td>");
                 sb.Append($"<td>{(c.AutoRegistered ? "<span class='badge' data-variant='outline'>DCR</span>" : $"<span class='badge' data-variant='secondary'>{T("preset")}</span>")}</td>");
                 sb.Append($"<td><span class='badge mono' data-variant='outline'>{Esc(c.TokenEndpointAuthMethod)}</span></td>");
                 sb.Append("<td class='wrap'>");
@@ -870,7 +873,8 @@ public record ClientAdminView(
     IReadOnlyList<string> RedirectUris,
     string CreatedAtDisplay,
     string LastUsedDisplay,
-    int ActiveGrants = 0
+    int ActiveGrants = 0,
+    IReadOnlyList<string>? ExtraClaimNames = null
 );
 
 public record ProfileAppView(string DisplayName, string Aud, IReadOnlyList<string> Scopes);

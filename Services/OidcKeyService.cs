@@ -73,7 +73,8 @@ public class OidcKeyService
 
     /// <summary>id_token：RS256，短寿命 1h（§九）。aud = client_id（OIDC Core §2）。</summary>
     public string IssueIdToken(string userId, string clientId,
-        string? email, string? name, string? nonce, string? picture = null)
+        string? email, string? name, string? nonce, string? picture = null,
+        IReadOnlyDictionary<string, object>? extraClaims = null)
     {
         var now = DateTimeOffset.UtcNow;
         var claims = new List<Claim>
@@ -82,10 +83,26 @@ public class OidcKeyService
             new("preferred_username", userId),
             new("iat", now.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
         };
-        if (!string.IsNullOrEmpty(email)) claims.Add(new Claim("email", email));
+        if (!string.IsNullOrEmpty(email))
+        {
+            claims.Add(new Claim("email", email));
+            // 含义是「管理员为这个邮箱担保」，不是「发过验证邮件」：见 external-auth.md §二十一
+            claims.Add(new Claim("email_verified", "true", ClaimValueTypes.Boolean));
+        }
         if (!string.IsNullOrEmpty(name)) claims.Add(new Claim("name", name));
         if (!string.IsNullOrEmpty(picture)) claims.Add(new Claim("picture", picture));
         if (!string.IsNullOrEmpty(nonce)) claims.Add(new Claim("nonce", nonce));
+        // 按客户端附加的固定 claim（§二十一）。数组一律按 JSON 数组写出：
+        // 多个同名 Claim 只有一项时会被序列化成字符串，要 groups 是数组的应用会认不出
+        if (extraClaims is not null)
+        {
+            foreach (var (type, value) in extraClaims)
+            {
+                claims.Add(value is string s
+                    ? new Claim(type, s)
+                    : new Claim(type, System.Text.Json.JsonSerializer.Serialize(value), JsonClaimValueTypes.JsonArray));
+            }
+        }
 
         // header typ 保持默认 JWT：JwtValidator 只收 typ=at+jwt 的 RS256 token，id_token 不能冒充 access token
         var token = new JwtSecurityToken(

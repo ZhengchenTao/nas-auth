@@ -86,4 +86,11 @@ public class PresetClientConfig
     /// </summary>
     [JsonPropertyName("default_resource")]
     public string? DefaultResource { get; set; }
+
+    /// <summary>
+    /// 可选。对这个客户端签发的 id_token / userinfo 里附加的固定 claim，值为字符串或字符串数组
+    /// （见 <see cref="NasAuth.Services.ExtraClaims"/>，external-auth.md §二十一）。
+    /// </summary>
+    [JsonPropertyName("extra_claims")]
+    public Dictionary<string, System.Text.Json.JsonElement>? ExtraClaims { get; set; }
 }
