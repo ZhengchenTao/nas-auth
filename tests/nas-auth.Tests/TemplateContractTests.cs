@@ -138,4 +138,18 @@ public class TemplateContractTests
         Assert.Contains("action='/admin/users/force-logout'", html);
         Assert.Contains("action='/admin/users/revoke-all'", html);
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Alert_KeepsInlineMarkupInOneBlock(bool error)
+    {
+        // Basecoat 的 .alert > section 是 grid：section 下面有几个直接子节点，文案就被拆成几行。
+        // 带 <code> / <strong> 的文案必须整体包在一个子元素里（2026-10-09 forward-auth 拒绝页上一句话拆成了五行）。
+        var html = Ui.Alert("Account <code>bob</code> is not authorized for <strong>Docs</strong>.", error);
+        Assert.Contains("<section><div>Account <code>bob</code> is not authorized for <strong>Docs</strong>.</div></section>", html);
+
+        var denied = HtmlTemplates.ForwardAuthDenied("Docs", "bob", "/logout");
+        Assert.Contains("<section><div>Account <code>bob</code>", denied);
+    }
 }

@@ -42,10 +42,14 @@ public static class Ui
   <link rel=""stylesheet"" href=""/app.css?v={AssetVersion}"">
   <script src=""/theme.js?v={AssetVersion}""></script>";
 
-    /// <summary>提示条。html 由调用方负责转义（部分文案本身带 &lt;code&gt;）。</summary>
+    /// <summary>
+    /// 提示条。html 由调用方负责转义（部分文案本身带 &lt;code&gt;）。
+    /// 文案外面包一层 div：Basecoat 把 <c>.alert &gt; section</c> 设成了 grid，不包的话文字、&lt;code&gt;、&lt;strong&gt;
+    /// 各自成为一个格子，一句话被拆成好几行（2026-10-09 forward-auth 的拒绝页上一句话拆成了五行）。
+    /// </summary>
     public static string Alert(string html, bool error) => error
-        ? $"<div class='alert' data-variant='destructive' role='alert'>{IconAlert}<section>{html}</section></div>"
-        : $"<div class='alert' role='status'>{IconCheck}<section>{html}</section></div>";
+        ? $"<div class='alert' data-variant='destructive' role='alert'>{IconAlert}<section><div>{html}</div></section></div>"
+        : $"<div class='alert' role='status'>{IconCheck}<section><div>{html}</div></section></div>";
 
     public static string Esc(string? s) => WebUtility.HtmlEncode(s ?? "");
 
