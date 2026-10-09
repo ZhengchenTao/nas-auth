@@ -22,6 +22,7 @@ MCP 客户端从 MCP 服务的元数据里找到授权服务，自己注册，�
 - 用户 id 和显示用的昵称、头像分开：id 固定不变，下游应用按它认人；昵称和头像可以改，随 `name` / `picture` 下发给应用。
 - 按用户授权：哪个用户能用哪个资源、到哪些 scope。
 - `/proxy/{aud}`：上游只认一个固定 token 时用。nas-auth 先验自己的 JWT，再换成上游 token 流式转发。
+- forward-auth：给自己不带登录的站点（静态页面、没有账号体系的小工具）在反向代理这一层挡门，登录和按人授权都复用上面的。
 - 每个用户都有 `/account`（已授权应用、昵称与头像、绑定的账号、密码、登录会话），管理员另有 `/admin`（用户、审批、客户端、审计日志）。界面有中英文。
 
 access token 是 RS256 签名的 JWT，`typ: at+jwt`，可以用 `/.well-known/jwks.json` 验证。对称密钥的 HS256 模式还留着，给老部署用。
@@ -151,6 +152,62 @@ Auth__Dcr__AllowedCustomSchemes__0=cursor
 
 `resource_url` 就是客户端传的 `resource`，末尾多个斜杠或带 `/mcp` 这样的子路径也能匹配上。带 `proxy` 的条目挂在 `/proxy/<aud>/…` 下，`upstream` 只能写到主机。用 OIDC 登录的网页应用，建一个 scope 为 `openid email profile` 的条目，再配一个指向它的预置客户端。`"admin_only": true` 表示这个资源只能授给管理员：资源服务拿你的一把固定凭据访问上游（个人访问令牌、唯一的账本 token）时就该这么标，否则授给别人就等于把你的数据交出去。后台不能把它授给非管理员；就算库里还留着旧的授权行，`/authorize` 和刷新也会拒绝非管理员。
 
+### 保护一个自己不带登录的站点（forward-auth）
+
+站点自己不用改。在 `resources.json` 里登记它，再让反向代理每个请求先来问 nas-auth：
+
+```json
+{ "aud": "docs-site", "resource_url": "https://docs.example.com", "display_name": "Family docs", "forward_auth": {} }
+```
+
+`resource_url` 是站点的来源，不带路径。`scopes` 不用写。`"forward_auth": { "session_hours": 12 }` 可以改站点 cookie 的寿命（默认 12 小时，到期后只要 nas-auth 还登着就自动换新）。`admin_only` 照常可用。然后在后台给用户勾上这个资源。
+
+Caddy 的写法：
+
+```
+# 用法：import protect <aud>
+(protect) {
+	# 回调、退出：原样交给 nas-auth，不过 forward_auth（这时还没有站点 cookie）
+	@nasauth path /.nas-auth/*
+	handle @nasauth {
+		reverse_proxy nas-auth:8080
+	}
+	@gated not path /.nas-auth/*
+	forward_auth @gated nas-auth:8080 {
+		uri /forward-auth/verify?aud={args[0]}
+	}
+	# 不透传身份头时，访客自带的同名头也删掉
+	request_header @gated -X-Auth-*
+}
+
+docs.example.com {
+	import protect docs-site
+	reverse_proxy docs:80 {
+		# 登录后才看得到的内容不能进 CDN / 共享缓存
+		header_down Cache-Control "private, no-cache"
+	}
+}
+
+auth.example.com {
+	# verify 只给反向代理内部调用
+	@verify path /forward-auth/verify
+	respond @verify 404
+	reverse_proxy nas-auth:8080
+}
+```
+
+没登录的人访问站点会被送到 nas-auth 登录，登录后回到原来的地址；登录了但没被授权的人看到 403。撤销授权、强制下线、删用户立即生效。站点上的 `/.nas-auth/logout` 是退出地址。
+
+接的时候注意：
+
+- `aud` 写死在 verify 的地址里，一个站点一个。nas-auth 不按 `X-Forwarded-Host` 认站点，那个头访客可以自己带。
+- `/.nas-auth/*` 要原样转给 nas-auth，站点自己不能再用这个路径前缀。
+- 登录后才看得到的响应必须带 `Cache-Control: private`。前面有 CDN 时，不标就会被边缘节点存下来发给所有人。
+- nas-auth 放行时会回 `X-Auth-User` 和 `X-Auth-Email`。默认不要传给上游；要传就把 `request_header` 那行换成 forward_auth 块里的 `copy_headers X-Auth-User X-Auth-Email`，并保证上游只有反向代理能访问到。
+- nas-auth 不可用时，被保护的站点一律不可访问，不会放行。
+
+机制与取舍见 [docs/design/external-auth.md](docs/design/external-auth.md) 第二十二节。
+
 ### clients.preset.json
 
 给没法自己注册的客户端用，一般是走 OIDC 的网页应用。启动时写入。
@@ -206,7 +263,8 @@ token 里的 claim：`iss`、`sub`、`aud`（字符串；一个 token 覆盖多�
 - 其他来源发来的浏览器表单提交一律 403，同一主域下的其他子域也算。`/token`、`/revoke`、`/introspect`、`/register`、`/userinfo`、`/proxy/*`、`/logout` 不受限。
 - 页面带 CSP：`script-src 'self'`、`frame-ancestors 'none'`。CDN 往页面里注入脚本的功能（Cloudflare Rocket Loader、网页统计之类）对这个域名关掉，反正会被拦。
 - 登录、授权确认和 `/token` 每个 IP 每分钟 5 次（IPv6 按 /64 算）；`/register` 每个 IP 每小时 10 次、全局每小时 200 次；连续输错 10 次密码锁 15 分钟。
-- 登录后只会跳转到站内路径；退出后的回跳地址必须是某个预置客户端的来源。
+- 登录后只会跳转到站内路径；退出后的回跳地址必须是某个预置客户端或 forward-auth 站点的来源。
+- forward-auth 保护的站点上有两张 nas-auth 的 cookie：`__Host-nas-auth-fa`（站点会话）和 `__Host-nas-auth-fa-state`（登录过程中的临时值）。都只在那个站点的域名上，别的子域收不到。
 
 ## 端点
 
@@ -222,6 +280,8 @@ token 里的 claim：`iss`、`sub`、`aud`（字符串；一个 token 覆盖多�
 | `/avatars/{file}` | 头像（公开，供下游应用拉取） |
 | `/external/{provider}/start` | Google / 微软登录 |
 | `/proxy/{aud}/…` | 换 token 的反代（及其 RFC 9728 元数据） |
+| `/forward-auth/verify`、`/forward-auth/start` | forward-auth：反向代理的逐请求检查、登录后签发票据 |
+| `/.nas-auth/callback`、`/.nas-auth/logout` | forward-auth：落在被保护站点域名上的回调与退出 |
 | `/healthz` | 健康检查 |
 
 ## 本地开发
@@ -236,7 +296,7 @@ dotnet test tests/nas-auth.Tests
 
 `EZBK_MCP_TOKEN` 只是因为示例资源里有一个代理条目。用 Chrome 或 Firefox 打开 `http://localhost:5000/login`。要拿 token 测 MCP 服务，就走一遍真实流程，比如用 MCP Inspector。
 
-测试（xUnit，约 480 个）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
+测试（xUnit，约 560 个）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
 
 ## 镜像与 CI
 

@@ -274,6 +274,45 @@ public static class HtmlTemplates
         return Layout("Change password · nas-auth", sb.ToString());
     }
 
+    /// <summary>
+    /// forward-auth（§二十二）：已登录、但这个账号没被授权进这个站。显示在本服务自己的域名上。
+    /// 「换个账号」先退出本服务，再回到站点重新走登录。
+    /// </summary>
+    public static string ForwardAuthDenied(string siteName, string userId, string switchUrl)
+    {
+        var body = CardHeader(T("No access to this site")) +
+                   "<section>" +
+                   Alert(T("Account <code>{0}</code> is not authorized for <strong>{1}</strong>. Ask an administrator to grant it under Users → Resources.",
+                       Esc(userId), Esc(siteName)), error: true) +
+                   $"<a class='btn block' data-variant='outline' href='{Esc(switchUrl)}'>{T("Use a different account")}</a>" +
+                   "</section>";
+        return Layout("No access · nas-auth", body, LangSwitcher());
+    }
+
+    /// <summary>
+    /// 不引用任何外部资源的最小页面。给落在<b>被保护站点域名</b>上的响应用（forward-auth 回调失败）：
+    /// 那个域名上没有本服务的样式和脚本，引用了也会被站点自己的 forward-auth 拦住。
+    /// 只有内联样式（CSP 的 style-src 允许），没有脚本。
+    /// </summary>
+    public static string Bare(string title, string message, string linkHref, string linkText)
+    {
+        return $@"<!doctype html>
+<html lang=""{(IsZh ? "zh-CN" : "en")}"">
+<head>
+  <meta charset=""utf-8"">
+  <meta name=""viewport"" content=""width=device-width,initial-scale=1"">
+  <meta name=""color-scheme"" content=""light dark"">
+  <title>{Esc(title)}</title>
+  <style>body{{font:16px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.25rem}}h1{{font-size:1.25rem}}</style>
+</head>
+<body>
+  <h1>{Esc(title)}</h1>
+  <p>{Esc(message)}</p>
+  <p><a href=""{Esc(linkHref)}"">{Esc(linkText)}</a></p>
+</body>
+</html>";
+    }
+
     public static string SimpleMessage(string title, string message, bool isError = false)
     {
         var body = CardHeader(Esc(title)) +

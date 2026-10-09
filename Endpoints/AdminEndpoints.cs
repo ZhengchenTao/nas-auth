@@ -431,7 +431,7 @@ public static class AdminEndpoints
                     .Where(t => t.resource.Split(' ', StringSplitOptions.RemoveEmptyEntries).Any(u => u.TrimEnd('/') == url))
                     .Select(t => (t.user_id, t.client_id)).Distinct().Count();
                 return new ResourceAdminView(r.Aud, r.DisplayName, r.ResourceUrl, r.Scopes, r.Proxy is not null,
-                    userCounts.TryGetValue(r.Aud, out var n) ? n : 0, grants);
+                    userCounts.TryGetValue(r.Aud, out var n) ? n : 0, grants, r.IsForwardAuth);
             }).ToList();
 
             var grantsByClient = active.GroupBy(t => t.client_id)
@@ -478,6 +478,7 @@ public static class AdminEndpoints
                 "account" => (null, "account."),
                 "register" => (new[] { "register" }, null),
                 "proxy" => (new[] { "proxy.deny" }, null),
+                "forward_auth" => (new[] { "forward_auth" }, null),
                 _ => (null, null),
             };
             var rows = audit.Query(events, prefix, string.IsNullOrEmpty(filter.User) ? null : filter.User,

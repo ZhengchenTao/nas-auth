@@ -158,6 +158,7 @@ public static class DashboardTemplates
         "revoke" => T("Token revocation"),
         "register" => T("Client registration"),
         "proxy.deny" => T("Proxy denied"),
+        "forward_auth" => T("Site access"),
         _ when ev.StartsWith("account.", StringComparison.Ordinal) => ActionLabel(ev["account.".Length..]),
         _ => ev,
     };
@@ -695,7 +696,7 @@ public static class DashboardTemplates
                 rs.Append($"<tr><td class='wrap'>{Esc(r.DisplayName)}<span class='sub'>{Esc(r.ResourceUrl)}</span></td>");
                 rs.Append($"<td><span class='badge mono' data-variant='outline'>{Esc(r.Aud)}</span></td><td class='wrap'>");
                 foreach (var s in r.Scopes) rs.Append($"<span class='badge mono' data-variant='secondary'>{Esc(s)}</span> ");
-                rs.Append($"</td><td>{(r.IsProxy ? T("Proxy (token translation)") : T("Direct JWT"))}</td>");
+                rs.Append($"</td><td>{(r.IsForwardAuth ? T("Forward-auth (site gate)") : r.IsProxy ? T("Proxy (token translation)") : T("Direct JWT"))}</td>");
                 rs.Append($"<td>{r.UserCount}</td><td>{r.ActiveGrants}</td></tr>");
             }
             rs.Append("</tbody></table></div>");
@@ -761,7 +762,8 @@ public static class DashboardTemplates
         form.Append($"<div class='field'><label for='type'>{T("Event")}</label><select class='select' id='type' name='type'>");
         form.Append(Opt("", T("All"))).Append(Opt("login", T("Sign-ins"))).Append(Opt("authorize", T("Authorization")))
             .Append(Opt("token", T("Tokens"))).Append(Opt("account", T("Account actions")))
-            .Append(Opt("register", T("Client registration"))).Append(Opt("proxy", T("Proxy denied")));
+            .Append(Opt("register", T("Client registration"))).Append(Opt("proxy", T("Proxy denied")))
+            .Append(Opt("forward_auth", T("Site access")));
         form.Append("</select></div>");
         form.Append($"<div class='field'><label for='user'>{T("User")}</label><input type='text' id='user' name='user' value='{Esc(f.User)}' placeholder='user_id'></div>");
         form.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' name='failed' value='1'{(f.FailedOnly ? " checked" : "")}>{T("Failures only")}</label>");
@@ -908,4 +910,4 @@ public record AuditView(string TimeDisplay, string Event, bool Success,
 public record AuditFilter(string Type, string User, bool FailedOnly);
 
 public record ResourceAdminView(string Aud, string DisplayName, string ResourceUrl,
-    IReadOnlyList<string> Scopes, bool IsProxy, int UserCount, int ActiveGrants);
+    IReadOnlyList<string> Scopes, bool IsProxy, int UserCount, int ActiveGrants, bool IsForwardAuth = false);

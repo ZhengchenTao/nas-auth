@@ -20,11 +20,19 @@ namespace NasAuth.Services;
 public static class EndSession
 {
     /// <summary>返回最终跳转地址（已附 state）；不允许回跳时返回 null（调用方落到自己的登录页）。</summary>
+    /// <param name="siteOrigins">
+    /// forward-auth 站点（§二十二）的来源，同样来自运维写的配置。它们没有客户端条目，
+    /// 站点上的退出不带 client_id，所以只在没带 client_id 时算数。
+    /// </param>
     public static string? ResolveRedirect(string? postLogoutRedirectUri, string? clientId, string? state,
-        ClientRepository clients)
+        ClientRepository clients, IEnumerable<string>? siteOrigins = null)
     {
         if (string.IsNullOrWhiteSpace(postLogoutRedirectUri)) return null;
         if (!TryOrigin(postLogoutRedirectUri, out var target)) return null;
+
+        if (string.IsNullOrEmpty(clientId) && siteOrigins is not null &&
+            siteOrigins.Any(s => TryOrigin(s, out var o) && o == target))
+            return WithState(postLogoutRedirectUri, state);
 
         IEnumerable<ClientRow> candidates;
         if (!string.IsNullOrEmpty(clientId))
@@ -42,6 +50,11 @@ public static class EndSession
             .Any(r => TryOrigin(r, out var o) && o == target);
         if (!allowed) return null;
 
+        return WithState(postLogoutRedirectUri, state);
+    }
+
+    private static string WithState(string postLogoutRedirectUri, string? state)
+    {
         if (string.IsNullOrEmpty(state)) return postLogoutRedirectUri;
         var sep = postLogoutRedirectUri.Contains('?') ? '&' : '?';
         return $"{postLogoutRedirectUri}{sep}state={Uri.EscapeDataString(state)}";

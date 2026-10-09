@@ -80,7 +80,7 @@ public static class AccountEndpoints
         // 退出 = OIDC end_session_endpoint（§十五）。GET / POST 都收（RP-Initiated Logout 1.0 允许两种）。
         // 下游带 post_logout_redirect_uri（+ state）就在校验通过后跳回去，否则落到登录页（原行为）。
         // id_token_hint 接受但不用：回跳地址只按预置客户端的来源校验，不依赖它。
-        app.MapMethods("/logout", new[] { "GET", "POST" }, async (HttpContext ctx, ClientRepository clients, AuditLogger audit) =>
+        app.MapMethods("/logout", new[] { "GET", "POST" }, async (HttpContext ctx, ClientRepository clients, ResourceCatalog catalog, AuditLogger audit) =>
         {
             var p = ctx.Request.HasFormContentType
                 ? (await ctx.Request.ReadFormAsync()).ToDictionary(kv => kv.Key, kv => kv.Value.ToString())
@@ -90,7 +90,9 @@ public static class AccountEndpoints
             var sessionUser = ctx.User?.Identity?.IsAuthenticated == true ? ctx.User.Identity.Name : null;
             await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
 
-            var target = EndSession.ResolveRedirect(Get("post_logout_redirect_uri"), Get("client_id"), Get("state"), clients);
+            // forward-auth 站点（§二十二）的退出也回跳到这里登记的来源：它们没有客户端条目，按 resources.json 认
+            var target = EndSession.ResolveRedirect(Get("post_logout_redirect_uri"), Get("client_id"), Get("state"), clients,
+                catalog.ForwardAuthOrigins());
             if (!string.IsNullOrEmpty(sessionUser) || !string.IsNullOrEmpty(Get("post_logout_redirect_uri")))
                 audit.AccountAction("logout", true, sessionUser ?? "-",
                     $"client={Get("client_id") ?? "-"} redirect={(target is null ? "login-page" : "post_logout_redirect_uri")} ip={ctx.RemoteIp()}");

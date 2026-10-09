@@ -653,3 +653,180 @@ id_token 和 `/userinfo` 里只要有 `email` 就带 `email_verified: true`（JS
 ### 测试
 
 `ExtraClaimsTests`：字符串与字符串数组往返、空配置、保留名（含大小写不同）全拒、数字 / 布尔 / 对象 / 嵌套数组 / 空串 / 坏名字全拒、读库时过滤保留名、id_token 里单项数组仍是数组、`email_verified` 是布尔且只在有邮箱时出现。`HttpPipelineTests`：示例预置的 `gitea-web` 走真实流程，id_token 与 userinfo 都带附加字段和 `email_verified`，清掉邮箱后 userinfo 不再带 `email_verified`，发现文档宣告，后台列表标出附加字段。
+
+## 二十二、forward-auth：给自己不带登录的站点挡门（2026-10-09）
+
+### 背景
+
+本 IdP 原先只能当 OIDC 登录中心：应用自己得会 OIDC 才接得上。静态页面、没有账号体系的小工具接不了，要么放内网，要么在反向代理上挂一个 Basic 认证。目标是让反向代理（Caddy `forward_auth` / nginx `auth_request`）每个请求先来问一句「这个人能不能进」，登录、准入、按人授权全部复用现有的。
+
+替代方案是在每类站点前面加一个 oauth2-proxy 之类的容器，不改本服务。没选它：每多一类站点多一个容器和一份客户端登记，而这里要的只是「登录了且被授权」这一个判断。
+
+### 核心取舍：会话放哪
+
+主会话 cookie 是 `__Host-` 前缀（§十七），只在本服务的域名上，被保护的站点收不到。三种办法：
+
+| | A. 每个站点一张 host-only cookie（采用） | B. 父域上一张 forward-auth 专用 cookie | C. 主会话 cookie 改成父域 |
+|---|---|---|---|
+| 做法 | 没会话时跳到本服务，查过授权后带一次性票据跳回站点的保留路径，在站点域名上种 `__Host-` cookie | 登录后在 `.example.com` 上种一张只给 forward-auth 用的 cookie | 所有子域共用登录 cookie |
+| 兄弟子域能拿到什么 | 什么都拿不到 | 这张 cookie，可以重放去进所有被保护的站 | 整个登录会话 |
+| 一张 cookie 泄漏的范围 | 一个站 | 该用户被授权的所有站 | 全部，含后台 |
+| 代价 | 每站首次访问多两跳；站点要让出 `/.nas-auth/*` | 不能用 `__Host-`，兄弟子域能种假 cookie | 推翻 §十七 |
+
+§十七 的前提是「同一主域下的兄弟子域不可信」，B 和 C 都在往回退，所以选 A。
+
+### 流程
+
+```
+浏览器 → docs.example.com/page（没有站点 cookie）
+  反向代理 → GET /forward-auth/verify?aud=docs-site（带访客的 Cookie、原方法、原路径）
+  ← 302 到 https://auth.example.com/forward-auth/start?aud=docs-site&state=…
+     + Set-Cookie: __Host-nas-auth-fa-state（种在 docs.example.com 上）
+浏览器 → auth.example.com/forward-auth/start
+  没登录 → 现有登录页（return_url 指回这里），登录后原样回来
+  已登录 → admin_only + user_resources 检查
+     不过 → 403 页，带「换个账号」
+     过   → 302 到 https://docs.example.com/.nas-auth/callback?ticket=…&state=…
+浏览器 → docs.example.com/.nas-auth/callback（反向代理把 /.nas-auth/* 原样转给本服务）
+  ← Set-Cookie: __Host-nas-auth-fa，302 回 /page
+之后每个请求：verify 回 200，反向代理放行
+```
+
+已登录时不出「以 xx 身份授权」确认页：这里没有 token 交给第三方，站点 cookie 只在本服务与访客浏览器之间流转。
+
+### 端点
+
+| 端点 | 落在哪个域名 | 行为 |
+|---|---|---|
+| `GET /forward-auth/verify?aud=…` | 反向代理内部调用 | 站点 cookie 有效且授权还在 → `200`，带 `X-Auth-User` / `X-Auth-Email`；否则页面导航 → `302` 去 start，其它请求 → `401`；`aud` 不存在或不是 forward-auth 资源 → `404` |
+| `GET /forward-auth/start?aud=…&state=…` | 本服务 | 要求已登录。授权通过 → `302` 带票据回站点；不通过 → `403` 页；state 过期或对不上 → `302` 回站点首页重新来 |
+| `GET /.nas-auth/callback?ticket=…&state=…` | 被保护的站点 | 校验通过 → 种站点 cookie，`302` 回原地址；否则 `400`，一张不引用任何外部资源的说明页加「重试」链接 |
+| `GET /.nas-auth/logout` | 被保护的站点 | 清站点 cookie，`302` 到本服务的 `/logout`，退出后回站点 |
+
+- **「页面导航」的判据**：原方法是 GET，且 `Sec-Fetch-Mode: navigate`；没有这个头的老浏览器退回看 `Accept` 里有没有 `text/html`。脚本的 fetch、图片、表单 POST 一律 `401`：跨域跳转对它们没有意义，还会把登录页的 HTML 当成接口响应喂给脚本。
+- **回调失败不自动重试**：浏览器禁了 cookie 这类必然失败的情况，自动跳回去就是无限重定向。
+- **被撤了授权的人**在 verify 这里和没登录一样走跳转，到 start 那边看带样式的 403 页。verify 的响应落在站点的域名上，那里引用不了本服务的样式。
+
+### 「这是哪个站」只认反向代理写死的 `aud`
+
+verify 不读 `X-Forwarded-Host`。反向代理若信任它上游的代理（CDN、隧道），访客自带的 `X-Forwarded-Host` 会被原样传下来（Caddy 2.11.4 配 `trusted_proxies` 时实测如此）。按这个头认站点的话，被授权进 A 站的人拿着 A 站的 cookie 去访问 B 站，把自己说成 A 站就过了。所以 `aud` 由运维写在反向代理配置的 verify 地址里，站点 cookie 里也记着 `aud`，两边对不上就不放。
+
+回调和退出按 `Host` 头找站点：反向代理按它路由，访客改不了。票据同样绑 `aud`，A 站的票据拿到 B 站的回调上不认。
+
+### 三种加密载荷
+
+`Services/ForwardAuthService`。都用 DataProtection（密钥就是会话 cookie 那一套，数据卷里的 `dp-keys/`，重启不丢），各用各的 purpose，互相冒充解不开；过期时间写在载荷里。
+
+| 载荷 | 内容 | 寿命 | 用途 |
+|---|---|---|---|
+| state | aud、原本要去的路径、随机数 | 1 小时 | verify 签发，经 start 原样带到回调。随机数同时种成站点上的 `__Host-nas-auth-fa-state` cookie，回调时两边要一致（定长时间比较）。别人把自己的回调链接发来点，对不上，种不上会话 |
+| ticket | aud、用户、会话版本、一次性 id | 60 秒 | start 签发，回调消费。只能用一次（用过的 id 记在内存里；重启丢了也只是让重启前 60 秒内的票据能再用一次，重放还得过 state cookie 那一关） |
+| session | aud、用户、会话版本 | 按资源配，默认 12 小时 | 站点 cookie `__Host-nas-auth-fa` 的内容 |
+
+- 原本要去的路径来自反向代理的 `X-Forwarded-Uri`，只有是干净的站内路径才记（判据同 `ReturnUrl`，另外不回到 `/.nas-auth/` 下面、不超过 2000 字符），否则回首页。回跳目标不从 query 里收。
+- 同一个浏览器并排开几个标签页时共用一个随机数；回调成功后不清 state cookie，让它自己过期。否则先完成的标签页会把后完成的顶掉。
+- 站点 cookie 是 `SameSite=Lax`。`Strict` 的 cookie 在「外站链接点进来 → 一串跳转」里全程不回传，登录完又被当成没登录。
+
+### 站点 cookie 的寿命
+
+签发后固定，不随访问续期：反向代理在放行时不会把本服务的 `Set-Cookie` 传给浏览器，没法原地续。到期后的下一次页面访问走一遍上面的跳转，主会话（30 天滑动）还在就静默换一张新的。
+
+关系类似 access token 与 refresh token：站点 cookie 短，主会话长；能续期的东西只在本服务的域名上，站点 cookie 被偷了续不了。
+
+寿命只影响这些情况，其余都是实时查库：
+
+- 在别人电脑上用过两个被保护的站，在其中一个点了退出：另一个站的 cookie 还在那台电脑上，能用到过期
+- 站点 cookie 被偷：能用到过期
+- 主会话自然过期：站点最多再多活一个寿命
+
+页面开着超过寿命时，页面里的脚本请求会拿到 `401`，刷新页面即恢复。
+
+### 授权
+
+`resources.json` 里一个站一条，带 `forward_auth`：
+
+```json
+{ "aud": "docs-site", "resource_url": "https://docs.example.com", "display_name": "Family docs", "forward_auth": {} }
+```
+
+- `resource_url` 必须是站点的来源（不带路径）；回跳地址、回调地址都由它拼。两个站点不能指向同一个来源，`aud` 不能重复，不能与 `proxy` 同配。这些在启动时校验，不合格直接启动失败。
+- `scopes` 可以不写，默认补一条 `access`，只是为了复用后台按 scope 勾选的授权模型。
+- `forward_auth.session_hours`：站点 cookie 寿命，1 到 720，默认 12。
+- `admin_only` 照常生效。
+- 判据与 `/authorize` 的用户级检查（§5.5）相同：`admin_only` 通过，且 `user_resources` 里有这一行。
+- **每次 verify 都实时查**用户还在不在、会话版本对不对（§十六）、授权行还在不在。撤销授权、强制下线、改密、删用户立即生效，不等 cookie 过期。代价是每个请求两到三次主键查询。
+- 这类资源**不参与 OAuth**：`/authorize` 把它当成不在白名单；发现文档的 `scopes_supported` 不含它的 scope；DCR 客户端按 scope 反推资源（§十三）时拉不到它。
+
+审计：start 那一步记 `forward_auth` 事件（放行或拒绝各一条，约每 `session_hours` 一次）。逐请求的 verify 不记，量级同 `proxy.fwd`。
+
+### 身份头
+
+verify 放行时总是返回 `X-Auth-User`（user_id）和 `X-Auth-Email`（没有邮箱时是空串），含非 ASCII 字符的值做百分号编码。总是返回，是为了反向代理配了透传时，访客自带的同名头一定被盖掉。
+
+要不要传给上游由反向代理决定，**建议默认不传**：上游一旦信任这个头，它就不能被反向代理以外的任何人直接访问到，否则谁都能自己写一个头进去。静态站用不着身份。
+
+### 退出、过期、本服务不可用
+
+| 场景 | 表现 |
+|---|---|
+| 在站点上访问 `/.nas-auth/logout` | 清本站 cookie，再退出主会话（不退的话下一次访问就静默登回来），然后回到站点，落在登录页 |
+| 退出之后，其它被保护的站 | cookie 留到各自到期。与已接的 OIDC 应用一致：退出一个，其它应用自己的会话不受影响 |
+| 强制下线、退出其他设备、改密、撤销授权、删用户 | 所有站点立即失效 |
+| 本服务挂了或在重启 | 反向代理拿不到 2xx，站点一律不可访问，不会放行。重启后已有的站点 cookie 继续有效 |
+
+`/logout` 的回跳白名单（§十五）加上了 forward-auth 站点的来源：它们没有客户端条目，按 `resources.json` 认，且只在请求没带 `client_id` 时算数。
+
+### 对反向代理的要求
+
+Caddy 示例（2.11.4 实测）：
+
+```
+# 用法：import protect <aud>
+(protect) {
+	# 回调、退出：原样交给 nas-auth，不过 forward_auth（这时还没有站点 cookie）
+	@nasauth path /.nas-auth/*
+	handle @nasauth {
+		reverse_proxy nas-auth:8080
+	}
+	@gated not path /.nas-auth/*
+	forward_auth @gated nas-auth:8080 {
+		uri /forward-auth/verify?aud={args[0]}
+	}
+	# 不透传身份头时，访客自带的同名头也删掉
+	request_header @gated -X-Auth-*
+}
+
+docs.example.com {
+	import protect docs-site
+	reverse_proxy docs:80 {
+		# 登录后才看得到的内容不能进 CDN / 共享缓存
+		header_down Cache-Control "private, no-cache"
+	}
+}
+
+auth.example.com {
+	# verify 只给反向代理内部调用
+	@verify path /forward-auth/verify
+	respond @verify 404
+	reverse_proxy nas-auth:8080
+}
+```
+
+1. **verify 地址里的 `aud` 写死**，一个站点一个，不要从请求里取。
+2. **`/.nas-auth/*` 原样转给本服务**，并且不过 forward-auth。被保护的站点自己不能再用这个路径前缀。
+3. **登录后才看得到的响应必须带 `Cache-Control: private`（或 `no-store`）**。前面有 CDN 时，CDN 默认按扩展名缓存静态文件，不看请求里有没有 cookie：不标 `private`，登录的人取过一次的文件就会被边缘节点存下来发给所有人。本服务自己的跳转、401、403 已经是 `no-store`；上游的响应归反向代理管，示例里用 `header_down` 统一盖成 `private, no-cache`（带内容哈希的文件可以单独放宽成 `private, max-age=…`）。
+4. **不透传身份头时，删掉访客自带的 `X-Auth-*`**。要透传就把 `request_header` 那行换成 forward_auth 块里的 `copy_headers X-Auth-User X-Auth-Email`；实测访客自带的同名头会被盖掉，值为空时也一样。
+5. **不要把 verify 暴露在本服务的公开域名上**。直接打它泄漏不了内容（只有状态码），但没有理由留着。
+6. forward-auth 的子请求要带上访客的 `Cookie`、原方法（`X-Forwarded-Method`）和原路径（`X-Forwarded-Uri`）。Caddy 的 `forward_auth` 默认如此。
+
+### 没做的
+
+- **退出一个站点、其它站点立即跟着失效**：需要服务端的会话表（主会话 cookie 现在是自包含票据），会改到主登录路径。现在靠站点 cookie 的寿命兜底。
+- **按路径授权**：一个站点一个 `aud`，进得去就全能看。
+- **verify 结果缓存**：每个请求都查库，家用量级没有压力。
+
+### 测试
+
+- `ForwardAuthServiceTests`：三种载荷往返、各自的过期时间（拨时钟）、互相冒充解不开、篡改 / 换密钥 / 垃圾输入、票据只能用一次、随机数比较、回跳路径清洗、页面导航判定矩阵、身份头编码、`resources.json` 的默认值与各种非法写法启动即失败、按 Host 找站点、不进 `scopes_supported` 与 scope 反推、`/logout` 回跳白名单。
+- `ForwardAuthPipelineTests`：走真实管线，测试扮演反向代理。完整流程（被拦 → 登录 → start → 回调 → 放行，含各 cookie 的属性）；已登录时静默通过；非页面导航回 401；未知 `aud` 不放行；没授权 → 403，授权后通过，撤销立即失效；`admin_only` 站点对非管理员即使有授权行也拒；会话版本 +1、删用户后站点会话立即失效；A 站的票据 / cookie 拿到 B 站不认，自带 `X-Forwarded-Host` 也没用，别的浏览器捡到回调链接用不了；伪造或串站的 state 回站点重来；并排标签页；回调失败页不引用外部资源；站点退出的三跳；不参与 OAuth；后台标出接入方式。
+- 另用真的 Caddy 2.11.4 加本地实例端到端走过一遍（登录流程、缓存头改写、身份头清理与透传、verify 在公开域名上被挡、退出），并在浏览器里实际点过。

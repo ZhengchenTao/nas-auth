@@ -381,6 +381,17 @@ public static class I18n
         ["Account action"] = "账号操作",
         ["Client registration"] = "客户端注册",
         ["Proxy denied"] = "代理拒绝",
+        ["Site access"] = "站点访问",
+        ["Forward-auth (site gate)"] = "反代挡门（forward-auth）",
+        ["No access to this site"] = "无权访问这个站点",
+        ["Account <code>{0}</code> is not authorized for <strong>{1}</strong>. Ask an administrator to grant it under Users → Resources."] =
+            "账号 <code>{0}</code> 没有被授权访问 <strong>{1}</strong>。请联系管理员在「用户 → 资源授权」里开通。",
+        ["Unknown site"] = "未登记的站点",
+        ["This site is not registered here."] = "这个站点没有在本服务登记。",
+        ["Sign-in could not be completed"] = "登录没有完成",
+        ["The sign-in link has expired or was already used. Make sure cookies are enabled for this site, then try again."] =
+            "登录链接已过期或已经用过。请确认浏览器允许这个站点使用 cookie，然后重试。",
+        ["Try again"] = "重试",
         ["Password sign-in"] = "密码登录",
         ["External sign-in"] = "外部登录",
         ["Failures only"] = "只看失败",

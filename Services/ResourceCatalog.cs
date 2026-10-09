@@ -31,8 +31,13 @@ public class ResourceCatalog
                 $"resources.json 为空或解析失败：{options.ResourcesPath}");
 
         // 基本校验：aud / resource_url 必填，scopes 至少一条
+        var forwardAuthOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var r in list)
         {
+            // forward-auth 站点没有真正的 scope，不写时补一条，授权模型（user_resources 按 scope 勾选）照常可用
+            if (r.IsForwardAuth && (r.Scopes is null || r.Scopes.Count == 0))
+                r.Scopes = new List<string> { ForwardAuthScope };
+
             if (string.IsNullOrWhiteSpace(r.Aud) ||
                 string.IsNullOrWhiteSpace(r.ResourceUrl) ||
                 r.Scopes is null || r.Scopes.Count == 0)
@@ -40,6 +45,10 @@ public class ResourceCatalog
                 throw new InvalidOperationException(
                     $"resources.json 中存在不合法记录（aud/resource_url/scopes 缺失）：{JsonSerializer.Serialize(r)}");
             }
+
+            if (r.Proxy is not null && r.ForwardAuth is not null)
+                throw new InvalidOperationException(
+                    $"resources.json aud={r.Aud} 不能同时配 proxy 与 forward_auth");
 
             // proxy 字段可选；一旦出现，upstream + bearer_env 必填且对应环境变量必须就绪。
             // fast fail 不让"配错没人发现"过夜。
@@ -75,7 +84,33 @@ public class ResourceCatalog
                         $"resources.json aud={r.Aud} 的 proxy.bearer_env={r.Proxy.BearerEnv} 对应环境变量未设置或为空（fast fail）");
                 }
             }
+
+            // forward_auth 字段可选；一旦出现，resource_url 就是被保护站点的来源：回跳地址、回调地址都由它拼，
+            // 带路径 / query 或两个站点撞同一个来源都会让「这个请求属于哪个站」说不清，启动即失败。
+            if (r.ForwardAuth is not null)
+            {
+                if (!Uri.TryCreate(r.ResourceUrl, UriKind.Absolute, out var siteUri) ||
+                    (siteUri.Scheme != "http" && siteUri.Scheme != "https") ||
+                    (siteUri.AbsolutePath != "/" && siteUri.AbsolutePath != "") ||
+                    !string.IsNullOrEmpty(siteUri.Query) || !string.IsNullOrEmpty(siteUri.Fragment) ||
+                    !string.IsNullOrEmpty(siteUri.UserInfo))
+                {
+                    throw new InvalidOperationException(
+                        $"resources.json aud={r.Aud} 是 forward_auth 站点，resource_url 必须是站点来源（如 https://site.example.com，不带路径）：{r.ResourceUrl}");
+                }
+
+                if (r.ForwardAuth.SessionHours < 1 || r.ForwardAuth.SessionHours > ForwardAuthConfig.MaxSessionHours)
+                    throw new InvalidOperationException(
+                        $"resources.json aud={r.Aud} 的 forward_auth.session_hours 须在 1–{ForwardAuthConfig.MaxSessionHours} 之间：{r.ForwardAuth.SessionHours}");
+
+                if (!forwardAuthOrigins.Add(SiteOrigin(r)))
+                    throw new InvalidOperationException(
+                        $"resources.json 里有两个 forward_auth 站点指向同一个来源：{SiteOrigin(r)}");
+            }
         }
+
+        if (list.GroupBy(r => r.Aud, StringComparer.Ordinal).FirstOrDefault(g => g.Count() > 1 && g.Any(r => r.IsForwardAuth)) is { } dup)
+            throw new InvalidOperationException($"resources.json 里 forward_auth 站点的 aud 重复：{dup.Key}");
 
         _resources = list;
         _byUrl = list.ToDictionary(r => NormalizeResourceUrl(r.ResourceUrl), StringComparer.OrdinalIgnoreCase);
@@ -129,10 +164,41 @@ public class ResourceCatalog
             string.Equals(r.Aud, aud, StringComparison.Ordinal));
     }
 
-    /// <summary>聚合所有资源的 scope，给 /.well-known 用。</summary>
+    /// <summary>forward-auth 站点不写 scopes 时补的那一条。</summary>
+    public const string ForwardAuthScope = "access";
+
+    /// <summary>forward-auth 站点的来源：scheme://host[:port]，不带尾斜杠。</summary>
+    public static string SiteOrigin(ResourceConfig r) =>
+        new Uri(r.ResourceUrl).GetLeftPart(UriPartial.Authority);
+
+    /// <summary>按 aud 找 forward-auth 站点；aud 不存在或不是 forward-auth 资源都返回 null。</summary>
+    public ResourceConfig? FindForwardAuth(string? aud) =>
+        string.IsNullOrEmpty(aud) ? null : _resources.FirstOrDefault(r => r.IsForwardAuth && r.Aud == aud);
+
+    /// <summary>
+    /// 按请求的 Host 找 forward-auth 站点（回调 / 退出落在被保护站点自己的域名上）。
+    /// 主机名不分大小写；Host 不带端口时按站点 scheme 的默认端口比。
+    /// </summary>
+    public ResourceConfig? FindForwardAuthByHost(HostString host)
+    {
+        if (!host.HasValue) return null;
+        return _resources.FirstOrDefault(r =>
+        {
+            if (!r.IsForwardAuth) return false;
+            var u = new Uri(r.ResourceUrl);
+            return string.Equals(u.Host, host.Host, StringComparison.OrdinalIgnoreCase) &&
+                   (host.Port ?? u.Port) == u.Port && (host.Port is not null || u.IsDefaultPort);
+        });
+    }
+
+    /// <summary>全部 forward-auth 站点的来源（/logout 的回跳白名单用）。</summary>
+    public IEnumerable<string> ForwardAuthOrigins() =>
+        _resources.Where(r => r.IsForwardAuth).Select(SiteOrigin);
+
+    /// <summary>聚合所有资源的 scope，给 /.well-known 用。forward-auth 站点不参与 OAuth，不算。</summary>
     public IReadOnlyList<string> AllScopes()
     {
-        return _resources.SelectMany(r => r.Scopes).Distinct().ToList();
+        return _resources.Where(r => !r.IsForwardAuth).SelectMany(r => r.Scopes).Distinct().ToList();
     }
 
     /// <summary>
@@ -143,6 +209,7 @@ public class ResourceCatalog
     public List<ResourceConfig> ResourcesForScopes(IEnumerable<string> scopes)
     {
         var set = scopes.ToHashSet(StringComparer.Ordinal);
-        return _resources.Where(r => r.Scopes.Any(set.Contains)).ToList();
+        // forward-auth 站点不签 token：DCR 客户端请求了同名 scope 也不能把它拉进 aud
+        return _resources.Where(r => !r.IsForwardAuth && r.Scopes.Any(set.Contains)).ToList();
     }
 }

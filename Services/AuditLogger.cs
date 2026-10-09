@@ -113,6 +113,18 @@ public class AuditLogger
         Persist("account." + action, success, userId, null, null, reason);
     }
 
+    /// <summary>
+    /// forward-auth（§二十二）：某人被放进 / 被拒于某个站点。只在签发票据那一步记（每 session_hours 一次），
+    /// 反向代理的逐请求 verify 不记 —— 量级同 proxy.fwd。
+    /// </summary>
+    public void ForwardAuth(bool success, string aud, string? userId, string? remoteIp, string? reason = null)
+    {
+        _logger.LogInformation(
+            "audit.forward_auth success={Success} aud={Aud} user={User} ip={Ip} reason={Reason}",
+            success, aud, userId ?? "-", remoteIp ?? "-", reason ?? "-");
+        Persist("forward_auth", success, userId, null, remoteIp, Join(("resource", aud), ("reason", reason)));
+    }
+
     public void ProxyForward(string aud, string? userId, string? clientId, string? remoteIp,
         string method, int upstreamStatus)
     {

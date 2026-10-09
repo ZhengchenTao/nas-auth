@@ -35,8 +35,34 @@ public class ResourceConfig
     [JsonPropertyName("admin_only")]
     public bool AdminOnly { get; set; }
 
+    /// <summary>
+    /// 可选。出现 = 这是一个由反向代理 forward-auth 保护的站点（external-auth.md §二十二）：
+    /// 站点自己不做登录，反向代理每个请求先来问 <c>/forward-auth/verify?aud=…</c>。
+    /// 这类资源不参与 OAuth（/authorize 不认、不进 scopes_supported）；<c>resource_url</c> 必须是站点的来源（不带路径），
+    /// <c>scopes</c> 可以不写（默认一条 <c>access</c>，只是为了复用「给用户勾选」的授权模型）。
+    /// </summary>
+    [JsonPropertyName("forward_auth")]
+    public ForwardAuthConfig? ForwardAuth { get; set; }
+
+    [JsonIgnore]
+    public bool IsForwardAuth => ForwardAuth is not null;
+
     /// <summary>该用户能否持有 / 使用本资源（只看 admin_only，不看 user_resources）。</summary>
     public bool AllowsUser(bool isAdmin) => !AdminOnly || isAdmin;
+}
+
+/// <summary>forward-auth 站点的选项。写成 <c>"forward_auth": {}</c> 即全部用默认值。</summary>
+public class ForwardAuthConfig
+{
+    public const int DefaultSessionHours = 12;
+    public const int MaxSessionHours = 24 * 30;
+
+    /// <summary>
+    /// 站点 cookie 的寿命（小时）。签发后固定，不随访问续期；到期后的下一次页面访问会回到本服务，
+    /// 登录会话还在就静默换一张新的。越短，「登录会话已经没了、站点还能看」的窗口越小。
+    /// </summary>
+    [JsonPropertyName("session_hours")]
+    public int SessionHours { get; set; } = DefaultSessionHours;
 }
 
 /// <summary>

@@ -54,6 +54,8 @@ builder.Services.AddSingleton<JwtIssuer>();
 builder.Services.AddSingleton<OidcKeyService>();
 builder.Services.AddSingleton<JwtValidator>();
 builder.Services.AddSingleton<AuditLogger>();
+// forward-auth（external-auth.md §二十二）：站点 cookie / 票据 / state 的加解密，密钥用下面持久化的 DataProtection 那一套
+builder.Services.AddSingleton<ForwardAuthService>();
 builder.Services.AddHostedService<TokenCleanupService>();
 builder.Services.AddHttpContextAccessor();
 
@@ -355,6 +357,7 @@ app.MapAdminEndpoints();
 app.MapExternalLoginEndpoints();
 app.MapProfileEndpoints();
 app.MapProxyEndpoints();
+app.MapForwardAuthEndpoints();
 
 // 简单 health check
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));

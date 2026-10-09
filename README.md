@@ -46,6 +46,9 @@ OAuth server, and nas-auth can front any service that verifies JWTs.
 - `/proxy/{aud}`: for an upstream that only understands one static token.
   nas-auth checks its own JWT, swaps in the upstream token and streams the
   request through.
+- forward-auth: puts a login in front of a site that has none of its own (a
+  static page, a small tool without accounts) at the reverse proxy, reusing
+  the sign-in and per-user grants above.
 - `/account` for every user (authorized apps, nickname and avatar, linked
   accounts, password, sessions) and `/admin` for the admin (users, approvals, clients, audit log).
   English and Simplified Chinese.
@@ -207,6 +210,80 @@ granting it to someone else would hand them your data. Non-admins can't be
 granted it in the dashboard, and `/authorize` and refresh turn them away even if
 an old grant row is still there.
 
+### Protecting a site that has no login (forward-auth)
+
+The site itself needs no changes. Register it in `resources.json`, then have
+the reverse proxy ask nas-auth before every request:
+
+```json
+{ "aud": "docs-site", "resource_url": "https://docs.example.com", "display_name": "Family docs", "forward_auth": {} }
+```
+
+`resource_url` is the site's origin, without a path. `scopes` can be left out.
+`"forward_auth": { "session_hours": 12 }` changes how long the site cookie
+lasts (12 hours by default; when it runs out it is renewed automatically as
+long as you are still signed in to nas-auth). `admin_only` works as usual.
+Then grant the resource to users in the dashboard.
+
+With Caddy:
+
+```
+# usage: import protect <aud>
+(protect) {
+	# callback and logout go straight to nas-auth, without forward_auth (there is no site cookie yet)
+	@nasauth path /.nas-auth/*
+	handle @nasauth {
+		reverse_proxy nas-auth:8080
+	}
+	@gated not path /.nas-auth/*
+	forward_auth @gated nas-auth:8080 {
+		uri /forward-auth/verify?aud={args[0]}
+	}
+	# identity headers are not passed on, so drop any the visitor sent
+	request_header @gated -X-Auth-*
+}
+
+docs.example.com {
+	import protect docs-site
+	reverse_proxy docs:80 {
+		# content behind the login must never reach a CDN or shared cache
+		header_down Cache-Control "private, no-cache"
+	}
+}
+
+auth.example.com {
+	# verify is only for the reverse proxy
+	@verify path /forward-auth/verify
+	respond @verify 404
+	reverse_proxy nas-auth:8080
+}
+```
+
+Someone who is not signed in is sent to nas-auth and comes back to the page
+they asked for. Someone who is signed in but has no grant gets a 403. Revoking
+a grant, forcing a sign-out or deleting a user takes effect immediately.
+`/.nas-auth/logout` on the site signs out.
+
+Things to get right:
+
+- Hard-code `aud` in the verify URL, one per site. nas-auth does not use
+  `X-Forwarded-Host` to decide which site a request is for, because a visitor
+  can send that header.
+- `/.nas-auth/*` must be passed to nas-auth as is. The site can't use that path
+  prefix for anything else.
+- Responses that are only visible after sign-in must carry
+  `Cache-Control: private`. Behind a CDN, anything else can be stored at the
+  edge and served to everyone.
+- nas-auth returns `X-Auth-User` and `X-Auth-Email` when it lets a request
+  through. Don't forward them by default. If the upstream needs them, replace
+  the `request_header` line with `copy_headers X-Auth-User X-Auth-Email` inside
+  the forward_auth block, and make sure only the reverse proxy can reach the
+  upstream.
+- When nas-auth is down, protected sites are unreachable. They never fail open.
+
+How it works and why: section 22 of
+[docs/design/external-auth.md](docs/design/external-auth.md) (in Chinese).
+
 ### clients.preset.json
 
 For clients that can't register themselves, usually web apps using OIDC.
@@ -327,7 +404,11 @@ start with an HS256 key configured.
   for IPv6). `/register` allows 10 per hour per IP and 200 per hour in total.
   Ten wrong passwords in a row lock an account for 15 minutes.
 - After sign-in you are only ever sent to a local path. The logout redirect
-  must point at the origin of a preset client.
+  must point at the origin of a preset client or a forward-auth site.
+- A site behind forward-auth carries two nas-auth cookies:
+  `__Host-nas-auth-fa` (the site session) and `__Host-nas-auth-fa-state` (a
+  temporary value used while signing in). Both exist only on that site's
+  hostname; other subdomains never see them.
 
 ## Endpoints
 
@@ -343,6 +424,8 @@ start with an HS256 key configured.
 | `/avatars/{file}` | Avatars (public, fetched by downstream apps) |
 | `/external/{provider}/start` | Google / Microsoft sign-in |
 | `/proxy/{aud}/…` | Token-swapping proxy (plus its RFC 9728 metadata) |
+| `/forward-auth/verify`, `/forward-auth/start` | forward-auth: the per-request check for the reverse proxy, and ticket issuance after sign-in |
+| `/.nas-auth/callback`, `/.nas-auth/logout` | forward-auth: callback and logout, served on the protected site's hostname |
 | `/healthz` | Health check |
 
 ## Development
@@ -359,7 +442,7 @@ dotnet test tests/nas-auth.Tests
 entry. Open `http://localhost:5000/login` in Chrome or Firefox. To get a token
 for testing an MCP server, run the real flow, for example with MCP Inspector.
 
-The test suite (xUnit, about 480 tests) needs nothing external. It covers the
+The test suite (xUnit, about 560 tests) needs nothing external. It covers the
 protocol pieces, accounts and approvals, the page templates, and the full HTTP
 pipeline through `WebApplicationFactory`.
 

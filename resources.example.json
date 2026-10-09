@@ -35,5 +35,18 @@
     "resource_url": "https://photos.example.com",
     "display_name": "Immich",
     "scopes": ["openid", "email", "profile"]
+  },
+  {
+    "aud": "docs-site",
+    "resource_url": "https://docs.example.com",
+    "display_name": "Family docs (static site)",
+    "forward_auth": {}
+  },
+  {
+    "aud": "ops-dashboard",
+    "resource_url": "https://ops.example.com",
+    "display_name": "Ops dashboard",
+    "admin_only": true,
+    "forward_auth": { "session_hours": 1 }
   }
 ]
