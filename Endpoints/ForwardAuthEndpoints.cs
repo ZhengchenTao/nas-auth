@@ -54,6 +54,18 @@ public static class ForwardAuthEndpoints
             user.session_version == session.SessionVersion &&   // 强制下线 / 改密 / 退出其他设备后立即失效
             IsAllowed(site, user.user_id, user.is_admin != 0, userResources))
         {
+            // cookie 有效还不够：兄弟子域对浏览器是 same-site，能让访客的浏览器带着这张 cookie 发请求
+            // （<script src> 读 JS 形式的数据、对站点里的小工具发写请求）。只放站点自己发的请求和顶层页面导航。
+            if (ForwardAuthService.IsCrossOriginRide(
+                    req.Headers["X-Forwarded-Method"].ToString(),
+                    req.Headers["Sec-Fetch-Site"].ToString(),
+                    req.Headers["Sec-Fetch-Mode"].ToString(),
+                    req.Headers["Sec-Fetch-Dest"].ToString(),
+                    req.Headers.Origin.ToString(),
+                    ResourceCatalog.SiteOrigin(site)))
+                return Results.Text("403 Forbidden: cross-origin request blocked.",
+                    statusCode: StatusCodes.Status403Forbidden);
+
             // 身份头每次都回（没有邮箱回空串）：反向代理配了透传时，访客自带的同名头一定被这里的值盖掉
             var (email, _) = OidcEndpoints.ResolveProfile(identities, users, user.user_id);
             ctx.Response.Headers[UserHeader] = ForwardAuthService.HeaderValue(user.user_id);
@@ -109,7 +121,7 @@ public static class ForwardAuthEndpoints
         }
 
         audit.ForwardAuth(true, site.Aud, user.user_id, ctx.RemoteIp());
-        var ticket = fa.CreateTicket(site.Aud, user.user_id, user.session_version);
+        var ticket = fa.CreateTicket(site.Aud, user.user_id, user.session_version, state.Nonce);
         // state 原样带回去，但重新编码：base64 解码会跳过空白，校验通过不代表串里没有不该进 Location 头的字符
         return Results.Redirect(
             $"{origin}{ForwardAuthService.PathPrefix}/callback?ticket={ticket}&state={Uri.EscapeDataString(rawState)}");
@@ -136,12 +148,18 @@ public static class ForwardAuthEndpoints
         var q = ctx.Request.Query;
         if (!fa.TryReadTicket(q["ticket"].ToString(), out var ticket) || ticket.Aud != site.Aud)
             return Fail("bad_ticket");
+        // 票据一经出示就作废，不等后面的检查通过。/forward-auth/start 是普通的 GET：别人能诱导已登录的人带着
+        // 「别人的 state」去换票据，回调在下面的随机数那一步失败 —— 这时票据留在地址栏和访问日志里，不作废就还能用 60 秒。
+        if (!fa.TryConsume(ticket)) return Fail("ticket_replayed");
         if (!fa.TryReadState(q["state"].ToString(), out var state) || state.Aud != site.Aud)
             return Fail("bad_state");
-        // 发起这次登录的必须是同一个浏览器：别人把自己的回调链接发来点，这里对不上
+        // 票据、state、浏览器里的 cookie 三处的随机数要一致：
+        // - cookie 对不上 = 发起这次登录的不是这个浏览器（别人把自己的回调链接发来点）
+        // - 票据对不上 = 票据不是为这份 state 签的（拿别人的 state 配自己的票据）
         if (!ForwardAuthService.NonceMatches(ctx.Request.Cookies[ForwardAuthService.StateCookie], state.Nonce))
             return Fail("state_cookie_mismatch");
-        if (!fa.TryConsume(ticket)) return Fail("ticket_replayed");
+        if (!ForwardAuthService.NonceMatches(ticket.Nonce, state.Nonce))
+            return Fail("ticket_state_mismatch");
 
         var user = users.GetById(ticket.UserId);
         if (user is null || user.session_version != ticket.SessionVersion) return Fail("session_revoked");

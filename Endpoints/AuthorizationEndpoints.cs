@@ -330,8 +330,8 @@ public static class AuthorizationEndpoints
         else
         {
             var resource = catalog.FindByUrl(resourceUrl);
-            // forward-auth 站点（§二十二）只由 /forward-auth/* 放行，不给任何客户端签 token
-            if (resource is null || resource.IsForwardAuth) return $"resource not in allowlist: {resourceUrl}";
+            // forward-auth 站点（§二十二）不在这张白名单里：FindByUrl 不返回它们
+            if (resource is null) return $"resource not in allowlist: {resourceUrl}";
             resources.Add(resource);
         }
 

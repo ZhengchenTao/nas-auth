@@ -140,11 +140,15 @@ public class ResourceCatalog
     {
         if (string.IsNullOrWhiteSpace(resourceUrl)) return null;
         var normalized = NormalizeResourceUrl(resourceUrl);
-        if (_byUrl.TryGetValue(normalized, out var v)) return v;
+        // forward-auth 站点（§二十二）不是 OAuth 资源：这里是 /authorize、/token（换码与刷新）认 resource 的唯一入口，
+        // 在这一处排除，哪条路径都签不出它的 token —— 包括把一个原有的 OAuth 资源原地改成 forward_auth 之后，
+        // 手里还留着的 refresh token 与授权码。
+        if (_byUrl.TryGetValue(normalized, out var v)) return v.IsForwardAuth ? null : v;
 
         // 字典精确匹配未命中 —— 退化到子资源匹配（兼容 Codex 等带 /mcp 子路径的客户端）。
+        // 同样跳过站点条目：站点的来源是 host root，不跳过的话它会遮住挂在同一来源下面的 OAuth 资源。
         return _resources.FirstOrDefault(
-            r => IsSubResourceOf(normalized, NormalizeResourceUrl(r.ResourceUrl)));
+            r => !r.IsForwardAuth && IsSubResourceOf(normalized, NormalizeResourceUrl(r.ResourceUrl)));
     }
 
     private static string NormalizeResourceUrl(string url) => url.TrimEnd('/');

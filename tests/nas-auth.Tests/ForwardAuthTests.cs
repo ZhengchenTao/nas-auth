@@ -46,8 +46,8 @@ public class ForwardAuthServiceTests : IDisposable
         Assert.True(_fa.TryReadState(_fa.CreateState("docs", "/a?b=1", "n1"), out var st));
         Assert.Equal(("docs", "/a?b=1", "n1"), (st!.Aud, st.ReturnPath, st.Nonce));
 
-        Assert.True(_fa.TryReadTicket(_fa.CreateTicket("docs", "alice", 3), out var t));
-        Assert.Equal(("docs", "alice", 3L), (t!.Aud, t.UserId, t.SessionVersion));
+        Assert.True(_fa.TryReadTicket(_fa.CreateTicket("docs", "alice", 3, "n1"), out var t));
+        Assert.Equal(("docs", "alice", 3L, "n1"), (t!.Aud, t.UserId, t.SessionVersion, t.Nonce));
 
         Assert.True(_fa.TryReadSession(_fa.CreateSession("docs", "alice", 3, TimeSpan.FromHours(12)), out var s));
         Assert.Equal(("docs", "alice", 3L), (s!.Aud, s.UserId, s.SessionVersion));
@@ -57,7 +57,7 @@ public class ForwardAuthServiceTests : IDisposable
     public void Payloads_ExpireOnTheirOwnClock()
     {
         var state = _fa.CreateState("docs", "/", "n");
-        var ticket = _fa.CreateTicket("docs", "alice", 0);
+        var ticket = _fa.CreateTicket("docs", "alice", 0, "n");
         var session = _fa.CreateSession("docs", "alice", 0, TimeSpan.FromHours(12));
 
         _clock.Now += TimeSpan.FromSeconds(59);
@@ -78,7 +78,7 @@ public class ForwardAuthServiceTests : IDisposable
     public void Payloads_CannotStandInForEachOther()
     {
         // 票据是会经过浏览器地址栏的：拿它当站点 cookie 用必须解不开
-        var ticket = _fa.CreateTicket("docs", "alice", 0);
+        var ticket = _fa.CreateTicket("docs", "alice", 0, "n");
         var state = _fa.CreateState("docs", "/", "n");
         var session = _fa.CreateSession("docs", "alice", 0, TimeSpan.FromHours(1));
 
@@ -116,8 +116,8 @@ public class ForwardAuthServiceTests : IDisposable
     [Fact]
     public void Ticket_SingleUse()
     {
-        Assert.True(_fa.TryReadTicket(_fa.CreateTicket("docs", "alice", 0), out var a));
-        Assert.True(_fa.TryReadTicket(_fa.CreateTicket("docs", "alice", 0), out var b));
+        Assert.True(_fa.TryReadTicket(_fa.CreateTicket("docs", "alice", 0, "n"), out var a));
+        Assert.True(_fa.TryReadTicket(_fa.CreateTicket("docs", "alice", 0, "n"), out var b));
         Assert.NotEqual(a!.Id, b!.Id);
 
         Assert.True(_fa.TryConsume(a));
@@ -126,8 +126,19 @@ public class ForwardAuthServiceTests : IDisposable
 
         // 过期的记录被清掉后也不会让旧票据复活：票据自己已经过期读不出来了
         _clock.Now += TimeSpan.FromMinutes(5);
-        Assert.True(_fa.TryReadTicket(_fa.CreateTicket("docs", "alice", 0), out var c));
+        Assert.True(_fa.TryReadTicket(_fa.CreateTicket("docs", "alice", 0, "n"), out var c));
         Assert.True(_fa.TryConsume(c!));
+    }
+
+    [Fact]
+    public void Ticket_ExpiredBetweenReadAndConsume_CannotBeReplayed()
+    {
+        // 读票据与消费之间跨过到期那一秒：清理会把「已用」记录删掉，消费时必须自己再判一次过期
+        Assert.True(_fa.TryReadTicket(_fa.CreateTicket("docs", "alice", 0, "n"), out var t));
+        Assert.True(_fa.TryConsume(t!));
+        _clock.Now += ForwardAuthService.TicketLifetime; // 正好到期：记录被清理
+        Assert.False(_fa.TryConsume(t!));
+        Assert.False(_fa.TryConsume(t!));
     }
 
     [Fact]
@@ -177,6 +188,42 @@ public class ForwardAuthServiceTests : IDisposable
     [InlineData("", "navigate", null, true)]             // 反向代理没带原方法：当 GET
     public void IsPageNavigation_Matrix(string? method, string? mode, string? accept, bool expected) =>
         Assert.Equal(expected, ForwardAuthService.IsPageNavigation(method, mode, accept));
+
+    private const string Site = "https://docs.example.com";
+
+    [Theory]
+    // 站点自己的页面、地址栏 / 书签
+    [InlineData("GET", "same-origin", "cors", "empty", null, false)]
+    [InlineData("POST", "same-origin", "cors", "empty", Site, false)]
+    [InlineData("GET", "none", "navigate", "document", null, false)]
+    [InlineData("GET", "SAME-ORIGIN", "no-cors", "image", null, false)]
+    // 从别处点链接进来（兄弟子域的导航页、外站）：顶层页面导航，放
+    [InlineData("GET", "same-site", "navigate", "document", null, false)]
+    [InlineData("GET", "cross-site", "navigate", "document", null, false)]
+    [InlineData("", "same-site", "navigate", "document", null, false)] // 反向代理没带原方法：当 GET
+    // 兄弟子域 / 外站借浏览器发的其它一切：拒
+    [InlineData("GET", "same-site", "no-cors", "script", null, true)]   // <script src> 读 JS 形式的数据
+    [InlineData("GET", "same-site", "cors", "empty", "https://evil.example.com", true)] // fetch
+    [InlineData("GET", "same-site", "no-cors", "image", null, true)]
+    [InlineData("GET", "same-site", "navigate", "iframe", null, true)]  // 被嵌进别人的页面
+    [InlineData("GET", "same-site", "websocket", "websocket", "https://evil.example.com", true)]
+    [InlineData("POST", "same-site", "navigate", "document", "https://evil.example.com", true)] // 表单 CSRF
+    [InlineData("POST", "cross-site", "cors", "empty", "https://evil.example", true)]
+    [InlineData("GET", "same-site", null, null, null, true)]
+    [InlineData("GET", "weird-value", "navigate", "document", null, false)] // 不认识的取值按「不是自己人」算，但顶层导航仍放
+    [InlineData("GET", "weird-value", "cors", "empty", null, true)]
+    // 没有 Sec-Fetch-Site 的老浏览器 / 非浏览器：GET 放，写方法看 Origin
+    [InlineData("GET", null, null, null, null, false)]
+    [InlineData("GET", null, null, null, "https://evil.example.com", false)]
+    [InlineData("HEAD", null, null, null, "https://evil.example.com", false)]
+    [InlineData("POST", null, null, null, null, false)]               // curl
+    [InlineData("POST", null, null, null, Site, false)]
+    [InlineData("POST", null, null, null, "https://DOCS.example.com:443", false)]
+    [InlineData("POST", null, null, null, "https://evil.example.com", true)]
+    [InlineData("DELETE", null, null, null, "http://docs.example.com", true)] // scheme 不同
+    [InlineData("POST", null, null, null, "null", true)]
+    public void IsCrossOriginRide_Matrix(string? method, string? site, string? mode, string? dest, string? origin, bool expected) =>
+        Assert.Equal(expected, ForwardAuthService.IsCrossOriginRide(method, site, mode, dest, origin, Site));
 
     [Theory]
     [InlineData("alice", "alice")]
@@ -254,6 +301,25 @@ public class ForwardAuthServiceTests : IDisposable
         Assert.Equal(new[] { "gitea-web" }, cat.ResourcesForScopes(new[] { "access" }).Select(r => r.Aud));
     }
 
+    [Fact]
+    public void Catalog_FindByUrl_NeverReturnsForwardAuthSites()
+    {
+        // FindByUrl 是 /authorize、/token（换码与刷新）认 resource 的唯一入口
+        var cat = Load("""
+            [
+              { "aud": "docs", "resource_url": "https://apps.example.com", "forward_auth": {} },
+              { "aud": "mcp", "resource_url": "https://apps.example.com/tools", "scopes": ["read:mcp"] }
+            ]
+            """);
+        Assert.Null(cat.FindByUrl("https://apps.example.com"));
+        Assert.Null(cat.FindByUrl("https://apps.example.com/"));
+        Assert.Null(cat.FindByUrl("https://apps.example.com/anything"));
+        // 站点条目排在前面，也不遮住挂在同一来源下面的 OAuth 资源（含带 /mcp 子路径的写法）
+        Assert.Equal("mcp", cat.FindByUrl("https://apps.example.com/tools")?.Aud);
+        Assert.Equal("mcp", cat.FindByUrl("https://apps.example.com/tools/mcp")?.Aud);
+        Assert.Equal("docs", cat.FindForwardAuth("docs")?.Aud);
+    }
+
     [Theory]
     [InlineData("""[{ "aud": "s", "resource_url": "https://s.example.com/app", "forward_auth": {} }]""", "不带路径")]
     [InlineData("""[{ "aud": "s", "resource_url": "https://s.example.com/?a=1", "forward_auth": {} }]""", "不带路径")]
@@ -327,7 +393,8 @@ public class ForwardAuthPipelineTests : IClassFixture<NasAuthAppFactory>
         new(kv.Select(p => new KeyValuePair<string, string>(p.K, p.V)));
 
     private static HttpRequestMessage Verify(string site, string aud, string uri = "/", string? mode = "navigate",
-        string method = "GET", string? cookie = null, string? forwardedHost = null)
+        string method = "GET", string? cookie = null, string? forwardedHost = null,
+        params (string K, string V)[] headers)
     {
         var req = new HttpRequestMessage(HttpMethod.Get, $"{site}/forward-auth/verify?aud={aud}");
         req.Headers.TryAddWithoutValidation("X-Forwarded-Method", method);
@@ -335,6 +402,7 @@ public class ForwardAuthPipelineTests : IClassFixture<NasAuthAppFactory>
         if (mode is not null) req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", mode);
         if (cookie is not null) req.Headers.TryAddWithoutValidation("Cookie", cookie);
         if (forwardedHost is not null) req.Headers.TryAddWithoutValidation("X-Forwarded-Host", forwardedHost);
+        foreach (var (k, v) in headers) req.Headers.TryAddWithoutValidation(k, v);
         return req;
     }
 
@@ -573,14 +641,14 @@ public class ForwardAuthPipelineTests : IClassFixture<NasAuthAppFactory>
         // 回调只存在于登记过的站点域名上
         Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync(docsCallbackUrl.Replace(Docs, Auth))).StatusCode);
 
-        // 另一个浏览器捡到这个回调链接：没有发起时种下的 state cookie，不认
+        // 正主照常完成，拿到 docs 的站点 cookie（上面两次拿错地方的尝试没有把票据废掉）
+        var callback = await browser.GetAsync(docsCallbackUrl);
+        Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
+
+        // 另一个浏览器事后捡到这个回调链接：票据用过了，也没有发起时种下的 state cookie
         var thief = await Browser().GetAsync(docsCallbackUrl);
         Assert.Equal(HttpStatusCode.BadRequest, thief.StatusCode);
         Assert.False(thief.Headers.Contains("Set-Cookie"));
-
-        // 正主照常完成，拿到 docs 的站点 cookie
-        var callback = await browser.GetAsync(docsCallbackUrl);
-        Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
         var docsCookie = "__Host-nas-auth-fa=" + SetCookieValue(callback, "__Host-nas-auth-fa");
 
         // 把 docs 的 cookie 带到 ops 去：反向代理问的是 aud=ops-dashboard，不放
@@ -595,6 +663,117 @@ public class ForwardAuthPipelineTests : IClassFixture<NasAuthAppFactory>
         // 主会话 cookie 的名字换成站点 cookie 的名字也混不过去（purpose 不同，解不开）
         var junk = await Browser().SendAsync(Verify(Docs, "docs-site", cookie: "__Host-nas-auth-fa=" + new string('A', 200)));
         Assert.Equal(HttpStatusCode.Redirect, junk.StatusCode);
+    }
+
+    [Fact]
+    public async Task StolenSiteCookie_OnlyOpensItsOwnSite_EvenIfTheUserMayEnterBoth()
+    {
+        // 管理员两个站都进得去。docs 的站点 cookie 泄漏了：拿它去 ops 不行 ——
+        // 实时授权检查挡不住这种情况（这个人确实有 ops 的权限），靠的是 cookie 里记着它属于哪个站
+        var admin = Browser();
+        await SignIn(admin, NasAuthAppFactory.AdminUser, NasAuthAppFactory.AdminPassword);
+        var docsCookie = "__Host-nas-auth-fa=" + SetCookieValue(await PassGate(admin, Docs, "docs-site"), "__Host-nas-auth-fa");
+        var opsCookie = "__Host-nas-auth-fa=" + SetCookieValue(await PassGate(admin, Ops, "ops-dashboard"), "__Host-nas-auth-fa");
+
+        Assert.Equal(HttpStatusCode.OK, (await Browser().SendAsync(Verify(Docs, "docs-site", cookie: docsCookie))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Browser().SendAsync(Verify(Ops, "ops-dashboard", cookie: opsCookie))).StatusCode);
+        Assert.Equal(HttpStatusCode.Redirect, (await Browser().SendAsync(Verify(Ops, "ops-dashboard", cookie: docsCookie))).StatusCode);
+        Assert.Equal(HttpStatusCode.Redirect, (await Browser().SendAsync(Verify(Docs, "docs-site", cookie: opsCookie))).StatusCode);
+    }
+
+    [Fact]
+    public async Task CallbackLinkSnatchedFirst_IsUselessToTheThief_AndBurnsTheTicket()
+    {
+        var browser = Browser();
+        await SignIn(browser, NasAuthAppFactory.AdminUser, NasAuthAppFactory.AdminPassword);
+        var blocked = await browser.SendAsync(Verify(Docs, "docs-site", "/wanted"));
+        var start = await browser.GetAsync(blocked.Headers.Location);
+        var callbackUrl = start.Headers.Location!.OriginalString;
+
+        // 抢在正主之前用：没有那个浏览器的 state cookie，种不上会话
+        var thief = await Browser().GetAsync(callbackUrl);
+        Assert.Equal(HttpStatusCode.BadRequest, thief.StatusCode);
+        Assert.False(thief.Headers.Contains("Set-Cookie"));
+
+        // 票据一经出示就作废：正主这次也用不了，停在重试页……
+        var owner = await browser.GetAsync(callbackUrl);
+        Assert.Equal(HttpStatusCode.BadRequest, owner.StatusCode);
+        // ……点重试重新走一遍就好（本服务上还登着）
+        var retry = await PassGate(browser, Docs, "docs-site", "/wanted");
+        Assert.Equal("/wanted", retry.Headers.Location!.OriginalString);
+    }
+
+    [Fact]
+    public async Task TicketIssuedForSomeoneElsesState_CannotLogTheVictimInAsTheAttacker()
+    {
+        const string mallory = "mallory-fa-csrf", pwd = "mallory-password-123";
+        CreateUser(mallory, pwd, "docs-site");
+
+        // 受害者的浏览器被拦了一次，它的 state 泄漏给了攻击者（它的 state cookie 还在自己浏览器里）
+        var victim = Browser();
+        var victimBlocked = await victim.SendAsync(Verify(Docs, "docs-site"));
+        var victimState = victimBlocked.Headers.Location!.OriginalString.Split("state=")[1];
+
+        // 攻击者用自己的账号、自己的 state 换到一张自己的票据
+        var attacker = Browser();
+        await SignIn(attacker, mallory, pwd);
+        var attackerBlocked = await attacker.SendAsync(Verify(Docs, "docs-site"));
+        var attackerStart = await attacker.GetAsync(attackerBlocked.Headers.Location);
+        var attackerTicket = attackerStart.Headers.Location!.OriginalString.Split("ticket=")[1].Split("&state=")[0];
+
+        // 把「自己的票据 + 受害者的 state」拼成回调链接发给受害者点：state 与受害者的 cookie 对得上，但票据不是为它签的
+        var forged = await victim.GetAsync($"{Docs}/.nas-auth/callback?ticket={attackerTicket}&state={victimState}");
+        Assert.Equal(HttpStatusCode.BadRequest, forged.StatusCode);
+        Assert.False(forged.Headers.Contains("Set-Cookie"));
+        Assert.Equal(HttpStatusCode.Redirect, (await victim.SendAsync(Verify(Docs, "docs-site"))).StatusCode);
+
+        // 反过来：诱导已登录的受害者带着攻击者的 state 去换票据 —— 回调落在受害者浏览器里失败，票据随即作废
+        var signedInVictim = Browser();
+        await SignIn(signedInVictim, NasAuthAppFactory.AdminUser, NasAuthAppFactory.AdminPassword);
+        var attackerState = attackerBlocked.Headers.Location!.OriginalString.Split("state=")[1];
+        var lured = await signedInVictim.GetAsync($"{Auth}/forward-auth/start?aud=docs-site&state={attackerState}");
+        var luredCallback = lured.Headers.Location!.OriginalString;
+        Assert.Equal(HttpStatusCode.BadRequest, (await signedInVictim.GetAsync(luredCallback)).StatusCode);
+        // 攻击者事后从日志 / 地址栏拿到这个链接，在自己的浏览器里（state cookie 对得上）也换不到受害者的会话
+        var stolen = await attacker.GetAsync(luredCallback);
+        Assert.Equal(HttpStatusCode.BadRequest, stolen.StatusCode);
+        Assert.False(stolen.Headers.Contains("Set-Cookie"));
+    }
+
+    [Fact]
+    public async Task SiblingOriginRidingTheSiteCookie_IsRefused()
+    {
+        var browser = Browser();
+        await SignIn(browser, NasAuthAppFactory.AdminUser, NasAuthAppFactory.AdminPassword);
+        await PassGate(browser, Docs, "docs-site");
+
+        async Task<HttpStatusCode> Ask(string method, params (string K, string V)[] headers) =>
+            (await browser.SendAsync(Verify(Docs, "docs-site", "/data.js", mode: null, method: method, headers: headers))).StatusCode;
+
+        // 站点自己的页面发的、地址栏输的：放
+        Assert.Equal(HttpStatusCode.OK, await Ask("GET", ("Sec-Fetch-Site", "same-origin"), ("Sec-Fetch-Mode", "cors"), ("Sec-Fetch-Dest", "empty")));
+        Assert.Equal(HttpStatusCode.OK, await Ask("POST", ("Sec-Fetch-Site", "same-origin"), ("Sec-Fetch-Mode", "cors"), ("Sec-Fetch-Dest", "empty")));
+        Assert.Equal(HttpStatusCode.OK, await Ask("GET", ("Sec-Fetch-Site", "none"), ("Sec-Fetch-Mode", "navigate"), ("Sec-Fetch-Dest", "document")));
+        // 从兄弟子域的导航页、外站点链接进来：放
+        Assert.Equal(HttpStatusCode.OK, await Ask("GET", ("Sec-Fetch-Site", "same-site"), ("Sec-Fetch-Mode", "navigate"), ("Sec-Fetch-Dest", "document")));
+        Assert.Equal(HttpStatusCode.OK, await Ask("GET", ("Sec-Fetch-Site", "cross-site"), ("Sec-Fetch-Mode", "navigate"), ("Sec-Fetch-Dest", "document")));
+
+        // 兄弟子域的页面借这个浏览器的 cookie：<script src>、fetch、iframe、表单 POST 都不放
+        Assert.Equal(HttpStatusCode.Forbidden, await Ask("GET", ("Sec-Fetch-Site", "same-site"), ("Sec-Fetch-Mode", "no-cors"), ("Sec-Fetch-Dest", "script")));
+        Assert.Equal(HttpStatusCode.Forbidden, await Ask("GET", ("Sec-Fetch-Site", "same-site"), ("Sec-Fetch-Mode", "cors"), ("Sec-Fetch-Dest", "empty")));
+        Assert.Equal(HttpStatusCode.Forbidden, await Ask("GET", ("Sec-Fetch-Site", "same-site"), ("Sec-Fetch-Mode", "navigate"), ("Sec-Fetch-Dest", "iframe")));
+        Assert.Equal(HttpStatusCode.Forbidden, await Ask("POST", ("Sec-Fetch-Site", "same-site"), ("Sec-Fetch-Mode", "navigate"), ("Sec-Fetch-Dest", "document")));
+        // 没有 Sec-Fetch-Site 的老浏览器：写请求按 Origin 判
+        Assert.Equal(HttpStatusCode.Forbidden, await Ask("POST", ("Origin", "https://git.example.com")));
+        Assert.Equal(HttpStatusCode.OK, await Ask("POST", ("Origin", Docs)));
+
+        // 被拒的响应不带身份头
+        var refused = await browser.SendAsync(Verify(Docs, "docs-site", "/data.js", mode: "no-cors",
+            headers: new[] { ("Sec-Fetch-Site", "same-site"), ("Sec-Fetch-Dest", "script") }));
+        Assert.False(refused.Headers.Contains("X-Auth-User"));
+        // 没有站点 cookie 时这条规则不参与：照旧是「没登录」
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Browser().SendAsync(Verify(Docs, "docs-site", "/data.js", mode: "no-cors",
+            headers: new[] { ("Sec-Fetch-Site", "same-site"), ("Sec-Fetch-Dest", "script") }))).StatusCode);
     }
 
     [Fact]

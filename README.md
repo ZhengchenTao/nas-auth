@@ -279,6 +279,9 @@ Things to get right:
   the `request_header` line with `copy_headers X-Auth-User X-Auth-Email` inside
   the forward_auth block, and make sure only the reverse proxy can reach the
   upstream.
+- Pages on other subdomains can't ride a visitor's session on a protected site:
+  image and script includes, fetches, form posts and iframes coming from them
+  get a 403. Following a link from elsewhere is unaffected.
 - When nas-auth is down, protected sites are unreachable. They never fail open.
 
 How it works and why: section 22 of
@@ -442,7 +445,7 @@ dotnet test tests/nas-auth.Tests
 entry. Open `http://localhost:5000/login` in Chrome or Firefox. To get a token
 for testing an MCP server, run the real flow, for example with MCP Inspector.
 
-The test suite (xUnit, about 560 tests) needs nothing external. It covers the
+The test suite (xUnit, about 590 tests) needs nothing external. It covers the
 protocol pieces, accounts and approvals, the page templates, and the full HTTP
 pipeline through `WebApplicationFactory`.
 

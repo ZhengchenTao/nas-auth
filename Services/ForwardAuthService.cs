@@ -57,7 +57,7 @@ public sealed class ForwardAuthService
     }
 
     public record State(string Aud, string ReturnPath, string Nonce, long Exp);
-    public record Ticket(string Aud, string UserId, long SessionVersion, string Id, long Exp);
+    public record Ticket(string Aud, string UserId, long SessionVersion, string Nonce, string Id, long Exp);
     public record Session(string Aud, string UserId, long SessionVersion, long Exp);
 
     private long Now => _time.GetUtcNow().ToUnixTimeSeconds();
@@ -70,16 +70,25 @@ public sealed class ForwardAuthService
     public bool TryReadState(string? raw, [NotNullWhen(true)] out State? state) =>
         TryUnprotect(_state, raw, out state) && state.Exp > Now;
 
-    public string CreateTicket(string aud, string userId, long sessionVersion) =>
-        Protect(_ticket, new Ticket(aud, userId, sessionVersion, NewNonce(), Now + (long)TicketLifetime.TotalSeconds));
+    /// <param name="nonce">
+    /// 发起这次登录的浏览器的随机数（取自它带来的 state）。票据只能配这个随机数用：
+    /// 拿到别人的 state，配上自己的票据发给对方点（让对方以自己的身份登进站点），随机数对不上。
+    /// </param>
+    public string CreateTicket(string aud, string userId, long sessionVersion, string nonce) =>
+        Protect(_ticket, new Ticket(aud, userId, sessionVersion, nonce, NewNonce(), Now + (long)TicketLifetime.TotalSeconds));
 
     public bool TryReadTicket(string? raw, [NotNullWhen(true)] out Ticket? ticket) =>
         TryUnprotect(_ticket, raw, out ticket) && ticket.Exp > Now;
 
-    /// <summary>票据只能用一次：第一次返回 true 并记下，之后同一张返回 false。顺手清掉已过期的记录。</summary>
+    /// <summary>
+    /// 票据只能用一次：第一次返回 true 并记下，之后同一张返回 false。顺手清掉已过期的记录。
+    /// 过期的票据在这里再拒一次，与清理用同一个时刻：读票据和消费之间跨过到期的那一秒时，
+    /// 清理会先把「已用」的记录删掉，不再判一次就能重放。
+    /// </summary>
     public bool TryConsume(Ticket ticket)
     {
         var now = Now;
+        if (ticket.Exp <= now) return false;
         foreach (var (id, exp) in _usedTickets)
             if (exp <= now) _usedTickets.TryRemove(id, out _);
         return _usedTickets.TryAdd(ticket.Id, ticket.Exp);
@@ -121,6 +130,39 @@ public sealed class ForwardAuthService
         if (!string.IsNullOrEmpty(secFetchMode))
             return secFetchMode.Equals("navigate", StringComparison.OrdinalIgnoreCase);
         return accept?.Contains("text/html", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    /// <summary>
+    /// 这个请求是不是别的来源借访客的浏览器发来的。是 → 即使站点 cookie 有效也不放行。
+    /// <para>
+    /// 为什么需要：被保护站点与其它应用通常挂在同一主域的兄弟子域上，对浏览器来说是 same-site，
+    /// 站点 cookie 的 SameSite 挡不住它们（Strict 也挡不住）。任何一个兄弟子域被 XSS 或被接管，
+    /// 就能让访客的浏览器带着 cookie 向站点发请求：用 &lt;script src&gt; 读走 JS 形式的数据，
+    /// 或者向站点里的小工具发写请求。与 <see cref="CrossOriginGuard"/> 挡的是同一类对手。
+    /// </para>
+    /// <para>
+    /// 判据（头都是反向代理原样转来的访客请求头，浏览器不允许页面脚本伪造 Sec-Fetch-*）：
+    /// <c>Sec-Fetch-Site</c> 是 same-origin / none → 自己人；是 same-site / cross-site → 只放「顶层页面导航」
+    /// （GET + navigate + document，即从别处点链接进来），被嵌进 iframe、子资源、fetch、表单 POST、WebSocket 一律拒。
+    /// 没有这个头的老浏览器：GET 无从判断，放行；写方法看 <c>Origin</c>，有且不是站点自己就拒。
+    /// </para>
+    /// </summary>
+    public static bool IsCrossOriginRide(string? method, string? secFetchSite, string? secFetchMode,
+        string? secFetchDest, string? origin, string siteOrigin)
+    {
+        var isRead = string.IsNullOrEmpty(method) || HttpMethods.IsGet(method) || HttpMethods.IsHead(method);
+        if (!string.IsNullOrEmpty(secFetchSite))
+        {
+            if (secFetchSite.Equals("same-origin", StringComparison.OrdinalIgnoreCase) ||
+                secFetchSite.Equals("none", StringComparison.OrdinalIgnoreCase))
+                return false;
+            return !(isRead &&
+                     string.Equals(secFetchMode, "navigate", StringComparison.OrdinalIgnoreCase) &&
+                     string.Equals(secFetchDest, "document", StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (isRead || string.IsNullOrEmpty(origin)) return false;
+        return !CrossOriginGuard.SameOrigin(origin, siteOrigin); // "null" 解析不了，按别的来源算
     }
 
     /// <summary>

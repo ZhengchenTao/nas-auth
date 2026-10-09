@@ -669,7 +669,7 @@ id_token 和 `/userinfo` 里只要有 `email` 就带 `email_verified: true`（JS
 | | A. 每个站点一张 host-only cookie（采用） | B. 父域上一张 forward-auth 专用 cookie | C. 主会话 cookie 改成父域 |
 |---|---|---|---|
 | 做法 | 没会话时跳到本服务，查过授权后带一次性票据跳回站点的保留路径，在站点域名上种 `__Host-` cookie | 登录后在 `.example.com` 上种一张只给 forward-auth 用的 cookie | 所有子域共用登录 cookie |
-| 兄弟子域能拿到什么 | 什么都拿不到 | 这张 cookie，可以重放去进所有被保护的站 | 整个登录会话 |
+| 兄弟子域能拿到什么 | 拿不到 cookie。但能让访客的浏览器带着 cookie 向站点发请求，verify 另按来源头挡（见下文「别的来源借浏览器发来的请求」） | 这张 cookie，可以重放去进所有被保护的站 | 整个登录会话 |
 | 一张 cookie 泄漏的范围 | 一个站 | 该用户被授权的所有站 | 全部，含后台 |
 | 代价 | 每站首次访问多两跳；站点要让出 `/.nas-auth/*` | 不能用 `__Host-`，兄弟子域能种假 cookie | 推翻 §十七 |
 
@@ -698,7 +698,7 @@ id_token 和 `/userinfo` 里只要有 `email` 就带 `email_verified: true`（JS
 
 | 端点 | 落在哪个域名 | 行为 |
 |---|---|---|
-| `GET /forward-auth/verify?aud=…` | 反向代理内部调用 | 站点 cookie 有效且授权还在 → `200`，带 `X-Auth-User` / `X-Auth-Email`；否则页面导航 → `302` 去 start，其它请求 → `401`；`aud` 不存在或不是 forward-auth 资源 → `404` |
+| `GET /forward-auth/verify?aud=…` | 反向代理内部调用 | 站点 cookie 有效且授权还在 → `200`，带 `X-Auth-User` / `X-Auth-Email`；cookie 有效但请求是别的来源借浏览器发来的 → `403`；没有有效会话时页面导航 → `302` 去 start，其它请求 → `401`；`aud` 不存在或不是 forward-auth 资源 → `404` |
 | `GET /forward-auth/start?aud=…&state=…` | 本服务 | 要求已登录。授权通过 → `302` 带票据回站点；不通过 → `403` 页；state 过期或对不上 → `302` 回站点首页重新来 |
 | `GET /.nas-auth/callback?ticket=…&state=…` | 被保护的站点 | 校验通过 → 种站点 cookie，`302` 回原地址；否则 `400`，一张不引用任何外部资源的说明页加「重试」链接 |
 | `GET /.nas-auth/logout` | 被保护的站点 | 清站点 cookie，`302` 到本服务的 `/logout`，退出后回站点 |
@@ -713,6 +713,22 @@ verify 不读 `X-Forwarded-Host`。反向代理若信任它上游的代理（CDN
 
 回调和退出按 `Host` 头找站点：反向代理按它路由，访客改不了。票据同样绑 `aud`，A 站的票据拿到 B 站的回调上不认。
 
+站点 cookie 里记 `aud` 另有一层用处：两个站都进得去的人，A 站的 cookie 泄漏后不能拿去开 B 站。这一点实时授权检查挡不住（他确实有 B 站的权限）。
+
+### 别的来源借浏览器发来的请求
+
+站点 cookie 有效还不够。被保护的站点与其它应用通常挂在同一主域的兄弟子域上，对浏览器来说是 same-site，cookie 的 `SameSite` 挡不住它们（`Strict` 也挡不住）。任何一个兄弟子域被 XSS 或被接管，就能让访客的浏览器带着站点 cookie 发请求：用 `<script src>` 读走 JS 形式的数据，或者向站点里的小工具发写请求。对手与 §十七 的跨源写拦截是同一类，那里保护的是本服务自己的表单，这里保护的是站点。
+
+`ForwardAuthService.IsCrossOriginRide`，用的是反向代理原样转来的访客请求头（浏览器不允许页面脚本伪造 `Sec-Fetch-*`）：
+
+| `Sec-Fetch-Site` | 处理 |
+|---|---|
+| `same-origin` / `none` | 站点自己的页面、地址栏、书签：放 |
+| `same-site` / `cross-site` / 其它取值 | 只放顶层页面导航（GET + `Sec-Fetch-Mode: navigate` + `Sec-Fetch-Dest: document`，即从别处点链接进来）。被嵌进 iframe、子资源、fetch、表单 POST、WebSocket 一律 `403` |
+| 没有这个头（老浏览器、非浏览器） | GET / HEAD 无从判断，放；写方法看 `Origin`，有且不是站点自己的来源就 `403` |
+
+只在 cookie 有效时才判：没有会话的请求照旧是 `302` / `401`。副作用：别的子域的页面不能再直接引用被保护站点上的图片、脚本；需要的话把资源放到不设门的地方。
+
 ### 三种加密载荷
 
 `Services/ForwardAuthService`。都用 DataProtection（密钥就是会话 cookie 那一套，数据卷里的 `dp-keys/`，重启不丢），各用各的 purpose，互相冒充解不开；过期时间写在载荷里。
@@ -720,10 +736,13 @@ verify 不读 `X-Forwarded-Host`。反向代理若信任它上游的代理（CDN
 | 载荷 | 内容 | 寿命 | 用途 |
 |---|---|---|---|
 | state | aud、原本要去的路径、随机数 | 1 小时 | verify 签发，经 start 原样带到回调。随机数同时种成站点上的 `__Host-nas-auth-fa-state` cookie，回调时两边要一致（定长时间比较）。别人把自己的回调链接发来点，对不上，种不上会话 |
-| ticket | aud、用户、会话版本、一次性 id | 60 秒 | start 签发，回调消费。只能用一次（用过的 id 记在内存里；重启丢了也只是让重启前 60 秒内的票据能再用一次，重放还得过 state cookie 那一关） |
+| ticket | aud、用户、会话版本、发起登录的那份 state 的随机数、一次性 id | 60 秒 | start 签发，回调消费。只能用一次，而且**一经出示就作废**，不等后面的检查通过（用过的 id 记在内存里；重启丢了也只是让重启前 60 秒内的票据能再用一次，重放还得过随机数那一关） |
 | session | aud、用户、会话版本 | 按资源配，默认 12 小时 | 站点 cookie `__Host-nas-auth-fa` 的内容 |
 
 - 原本要去的路径来自反向代理的 `X-Forwarded-Uri`，只有是干净的站内路径才记（判据同 `ReturnUrl`，另外不回到 `/.nas-auth/` 下面、不超过 2000 字符），否则回首页。回跳目标不从 query 里收。
+- 回调时**票据、state、浏览器里的 cookie 三处的随机数要一致**。cookie 对不上：发起这次登录的不是这个浏览器。票据对不上：票据不是为这份 state 签的，挡的是「拿到别人的 state，配上自己的票据发给对方点」，那样对方会以攻击者的身份登进站点。
+- 票据一经出示就作废的原因：`/forward-auth/start` 是普通的 GET，别人能诱导已登录的人带着「别人的 state」去换票据。回调在随机数那一步失败，这时票据留在地址栏和访问日志里，不作废就还能在攻击者自己的浏览器里用 60 秒。
+- 消费票据时用同一个时刻再判一次过期。否则读票据和消费之间跨过到期那一秒时，清理会先把「已用」记录删掉，同一张票据能再用一次。
 - 同一个浏览器并排开几个标签页时共用一个随机数；回调成功后不清 state cookie，让它自己过期。否则先完成的标签页会把后完成的顶掉。
 - 站点 cookie 是 `SameSite=Lax`。`Strict` 的 cookie 在「外站链接点进来 → 一串跳转」里全程不回传，登录完又被当成没登录。
 
@@ -755,7 +774,7 @@ verify 不读 `X-Forwarded-Host`。反向代理若信任它上游的代理（CDN
 - `admin_only` 照常生效。
 - 判据与 `/authorize` 的用户级检查（§5.5）相同：`admin_only` 通过，且 `user_resources` 里有这一行。
 - **每次 verify 都实时查**用户还在不在、会话版本对不对（§十六）、授权行还在不在。撤销授权、强制下线、改密、删用户立即生效，不等 cookie 过期。代价是每个请求两到三次主键查询。
-- 这类资源**不参与 OAuth**：`/authorize` 把它当成不在白名单；发现文档的 `scopes_supported` 不含它的 scope；DCR 客户端按 scope 反推资源（§十三）时拉不到它。
+- 这类资源**不参与 OAuth**：`ResourceCatalog.FindByUrl` 不返回它们，而那是 `/authorize`、`/token`（换码与刷新）认 `resource` 的唯一入口，所以哪条路径都签不出它的 token，包括把一个原有的 OAuth 资源原地改成 `forward_auth` 之后还留在别人手里的 refresh token。发现文档的 `scopes_supported` 不含它的 scope；DCR 客户端按 scope 反推资源（§十三）时拉不到它。站点条目也不会遮住挂在同一来源下面的 OAuth 资源。
 
 审计：start 那一步记 `forward_auth` 事件（放行或拒绝各一条，约每 `session_hours` 一次）。逐请求的 verify 不记，量级同 `proxy.fwd`。
 
@@ -817,7 +836,8 @@ auth.example.com {
 3. **登录后才看得到的响应必须带 `Cache-Control: private`（或 `no-store`）**。前面有 CDN 时，CDN 默认按扩展名缓存静态文件，不看请求里有没有 cookie：不标 `private`，登录的人取过一次的文件就会被边缘节点存下来发给所有人。本服务自己的跳转、401、403 已经是 `no-store`；上游的响应归反向代理管，示例里用 `header_down` 统一盖成 `private, no-cache`（带内容哈希的文件可以单独放宽成 `private, max-age=…`）。
 4. **不透传身份头时，删掉访客自带的 `X-Auth-*`**。要透传就把 `request_header` 那行换成 forward_auth 块里的 `copy_headers X-Auth-User X-Auth-Email`；实测访客自带的同名头会被盖掉，值为空时也一样。
 5. **不要把 verify 暴露在本服务的公开域名上**。直接打它泄漏不了内容（只有状态码），但没有理由留着。
-6. forward-auth 的子请求要带上访客的 `Cookie`、原方法（`X-Forwarded-Method`）和原路径（`X-Forwarded-Uri`）。Caddy 的 `forward_auth` 默认如此。
+6. forward-auth 的子请求要带上访客的 `Cookie`、`Sec-Fetch-*`、`Origin`、`Accept`，以及原方法（`X-Forwarded-Method`）和原路径（`X-Forwarded-Uri`）。Caddy 的 `forward_auth` 默认把访客的请求头原样带上并补后两个。
+7. 站点 cookie 会随请求一起到上游。上游不完全可信时（它拿到 cookie 也只能用来访问它自己），可以在反向代理里把 `__Host-nas-auth-fa*` 从 `Cookie` 头里剥掉。
 
 ### 没做的
 
@@ -827,6 +847,8 @@ auth.example.com {
 
 ### 测试
 
-- `ForwardAuthServiceTests`：三种载荷往返、各自的过期时间（拨时钟）、互相冒充解不开、篡改 / 换密钥 / 垃圾输入、票据只能用一次、随机数比较、回跳路径清洗、页面导航判定矩阵、身份头编码、`resources.json` 的默认值与各种非法写法启动即失败、按 Host 找站点、不进 `scopes_supported` 与 scope 反推、`/logout` 回跳白名单。
-- `ForwardAuthPipelineTests`：走真实管线，测试扮演反向代理。完整流程（被拦 → 登录 → start → 回调 → 放行，含各 cookie 的属性）；已登录时静默通过；非页面导航回 401；未知 `aud` 不放行；没授权 → 403，授权后通过，撤销立即失效；`admin_only` 站点对非管理员即使有授权行也拒；会话版本 +1、删用户后站点会话立即失效；A 站的票据 / cookie 拿到 B 站不认，自带 `X-Forwarded-Host` 也没用，别的浏览器捡到回调链接用不了；伪造或串站的 state 回站点重来；并排标签页；回调失败页不引用外部资源；站点退出的三跳；不参与 OAuth；后台标出接入方式。
-- 另用真的 Caddy 2.11.4 加本地实例端到端走过一遍（登录流程、缓存头改写、身份头清理与透传、verify 在公开域名上被挡、退出），并在浏览器里实际点过。
+- `ForwardAuthServiceTests`：三种载荷往返、各自的过期时间（拨时钟）、互相冒充解不开、篡改 / 换密钥 / 垃圾输入、票据只能用一次且过期边界上不能重放、随机数比较、回跳路径清洗、页面导航判定矩阵、别的来源借浏览器的判定矩阵、身份头编码、`resources.json` 的默认值与各种非法写法启动即失败、按 Host 找站点、`FindByUrl` 不认站点也不被站点遮住、不进 `scopes_supported` 与 scope 反推、`/logout` 回跳白名单。
+- `ForwardAuthPipelineTests`：走真实管线，测试扮演反向代理。完整流程（被拦 → 登录 → start → 回调 → 放行，含各 cookie 的属性）；已登录时静默通过；非页面导航回 401；未知 `aud` 不放行；没授权 → 403，授权后通过，撤销立即失效；`admin_only` 站点对非管理员即使有授权行也拒；会话版本 +1、删用户后站点会话立即失效；A 站的票据 / cookie 拿到 B 站不认（含两个站都有权限的人），自带 `X-Forwarded-Host` 也没用；别的浏览器捡到回调链接用不了，且票据随之作废；别人的 state 配自己的票据、诱导受害者换票据两种拼法都种不上会话；兄弟子域借 cookie 的子资源 / fetch / iframe / 表单 POST 被拒，顶层导航放行；伪造或串站的 state 回站点重来；并排标签页；回调失败页不引用外部资源；站点退出的三跳；不参与 OAuth；后台标出接入方式。
+- 做过变异检查：把 verify 的 aud 比对、授权检查、会话版本比对、来源检查，回调的票据 aud、两处随机数比对，票据一次性、消费时判过期，`FindByUrl` 的排除，逐个临时拿掉，对应用例都变红。
+- 另用真的 Caddy 2.11.4 加本地实例端到端走过一遍（登录流程、缓存头改写、身份头清理与透传、兄弟子域请求被拒、verify 在公开域名上被挡、退出），并在浏览器里实际点过。
+- 上线前做过一次独立的安全复查，没有发现认证或授权绕过；它指出的来源检查缺口、票据未绑定随机数、过期边界竞态、`/token` 路径未排除站点，都已按上文修掉。

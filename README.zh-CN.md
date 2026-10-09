@@ -204,6 +204,7 @@ auth.example.com {
 - `/.nas-auth/*` 要原样转给 nas-auth，站点自己不能再用这个路径前缀。
 - 登录后才看得到的响应必须带 `Cache-Control: private`。前面有 CDN 时，不标就会被边缘节点存下来发给所有人。
 - nas-auth 放行时会回 `X-Auth-User` 和 `X-Auth-Email`。默认不要传给上游；要传就把 `request_header` 那行换成 forward_auth 块里的 `copy_headers X-Auth-User X-Auth-Email`，并保证上游只有反向代理能访问到。
+- 别的子域的页面不能借访客的登录状态向被保护的站点发请求：从那边发来的图片 / 脚本引用、fetch、表单 POST、iframe 嵌入会得到 403；从别处点链接进来不受影响。
 - nas-auth 不可用时，被保护的站点一律不可访问，不会放行。
 
 机制与取舍见 [docs/design/external-auth.md](docs/design/external-auth.md) 第二十二节。
@@ -296,7 +297,7 @@ dotnet test tests/nas-auth.Tests
 
 `EZBK_MCP_TOKEN` 只是因为示例资源里有一个代理条目。用 Chrome 或 Firefox 打开 `http://localhost:5000/login`。要拿 token 测 MCP 服务，就走一遍真实流程，比如用 MCP Inspector。
 
-测试（xUnit，约 560 个）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
+测试（xUnit，约 590 个）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
 
 ## 镜像与 CI
 
