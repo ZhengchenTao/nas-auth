@@ -13,6 +13,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using NasAuth.Data.Repositories;
 using NasAuth.Endpoints;
+using NasAuth.Services;
 using Xunit;
 
 namespace NasAuth.Tests;
@@ -129,6 +130,22 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         c.PostAsync("/login", Form(("username", NasAuthAppFactory.AdminUser),
             ("password", NasAuthAppFactory.AdminPassword), ("return_url", returnUrl)));
 
+    /// <summary>已登录的 client 从个人中心页取 antiforgery 请求令牌（§二十三；对应的 cookie 留在 client 里）。</summary>
+    internal static async Task<string> CsrfToken(HttpClient c, string page = "/account")
+    {
+        var html = await c.GetStringAsync(page);
+        var m = System.Text.RegularExpressions.Regex.Match(html, "<meta name='csrf-token' content='([^']+)'>");
+        Assert.True(m.Success, $"{page} 里没有 csrf-token meta");
+        return WebUtility.HtmlDecode(m.Groups[1].Value);
+    }
+
+    /// <summary>像页面脚本 fetch 那样带 X-CSRF-TOKEN 头发出去。</summary>
+    internal static async Task<HttpResponseMessage> SendCsrf(HttpClient c, HttpRequestMessage req)
+    {
+        req.Headers.TryAddWithoutValidation(AntiforgeryGuard.HeaderName, await CsrfToken(c));
+        return await c.SendAsync(req);
+    }
+
     // ---------- CSRF ----------
 
     public static IEnumerable<object?[]> CrossOriginCases() => new[]
@@ -240,7 +257,7 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         Assert.DoesNotContain("Phish text", forged);
 
         // 服务端自己发的提示照常显示（mode=clear = 回到默认状态，不影响其他测试）
-        var r = await c.SendAsync(Post("/admin/password-login", Form(("mode", "clear")), secFetchSite: "same-origin"));
+        var r = await SendCsrf(c, Post("/admin/password-login", Form(("mode", "clear")), secFetchSite: "same-origin"));
         Assert.Equal(HttpStatusCode.Redirect, r.StatusCode);
         var loc = r.Headers.Location!.OriginalString;
         Assert.StartsWith("/admin/system?notice=", loc);
@@ -348,7 +365,7 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         Assert.Equal(HttpStatusCode.Redirect, (await Login(c, "/account")).StatusCode);
         foreach (var (provider, host) in new[] { ("google", "accounts.google.com"), ("microsoft", "login.microsoftonline.com") })
         {
-            var r = await c.SendAsync(Post($"/external/{provider}/bind", secFetchSite: "same-origin"));
+            var r = await SendCsrf(c, Post($"/external/{provider}/bind", secFetchSite: "same-origin"));
             Assert.Equal(HttpStatusCode.Redirect, r.StatusCode);
             var loc = r.Headers.Location!;
             Assert.Equal(host, loc.Host);
@@ -382,7 +399,7 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         var c = _app.Client();
         Assert.Equal(HttpStatusCode.Redirect, (await Login(c, "/account")).StatusCode);
 
-        var r = await c.SendAsync(Post("/admin/rotate-jwt-key", secFetchSite: "same-origin"));
+        var r = await SendCsrf(c, Post("/admin/rotate-jwt-key", secFetchSite: "same-origin"));
         Assert.Equal(HttpStatusCode.Redirect, r.StatusCode);
         var loc = r.Headers.Location!.OriginalString;
         Assert.StartsWith("/admin/system?error=", loc);
@@ -492,7 +509,7 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         Assert.Equal(HttpStatusCode.Redirect, (await Login(c, "/admin/users")).StatusCode);
 
         // 不勾「允许密码登录」、不填临时密码，顺带登记预绑定邮箱
-        var create = await c.SendAsync(Post("/admin/users/create", Form(
+        var create = await SendCsrf(c, Post("/admin/users/create", Form(
             ("username", "googleonly"), ("email", "g@example.com"), ("invite_email", "G@Example.com")),
             secFetchSite: "same-origin"));
         Assert.Equal(HttpStatusCode.Redirect, create.StatusCode);
@@ -513,9 +530,9 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         Assert.Contains("/admin/users/invites/delete", edit);
 
         // 删人 → 同名（大小写不同也算）不许再建
-        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/admin/users/delete",
+        Assert.Equal(HttpStatusCode.Redirect, (await SendCsrf(c, Post("/admin/users/delete",
             Form(("user_id", "googleonly")), secFetchSite: "same-origin"))).StatusCode);
-        var again = await c.SendAsync(Post("/admin/users/create", Form(("username", "GoogleOnly")),
+        var again = await SendCsrf(c, Post("/admin/users/create", Form(("username", "GoogleOnly")),
             secFetchSite: "same-origin"));
         Assert.Equal(HttpStatusCode.Redirect, again.StatusCode);
         using (var scope = _app.Services.CreateScope())
@@ -741,28 +758,28 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         // 默认：管理员设的密码就是正式密码，不强制改
         var page = await c.GetStringAsync("/admin/users");
         Assert.Contains("name='must_change_password'", page);
-        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/admin/users/create", Form(
+        Assert.Equal(HttpStatusCode.Redirect, (await SendCsrf(c, Post("/admin/users/create", Form(
             ("username", "family1"), ("temp_password", "family-password"), ("allow_password_login", "1")),
             secFetchSite: "same-origin"))).StatusCode);
         Assert.Equal(0, MustChange("family1"));
 
         // 勾了才强制
-        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/admin/users/create", Form(
+        Assert.Equal(HttpStatusCode.Redirect, (await SendCsrf(c, Post("/admin/users/create", Form(
             ("username", "strict1"), ("temp_password", "strict-password"), ("allow_password_login", "1"),
             ("must_change_password", "1")), secFetchSite: "same-origin"))).StatusCode);
         Assert.Equal(1, MustChange("strict1"));
 
         // 不许密码登录的用户：勾了也不置（没有可改的密码，置了 /authorize 永远拒他）
-        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/admin/users/create", Form(
+        Assert.Equal(HttpStatusCode.Redirect, (await SendCsrf(c, Post("/admin/users/create", Form(
             ("username", "extonly1"), ("must_change_password", "1")), secFetchSite: "same-origin"))).StatusCode);
         Assert.Equal(0, MustChange("extonly1"));
 
         // 重置密码同理：默认清掉标志，勾了才置
         Assert.Contains("name='must_change_password'", await c.GetStringAsync("/admin/users/edit?user=strict1"));
-        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/admin/users/reset-password", Form(
+        Assert.Equal(HttpStatusCode.Redirect, (await SendCsrf(c, Post("/admin/users/reset-password", Form(
             ("user_id", "strict1"), ("temp_password", "another-password")), secFetchSite: "same-origin"))).StatusCode);
         Assert.Equal(0, MustChange("strict1"));
-        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/admin/users/reset-password", Form(
+        Assert.Equal(HttpStatusCode.Redirect, (await SendCsrf(c, Post("/admin/users/reset-password", Form(
             ("user_id", "family1"), ("temp_password", "another-password"), ("must_change_password", "1")),
             secFetchSite: "same-origin"))).StatusCode);
         Assert.Equal(1, MustChange("family1"));
@@ -775,13 +792,13 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         Assert.Equal(HttpStatusCode.Redirect, (await Login(c, "/account")).StatusCode);
 
         // 改昵称
-        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/account/profile",
+        Assert.Equal(HttpStatusCode.Redirect, (await SendCsrf(c, Post("/account/profile",
             Form(("display_name", "管理员小陶")), secFetchSite: "same-origin"))).StatusCode);
 
         // 传头像（1x1 PNG）
         var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
         var upload = new MultipartFormDataContent { { new ByteArrayContent(png), "avatar", "me.png" } };
-        Assert.Equal(HttpStatusCode.Redirect, (await c.SendAsync(Post("/account/avatar", upload, secFetchSite: "same-origin"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Redirect, (await SendCsrf(c, Post("/account/avatar", upload, secFetchSite: "same-origin"))).StatusCode);
 
         string file;
         using (var scope = _app.Services.CreateScope())
@@ -806,7 +823,7 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
 
         // 拒非图片
         var svg = new MultipartFormDataContent { { new ByteArrayContent("<svg xmlns='http://www.w3.org/2000/svg'/>"u8.ToArray()), "avatar", "x.png" } };
-        await c.SendAsync(Post("/account/avatar", svg, secFetchSite: "same-origin"));
+        await SendCsrf(c, Post("/account/avatar", svg, secFetchSite: "same-origin"));
         using (var scope = _app.Services.CreateScope())
             Assert.Equal(file, scope.ServiceProvider.GetRequiredService<UserRepository>().GetById(NasAuthAppFactory.AdminUser)!.avatar);
 

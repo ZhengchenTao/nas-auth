@@ -262,6 +262,7 @@ token 里的 claim：`iss`、`sub`、`aud`（字符串；一个 token 覆盖多�
 
 - cookie 叫 `__Host-nas-auth-session` 和 `__Host-nas-auth-external`：Secure、HttpOnly、SameSite=Lax，不带 Domain。只在 HTTPS 下有效（`http://localhost` 在 Chrome、Firefox 里可以，Safari 不行）。
 - 其他来源发来的浏览器表单提交一律 403，同一主域下的其他子域也算。`/token`、`/revoke`、`/introspect`、`/register`、`/userinfo`、`/proxy/*`、`/logout` 不受限。
+- `/account/*`、`/admin/*` 和绑定外部账号的写请求还要带 antiforgery token（cookie `__Host-nas-auth-csrf`）：页面上的表单自动带，脚本 `fetch` 由 `theme.js` 补 `X-CSRF-TOKEN` 头。页面开着期间换过登录账号的，提交旧页面会 403，刷新页面再提交即可。登录和协议端点不需要。
 - 页面带 CSP：`script-src 'self'`、`frame-ancestors 'none'`。CDN 往页面里注入脚本的功能（Cloudflare Rocket Loader、网页统计之类）对这个域名关掉，反正会被拦。
 - 登录、授权确认和 `/token` 每个 IP 每分钟 5 次（IPv6 按 /64 算）；`/register` 每个 IP 每小时 10 次、全局每小时 200 次；连续输错 10 次密码锁 15 分钟。
 - 登录后只会跳转到站内路径；退出后的回跳地址必须是某个预置客户端或 forward-auth 站点的来源。
@@ -297,7 +298,7 @@ dotnet test tests/nas-auth.Tests
 
 `EZBK_MCP_TOKEN` 只是因为示例资源里有一个代理条目。用 Chrome 或 Firefox 打开 `http://localhost:5000/login`。要拿 token 测 MCP 服务，就走一遍真实流程，比如用 MCP Inspector。
 
-测试（xUnit，约 590 个）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
+测试（xUnit，约 620 个）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
 
 ## 镜像与 CI
 

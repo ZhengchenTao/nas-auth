@@ -100,7 +100,8 @@ public static class AccountEndpoints
         });
 
         // ----- /account 个人中心（强制登录 cookie session）-----
-        var account = app.MapGroup("/account").RequireAuthorization();
+        // 写请求要带 antiforgery token（§二十三）；页面上的表单由 Render / Protect 自动插隐藏字段
+        var account = app.MapGroup("/account").RequireAuthorization().RequireCsrfToken();
 
         // 概览：我是谁、怎么登录、能用哪些应用
         account.MapGet("", (HttpContext ctx,
@@ -250,7 +251,7 @@ public static class AccountEndpoints
             if (me is null || me.must_change_password == 0)
                 return RedirectTo("/account", notice: T("Password change not required"));
             return Results.Content(
-                HtmlTemplates.ForceChangePassword(userId, error: null),
+                AntiforgeryGuard.Protect(ctx, HtmlTemplates.ForceChangePassword(userId, error: null)),
                 "text/html; charset=utf-8");
         });
 
@@ -270,14 +271,14 @@ public static class AccountEndpoints
             {
                 audit.AccountAction("force-change-password", false, userId, "too_short");
                 return Results.Content(
-                    HtmlTemplates.ForceChangePassword(userId, error: "New password must be at least 8 characters"),
+                    AntiforgeryGuard.Protect(ctx, HtmlTemplates.ForceChangePassword(userId, error: "New password must be at least 8 characters")),
                     "text/html; charset=utf-8");
             }
             if (newPwd != confirmPwd)
             {
                 audit.AccountAction("force-change-password", false, userId, "mismatch");
                 return Results.Content(
-                    HtmlTemplates.ForceChangePassword(userId, error: "Passwords do not match"),
+                    AntiforgeryGuard.Protect(ctx, HtmlTemplates.ForceChangePassword(userId, error: "Passwords do not match")),
                     "text/html; charset=utf-8");
             }
             // 防止把临时密码当新密码（管理员刚塞进来的那个明显不算"自己的"）
@@ -285,7 +286,7 @@ public static class AccountEndpoints
             {
                 audit.AccountAction("force-change-password", false, userId, "same_as_temp");
                 return Results.Content(
-                    HtmlTemplates.ForceChangePassword(userId, error: "New password must differ from the temporary password"),
+                    AntiforgeryGuard.Protect(ctx, HtmlTemplates.ForceChangePassword(userId, error: "New password must differ from the temporary password")),
                     "text/html; charset=utf-8");
             }
 

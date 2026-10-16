@@ -81,6 +81,9 @@ builder.Services.AddSingleton(_ => new HttpMessageInvoker(new SocketsHttpHandler
 var externalProviders = ExternalProviderOptions.FromEnvironment();
 builder.Services.AddSingleton(externalProviders);
 
+// /account、/admin 写请求的 antiforgery token（external-auth.md §二十三）；令牌加密用下面持久化的 DataProtection 密钥
+builder.Services.AddAntiforgery(AntiforgeryGuard.Configure);
+
 var authBuilder = builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {

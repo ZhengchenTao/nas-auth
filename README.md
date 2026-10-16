@@ -400,6 +400,11 @@ start with an HS256 key configured.
 - Browser form posts from other origins get a 403, including from sibling
   subdomains. `/token`, `/revoke`, `/introspect`, `/register`, `/userinfo`,
   `/proxy/*` and `/logout` are exempt.
+- Writes under `/account/*` and `/admin/*`, and binding an external account,
+  also need an antiforgery token (cookie `__Host-nas-auth-csrf`). Forms on the
+  pages carry it; for script `fetch` calls `theme.js` adds the `X-CSRF-TOKEN`
+  header. If a page was left open across a sign-in change, the submit gets a
+  403; reload and submit again. Sign-in and the protocol endpoints don't need it.
 - Pages send a CSP with `script-src 'self'` and `frame-ancestors 'none'`. If a
   CDN injects scripts into pages (Cloudflare Rocket Loader, web analytics),
   turn that off for this hostname; it will be blocked anyway.
@@ -445,7 +450,7 @@ dotnet test tests/nas-auth.Tests
 entry. Open `http://localhost:5000/login` in Chrome or Firefox. To get a token
 for testing an MCP server, run the real flow, for example with MCP Inspector.
 
-The test suite (xUnit, about 590 tests) needs nothing external. It covers the
+The test suite (xUnit, about 620 tests) needs nothing external. It covers the
 protocol pieces, accounts and approvals, the page templates, and the full HTTP
 pipeline through `WebApplicationFactory`.
 

@@ -63,7 +63,7 @@ public static class ExternalLoginEndpoints
         // 防篡改往返，complete 端再与当时的会话二次核对。
         // 只收 POST（2026-09-29 安全修复）：原先是 GET，任何站点都能把已登录的管理员导航过来，
         // IdP 静默同意后就把浏览器里当前那个 Google / Microsoft 账号绑到管理员头上。
-        // POST 受 CrossOriginGuard 保护；再加 prompt=select_account，每次绑定都弹账号选择器。
+        // POST 受 CrossOriginGuard 与 antiforgery token 保护；再加 prompt=select_account，每次绑定都弹账号选择器。
         app.MapPost("/external/{provider}/bind", (string provider, HttpContext ctx,
             ExternalProviderOptions providers) =>
         {
@@ -89,7 +89,7 @@ public static class ExternalLoginEndpoints
             // Google / MicrosoftAccount handler 都从 AuthenticationProperties.Parameters 取 "prompt" 拼进授权 URL
             props.SetParameter(BindPromptKey, BindPrompt);
             return Results.Challenge(props, new[] { scheme });
-        });
+        }).RequireCsrfToken(); // 按钮在 /account/security，同那里的表单一样带 antiforgery token（§二十三）
 
         // IdP 回调完成后的落点：external cookie → 登录 §5.2 状态机 / 自绑定 §5.3。
         app.MapGet("/external/complete", async (HttpContext ctx,

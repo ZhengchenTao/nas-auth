@@ -3,7 +3,7 @@ using NasAuth.Config;
 namespace NasAuth.Services;
 
 /// <summary>
-/// 跨源写请求拦截（CSRF，2026-09-29 安全修复）。全站没有 antiforgery token，这里按浏览器自带的来源头统一挡。
+/// 跨源写请求拦截（CSRF，2026-09-29 安全修复）。这里按浏览器自带的来源头统一挡；2026-10-16 起 /account、/admin 另叠一层 antiforgery token（<see cref="AntiforgeryGuard"/>）。
 /// <para>
 /// 为什么 SameSite=Lax 不够：如果 IdP 与其他应用（Gitea / Immich / Grafana 等）共用同一个可注册域、挂在兄弟子域上，
 /// 对浏览器来说它们与 auth.* 是 same-site，Lax cookie 照带。任何一个子域被 XSS / 被接管，

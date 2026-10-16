@@ -12,6 +12,23 @@
 // 由 getAttribute 取回当纯文本用，不会再被当 JS 执行。
 // 本文件在 <head> 同步加载，挂在 document 上的委托不用等 DOMContentLoaded。
 (function () {
+  // antiforgery（2026-10-16，external-auth.md §二十三）：个人中心 / 管理后台的页面在 <meta name="csrf-token"> 里放请求令牌，
+  // 服务端渲染的表单自带隐藏字段；脚本 fetch 同源写请求时这里自动补 X-CSRF-TOKEN 头。没有 meta 的页面（登录、授权确认）不动。
+  if (window.fetch) {
+    var origFetch = window.fetch;
+    window.fetch = function (input, init) {
+      var meta = document.querySelector('meta[name="csrf-token"]');
+      var isReq = typeof Request !== 'undefined' && input instanceof Request;
+      var method = ((init && init.method) || (isReq ? input.method : 'GET')).toUpperCase();
+      var url = new URL(isReq ? input.url : String(input), window.location.href);
+      if (!meta || method === 'GET' || method === 'HEAD' || url.origin !== window.location.origin)
+        return origFetch.call(this, input, init);
+      var headers = new Headers((init && init.headers) || (isReq ? input.headers : undefined));
+      if (!headers.has('X-CSRF-TOKEN')) headers.set('X-CSRF-TOKEN', meta.getAttribute('content'));
+      return origFetch.call(this, input, Object.assign({}, init, { headers: headers }));
+    };
+  }
+
   // <form data-confirm="提示文字">：提交前确认，取消则不提交
   document.addEventListener('submit', function (e) {
     var f = e.target;

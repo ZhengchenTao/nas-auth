@@ -31,7 +31,7 @@ public static class ProfileEndpoints
         });
 
         // ----- 个人中心：自己改 -----
-        var account = app.MapGroup("/account").RequireAuthorization();
+        var account = app.MapGroup("/account").RequireAuthorization().RequireCsrfToken();
 
         account.MapPost("/profile", async (HttpContext ctx, UserRepository users, AuditLogger audit) =>
         {
@@ -90,7 +90,8 @@ public static class ProfileEndpoints
                 var c = ic.HttpContext;
                 var (_, me) = WhoAmI(c, c.RequestServices.GetRequiredService<UserRepository>());
                 return IsAdmin(me) ? await next(ic) : Results.NotFound();
-            });
+            })
+            .RequireCsrfToken(); // 排在管理员门禁之后：非管理员照旧 404
 
         admin.MapPost("/users/avatar", async (HttpContext ctx, UserRepository users, ProfileService profiles, AuditLogger audit) =>
         {

@@ -37,12 +37,13 @@ public static class DashboardSupport
         var (userId, me) = WhoAmI(ctx, users);
         var isAdmin = IsAdmin(me);
         var pendingCount = isAdmin ? identities.ListPending().Count : 0;
-        return Results.Content(
+        // 页面上每个 POST 表单自动带 antiforgery 隐藏字段，<head> 里放一份给脚本 fetch 用（§二十三）
+        return Results.Content(AntiforgeryGuard.Protect(ctx,
             DashboardTemplates.Shell(space, activeKey, me?.username ?? userId, isAdmin, pendingCount, title, content,
                 notice: ReadFlash(ctx, "notice"),
                 error: ReadFlash(ctx, "error"),
                 displayName: me?.display_name,
-                avatarFile: me?.avatar),
+                avatarFile: me?.avatar)),
             "text/html; charset=utf-8");
     }
 

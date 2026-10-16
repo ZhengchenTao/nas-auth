@@ -26,7 +26,9 @@ public static class AdminEndpoints
                 var ctx = ic.HttpContext;
                 var (_, me) = WhoAmI(ctx, ctx.RequestServices.GetRequiredService<UserRepository>());
                 return IsAdmin(me) ? await next(ic) : Results.NotFound();
-            });
+            })
+            // 写请求要带 antiforgery token（§二十三）；排在管理员门禁之后，非管理员照旧 404
+            .RequireCsrfToken();
 
         static string AdminId(HttpContext ctx) => ctx.User.Identity?.Name ?? "";
         static string EditPath(string userId) => "/admin/users/edit?user=" + Uri.EscapeDataString(userId);

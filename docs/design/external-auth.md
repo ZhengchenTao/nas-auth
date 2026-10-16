@@ -852,3 +852,34 @@ auth.example.com {
 - 做过变异检查：把 verify 的 aud 比对、授权检查、会话版本比对、来源检查，回调的票据 aud、两处随机数比对，票据一次性、消费时判过期，`FindByUrl` 的排除，逐个临时拿掉，对应用例都变红。
 - 另用真的 Caddy 2.11.4 加本地实例端到端走过一遍（登录流程、缓存头改写、身份头清理与透传、兄弟子域请求被拒、verify 在公开域名上被挡、退出），并在浏览器里实际点过。
 - 上线前做过一次独立的安全复查，没有发现认证或授权绕过；它指出的来源检查缺口、票据未绑定随机数、过期边界竞态、`/token` 路径未排除站点，都已按上文修掉。
+
+## 二十三、个人中心与管理后台的 antiforgery token（2026-10-16）
+
+### 背景
+
+§十七 选了「按来源头统一拦」而不逐个表单加 token。它挡兄弟子域（对 SameSite 来说是 same-site，`Lax` / `Strict` 都挡不住，§二十二 复查又讲了一遍）够用，但只有一层：来源头三个都没有时放行（为了 curl 和服务端客户端），老浏览器、扩展、中间代理剥掉这些头，或者判据哪天出了漏洞，改密码、退出其他设备、后台建人这类写操作就只剩 cookie 一道。V2 待办「`/account/*` 加 antiforgery」补的就是第二层。
+
+### 做法：`Services/AntiforgeryGuard`
+
+- **用框架自带的 `IAntiforgery`**（`AddAntiforgery`），不自己造：双提交（cookie 里一份、请求里一份），请求令牌绑定当前用户（`NameIdentifier`），加密用持久化的 DataProtection 密钥（重启不失效）
+- **范围**：`/account/*`、`/admin/*`（两个文件各一个路由组）、`/external/{provider}/bind`（按钮在 `/account/security`）的 POST / PUT / PATCH / DELETE。挂法是 `.RequireCsrfToken()`：端点过滤器 + 一个元数据标记。排在 `RequireAuthorization` 与管理员门禁之后，所以没登录照旧跳登录、非管理员照旧 404；没有会话的请求不校验（不借任何人的身份）
+- **不加**：`/login`、`/authorize`、`/token` `/revoke` `/introspect` `/register` `/userinfo` `/logout`、`/proxy/*`、forward-auth。协议端点不认 cookie，或者本来就该收别的应用发起的请求；`/authorize` 的同意页另见下文「没做的」
+- **cookie**：`__Host-nas-auth-csrf`，Secure、HttpOnly、`SameSite=Strict`、`Path=/`、不带 Domain。`__Host-` 让兄弟子域种不了假 cookie；就算种得了，令牌绑定用户，攻击者自己账号的那套也配不上受害者的会话
+- **表单**：`DashboardSupport.Render` 和强制改密页出 HTML 之前过一遍 `AntiforgeryGuard.Protect`：每个 `method='post'` 的 `<form>` 后面插隐藏字段 `__RequestVerificationToken`，`</head>` 前插 `<meta name='csrf-token'>`。在出口统一插，以后新加的表单不用记着带
+- **fetch**：`theme.js` 包一层 `window.fetch`，页面有那个 meta 时，同源的写请求自动补 `X-CSRF-TOKEN` 头。现在页面上还没有 fetch，先把口子留好
+- **拒绝**：403 纯文本「missing or invalid CSRF token. Reload the page and try again.」+ `nas-auth.csrf` 警告日志，与 `CrossOriginGuard` 同一个日志分类，不进审计表
+- `SuppressXFrameOptionsHeader = true`：`X-Frame-Options` 由 `SecurityHeaders` 统一给 `DENY`，不让 antiforgery 补一个 `SAMEORIGIN`
+
+### 会感觉到的
+
+- 页面开着期间在别处「退出其他设备」不影响（令牌绑的是用户 id，不是会话版本）；换了登录账号再提交旧页面上的表单会 403，刷新即可
+- 第一次上线：已经开着的个人中心 / 后台页面是旧 HTML，没有令牌，提交会 403 一次，刷新后正常
+
+### 没做的
+
+- **`/authorize` 的同意页**：§十七 点名的最危险的一个（`use_session=1` 一键授权）仍只靠 `CrossOriginGuard`。同意表单是本服务渲染的，加 token 不难，但 `/authorize` 是协议端点，要先确认没有客户端直接 POST 它，单独做
+- **`/login` 的登录 CSRF**：未登录时没有身份可绑，要单独设计
+
+### 测试
+
+`AccountAntiforgeryTests`：没带令牌（同源、CrossOriginGuard 已放行）的十个写端点一律 403 且数据不变；垃圾令牌 403；页面渲染出来的隐藏字段（含 multipart 头像上传、后台表单、强制改密页）与 `X-CSRF-TOKEN` 头（含 JSON 请求体）都放行；令牌有效但 `Sec-Fetch-Site` 是 same-site / cross-site 仍 403；另一个会话的令牌、另一个用户整套 cookie + 令牌搬进来都 403；未登录的绑定照旧跳登录；`/login`、`/token`、`/revoke`、`/introspect`、`/authorize`、`/logout` 不受影响；枚举全部路由，`/account`、`/admin` 下所有写端点与绑定都挂了 `RequireCsrfToken`，协议端点、`/proxy`、forward-auth 都没挂；cookie 属性；每个后台页上的 POST 表单都带隐藏字段；注入函数只动 POST 表单、令牌做 HTML 编码。变异检查：把过滤器改成直接放行，15 个用例变红。原有用例里已登录的写请求改为带头发送。
