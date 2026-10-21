@@ -134,7 +134,9 @@ img.sb-avatar { object-fit: cover; }
 .consent-target { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: .875rem; line-height: 1.5; overflow-wrap: anywhere; }
 .consent-target svg { flex-shrink: 0; margin-top: 3px; }
 .consent-warn { font-size: .8125rem; }
-.consent-warn p { margin: 0; line-height: 1.6; }
+.consent-warn p { margin: 0; line-height: 1.55; word-break: keep-all; text-wrap: wrap; }
+.consent-warn .badge { display: inline-block; margin-bottom: 2px; }
+.consent-warn strong { overflow-wrap: anywhere; }
 
 /* 提交中（theme.js 加 aria-busy，2026-10-02）：按钮最前面转圈、图标让位、不可再点 */
 .btn[aria-busy="true"] { pointer-events: none; opacity: .8; cursor: progress; }

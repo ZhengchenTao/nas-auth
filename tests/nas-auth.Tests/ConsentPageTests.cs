@@ -76,7 +76,8 @@ public class ConsentPageTests
         var name = "Claude <img src=x>";
         var html = Render(name, "https://evil.example/cb", dcr: true);
         Assert.Contains("Unverified app", html);
-        Assert.Contains($"The name <strong>{WebUtility.HtmlEncode(name)}</strong> was supplied by the app itself", html);
+        Assert.Contains("Only continue if you just started this connection yourself.", html);
+        Assert.Contains($"<strong>{WebUtility.HtmlEncode(name)}</strong> wants to access", html);
         Assert.DoesNotContain("<img src=x>", html);
         Assert.Contains("<strong>evil.example</strong>", html);
     }
@@ -86,8 +87,9 @@ public class ConsentPageTests
     {
         var html = Render("Claude", "https://claude.ai/cb", dcr: true, lang: "zh");
         Assert.Contains("授权后将跳转到 <strong>claude.ai</strong>", html);
-        Assert.Contains("未核实的应用", html);
-        Assert.Contains("只有在你本人刚刚发起连接这个应用时才继续", html);
+        Assert.Contains("未经验证的应用", html);
+        Assert.Contains("此应用尚未经过验证。", html);
+        Assert.Contains("只有在你刚刚自己发起这次连接时，才能继续。", html);
         I18n.Lang = "en";
     }
 

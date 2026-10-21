@@ -78,9 +78,10 @@ public static class I18n
             "授权后将跳回这台电脑上运行的应用（<strong>{0}</strong>）。",
         ["After you authorize, you will be handed to the app that opens <strong>{0}</strong> links."] =
             "授权后将交给打开 <strong>{0}</strong> 链接的应用。",
-        ["Unverified app"] = "未核实的应用",
-        ["The name <strong>{0}</strong> was supplied by the app itself and has not been verified. Only continue if you just started connecting this app yourself."] =
-            "名字「<strong>{0}</strong>」是这个应用自己报的，nas-auth 无法核实。只有在你本人刚刚发起连接这个应用时才继续。",
+        ["Unverified app"] = "未经验证的应用",
+        ["This app hasn't been verified."] = "此应用尚未经过验证。",
+        ["Only continue if you just started this connection yourself."] =
+            "只有在你刚刚自己发起这次连接时，才能继续。",
         ["Your session has expired. Please sign in again."] = "会话已过期，请重新登录。",
         ["Your account is not authorized for this resource (or the requested scopes exceed your grant). Ask an administrator to grant it under Users → Resources."] =
             "你的账号未被授权使用该资源（或请求的 scope 超出授予范围）。请联系管理员在「用户管理 → 资源授权」里授予。",

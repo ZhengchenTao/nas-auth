@@ -120,10 +120,12 @@ public static class HtmlTemplates
         if (target != null)
             sb.Append($"<p class='consent-target'>{IconExternal}<span>{target}</span></p>");
         if (selfRegistered)
-            // 包一层 <p>：Basecoat 的 .alert > section 是 grid，裸的行内元素会各占一行
+            // 包一层 <p>：Basecoat 的 .alert > section 是 grid，裸的行内元素会各占一行。
+            // 句式对齐 Google 未验证应用屏：状态一句，条件一句。不解释名字从哪来。
             sb.Append($"<div class='alert consent-warn' role='note'>{IconAlert}<section><p>" +
-                      $"<span class='badge warn'>{T("Unverified app")}</span> " +
-                      T("The name <strong>{0}</strong> was supplied by the app itself and has not been verified. Only continue if you just started connecting this app yourself.", Esc(clientName)) +
+                      $"<span class='badge warn'>{T("Unverified app")}</span><br>" +
+                      T("This app hasn't been verified.") + "<br>" +
+                      T("Only continue if you just started this connection yourself.") +
                       "</p></section></div>");
         sb.Append("<div class='scopes'>");
         foreach (var s in scopes) sb.Append($"<span class='badge mono' data-variant='secondary'>{Esc(s)}</span>");
