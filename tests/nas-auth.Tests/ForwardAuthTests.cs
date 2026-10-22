@@ -169,8 +169,32 @@ public class ForwardAuthServiceTests : IDisposable
     [InlineData("/.NAS-AUTH/logout", "/")]
     [InlineData("/.nas-auth", "/")]
     [InlineData("/.nas-authx/ok", "/.nas-authx/ok")]
+    [InlineData("/tools/page?return=%2Faccount", "/tools/page?return=%2Faccount")]
     public void SafeReturnPath_OnlyCleanSitePaths(string? input, string expected) =>
         Assert.Equal(expected, ForwardAuthService.SafeReturnPath(input));
+
+    [Theory]
+    [InlineData("/tools/page?return=%2Faccount", "/tools", "/tools/page?return=%2Faccount")]
+    [InlineData("/tools", "/tools", "/tools")]
+    [InlineData("/tools-evil/page", "/tools", "/tools/")]
+    [InlineData("/other/page", "/tools", "/tools/")]
+    [InlineData("/tools/%2Fadmin", "/tools", "/tools/")]
+    [InlineData("/tools/%2e%2e/admin", "/tools", "/tools/")]
+    [InlineData("/tools/page\r\nX: evil", "/tools", "/tools/")]
+    public void SafeReturnPath_StaysInsideMountedApp(string? input, string basePath, string expected) =>
+        Assert.Equal(expected, ForwardAuthService.SafeReturnPath(input, basePath));
+
+    [Fact]
+    public void PathMountedApps_GetIndependentHostCookies_AndRootNamesStayCompatible()
+    {
+        var appA = ForwardAuthService.SessionCookieFor("app-a", "/tools");
+        var appB = ForwardAuthService.SessionCookieFor("app-b", "/tools");
+        Assert.NotEqual(appA, appB);
+        Assert.StartsWith("__Host-nas-auth-fa-", appA);
+        Assert.StartsWith("__Host-nas-auth-fa-state-", ForwardAuthService.StateCookieFor("app-a", "/tools"));
+        Assert.Equal(ForwardAuthService.SessionCookie, ForwardAuthService.SessionCookieFor("app-a", "/"));
+        Assert.Equal(ForwardAuthService.StateCookie, ForwardAuthService.StateCookieFor("app-a", "/"));
+    }
 
     [Fact]
     public void SafeReturnPath_TooLongFallsBack() =>
@@ -320,18 +344,46 @@ public class ForwardAuthServiceTests : IDisposable
         Assert.Equal("docs", cat.FindForwardAuth("docs")?.Aud);
     }
 
+    [Fact]
+    public void Catalog_SameHostAppsAreSelectedByAudAndLongestPathPrefix()
+    {
+        var cat = Load("""
+            [
+              { "aud": "docs", "resource_url": "https://apps.example.com/tools/", "forward_auth": {} },
+              { "aud": "admin", "resource_url": "https://apps.example.com/tools/admin/", "forward_auth": {} },
+              { "aud": "metrics", "resource_url": "https://apps.example.com/tools2/", "forward_auth": {} }
+            ]
+            """);
+        var host = new HostString("apps.example.com");
+
+        Assert.Equal("admin", cat.FindForwardAuthForRequest(host, "/tools/admin/users?next=%2Ftools")?.Aud);
+        Assert.Equal("docs", cat.FindForwardAuthForRequest(host, "/tools/page?return=%2Faccount")?.Aud);
+        Assert.Equal("metrics", cat.FindForwardAuthForRequest(host, "/tools2/health")?.Aud);
+        Assert.Null(cat.FindForwardAuthForRequest(host, "/tools-evil/page"));
+        Assert.Null(cat.FindForwardAuthForRequest(new HostString("other.example.com"), "/tools/page"));
+        Assert.Null(cat.FindForwardAuthForRequest(host, "/tools/%2Fadmin"));
+        Assert.True(ResourceCatalog.IsForwardAuthPath(cat.FindForwardAuth("docs")!, "/tools/page?next=%2Fadmin"));
+        Assert.False(ResourceCatalog.IsForwardAuthPath(cat.FindForwardAuth("docs")!, "/tools2/page"));
+    }
+
     [Theory]
-    [InlineData("""[{ "aud": "s", "resource_url": "https://s.example.com/app", "forward_auth": {} }]""", "不带路径")]
-    [InlineData("""[{ "aud": "s", "resource_url": "https://s.example.com/?a=1", "forward_auth": {} }]""", "不带路径")]
-    [InlineData("""[{ "aud": "s", "resource_url": "https://u:p@s.example.com", "forward_auth": {} }]""", "不带路径")]
-    [InlineData("""[{ "aud": "s", "resource_url": "ftp://s.example.com", "forward_auth": {} }]""", "不带路径")]
-    [InlineData("""[{ "aud": "s", "resource_url": "s.example.com", "forward_auth": {} }]""", "不带路径")]
+    [InlineData("""[{ "aud": "s", "resource_url": "https://s.example.com/?a=1", "forward_auth": {} }]""", "无凭据、无 query/fragment")]
+    [InlineData("""[{ "aud": "s", "resource_url": "https://u:p@s.example.com", "forward_auth": {} }]""", "无凭据、无 query/fragment")]
+    [InlineData("""[{ "aud": "s", "resource_url": "ftp://s.example.com", "forward_auth": {} }]""", "无凭据、无 query/fragment")]
+    [InlineData("""[{ "aud": "s", "resource_url": "s.example.com", "forward_auth": {} }]""", "无凭据、无 query/fragment")]
+    [InlineData("""[{ "aud": "s", "resource_url": "https://s.example.com/app/../admin", "forward_auth": {} }]""", "点段")]
+    [InlineData("""[{ "aud": "s", "resource_url": "https://s.example.com/app%2Fadmin", "forward_auth": {} }]""", "点段")]
+    [InlineData("""[{ "aud": "invalid/aud", "resource_url": "https://s.example.com", "forward_auth": {} }]""", "aud 仅允许")]
     [InlineData("""[{ "aud": "s", "resource_url": "https://s.example.com", "forward_auth": { "session_hours": 0 } }]""", "session_hours")]
     [InlineData("""[{ "aud": "s", "resource_url": "https://s.example.com", "forward_auth": { "session_hours": 721 } }]""", "session_hours")]
     [InlineData("""
         [{ "aud": "a", "resource_url": "https://s.example.com", "forward_auth": {} },
          { "aud": "b", "resource_url": "https://S.example.com/", "forward_auth": {} }]
-        """, "同一个来源")]
+        """, "同一个 Host 和挂载路径")]
+    [InlineData("""
+        [{ "aud": "a", "resource_url": "https://s.example.com/app", "forward_auth": {} },
+         { "aud": "b", "resource_url": "https://s.example.com/app/", "forward_auth": {} }]
+        """, "同一个 Host 和挂载路径")]
     [InlineData("""
         [{ "aud": "a", "resource_url": "https://a.example.com", "scopes": ["x"] },
          { "aud": "a", "resource_url": "https://b.example.com", "forward_auth": {} }]
@@ -406,6 +458,15 @@ public class ForwardAuthPipelineTests : IClassFixture<NasAuthAppFactory>
         return req;
     }
 
+    private static HttpRequestMessage VerifyAuthRequest(string site, string aud, string uri = "/", string method = "GET",
+        string? mode = "navigate", string? cookie = null)
+    {
+        var req = Verify(site, aud, uri, mode, method, cookie);
+        var target = new UriBuilder(req.RequestUri!) { Query = "aud=" + Uri.EscapeDataString(aud) + "&response=auth_request" };
+        req.RequestUri = target.Uri;
+        return req;
+    }
+
     private static Task<HttpResponseMessage> SignIn(HttpClient c, string user, string password, string returnUrl = "/account") =>
         c.PostAsync($"{Auth}/login", Form(("username", user), ("password", password), ("return_url", returnUrl)));
 
@@ -436,7 +497,7 @@ public class ForwardAuthPipelineTests : IClassFixture<NasAuthAppFactory>
         Assert.Equal(HttpStatusCode.Redirect, blocked.StatusCode);
         var start = await browser.GetAsync(blocked.Headers.Location);
         Assert.Equal(HttpStatusCode.Redirect, start.StatusCode);
-        Assert.StartsWith($"{site}/.nas-auth/callback?ticket=", start.Headers.Location!.OriginalString);
+        Assert.StartsWith($"{site}/.nas-auth/callback?aud={Uri.EscapeDataString(aud)}&ticket=", start.Headers.Location!.OriginalString);
         return await browser.GetAsync(start.Headers.Location);
     }
 
@@ -473,7 +534,7 @@ public class ForwardAuthPipelineTests : IClassFixture<NasAuthAppFactory>
         var start = await browser.GetAsync(startUrl);
         Assert.Equal(HttpStatusCode.Redirect, start.StatusCode);
         var callbackUrl = start.Headers.Location!.OriginalString;
-        Assert.StartsWith($"{Docs}/.nas-auth/callback?ticket=", callbackUrl);
+        Assert.StartsWith($"{Docs}/.nas-auth/callback?aud=docs-site&ticket=", callbackUrl);
 
         // 4. 回调：种站点 cookie，回到最初要去的地址
         var callback = await browser.GetAsync(callbackUrl);
@@ -523,6 +584,36 @@ public class ForwardAuthPipelineTests : IClassFixture<NasAuthAppFactory>
         var r = await Browser().SendAsync(Verify(Docs, "docs-site", "/api/data", mode, method));
         Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
         Assert.False(r.Headers.Contains("Set-Cookie"));
+    }
+
+    [Fact]
+    public async Task NginxAuthRequest_UsesOnlyAcceptedStatuses_AndPassesRedirectCookieExplicitly()
+    {
+        var browser = Browser();
+        var unauthenticatedPage = await browser.SendAsync(VerifyAuthRequest(Docs, "docs-site"));
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthenticatedPage.StatusCode);
+        Assert.Null(unauthenticatedPage.Headers.Location);
+        Assert.StartsWith($"{Auth}/forward-auth/start?aud=docs-site&state=",
+            unauthenticatedPage.Headers.GetValues("X-Auth-Redirect").Single());
+        Assert.Contains(unauthenticatedPage.Headers.GetValues("Set-Cookie"),
+            value => value.StartsWith(ForwardAuthService.StateCookie + "=", StringComparison.Ordinal));
+
+        var api = await browser.SendAsync(VerifyAuthRequest(Docs, "docs-site", "/api/data", method: "GET", mode: "cors"));
+        Assert.Equal(HttpStatusCode.Unauthorized, api.StatusCode);
+        Assert.False(api.Headers.Contains("X-Auth-Redirect"));
+        Assert.False(api.Headers.Contains("Set-Cookie"));
+
+        var unknown = await browser.SendAsync(VerifyAuthRequest(Docs, "missing"));
+        Assert.Equal(HttpStatusCode.Forbidden, unknown.StatusCode);
+
+        CreateUser("nginx-user", "pw", "docs-site");
+        await SignIn(browser, "nginx-user", "pw");
+        var callback = await PassGate(browser, Docs, "docs-site");
+        Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
+
+        var allowed = await browser.SendAsync(VerifyAuthRequest(Docs, "docs-site", "/", method: "GET", mode: "same-origin"));
+        Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        Assert.False(allowed.Headers.Contains("X-Auth-Redirect"));
     }
 
     [Theory]
@@ -636,7 +727,7 @@ public class ForwardAuthPipelineTests : IClassFixture<NasAuthAppFactory>
 
         // docs 的票据拿到 ops 的回调上：不认，也不种 cookie
         var wrongSite = await browser.GetAsync(docsCallbackUrl.Replace(Docs, Ops));
-        Assert.Equal(HttpStatusCode.BadRequest, wrongSite.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, wrongSite.StatusCode);
         Assert.False(wrongSite.Headers.Contains("Set-Cookie"));
         // 回调只存在于登记过的站点域名上
         Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync(docsCallbackUrl.Replace(Docs, Auth))).StatusCode);

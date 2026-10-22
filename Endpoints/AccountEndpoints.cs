@@ -32,7 +32,8 @@ public static class AccountEndpoints
                     notice: notice,
                     googleEnabled: providers.GoogleEnabled,
                     microsoftEnabled: providers.MicrosoftEnabled,
-                    passwordEnabled: passwordLogin.Enabled),
+                    passwordEnabled: passwordLogin.Enabled,
+                    providerChoices: providers.EnabledProviders),
                 "text/html; charset=utf-8");
         });
 
@@ -60,7 +61,8 @@ public static class AccountEndpoints
                     HtmlTemplates.Login(returnUrl, error: SignInErrorMessage(result.Status), notice: null,
                         googleEnabled: providers.GoogleEnabled,
                         microsoftEnabled: providers.MicrosoftEnabled,
-                        passwordEnabled: true),
+                        passwordEnabled: true,
+                        providerChoices: providers.EnabledProviders),
                     "text/html; charset=utf-8");
             }
             var user = result.User!;
@@ -180,7 +182,8 @@ public static class AccountEndpoints
                 DashboardTemplates.SecuritySection(BindingViews(userId, identities),
                     providers.GoogleEnabled, providers.MicrosoftEnabled,
                     passwordEnabled: passwordLogin.AllowsUser(me),
-                    recentLogins: RecentLogins(userId, audit)));
+                    recentLogins: RecentLogins(userId, audit),
+                    providerChoices: providers.EnabledProviders));
         });
 
         account.MapPost("/bindings/unbind", async (HttpContext ctx,

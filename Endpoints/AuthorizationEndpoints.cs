@@ -45,13 +45,14 @@ public static class AuthorizationEndpoints
                 hidden,
                 error: null,
                 // 外部登录回调后会带会话回到这个 URL，所以 return_url 必须含完整 query
-                returnUrl: ctx.Request.Path + ctx.Request.QueryString,
+                returnUrl: ctx.Request.PathBase + ctx.Request.Path + ctx.Request.QueryString,
                 sessionUser: SessionUserId(ctx),
                 googleEnabled: providers.GoogleEnabled,
                 microsoftEnabled: providers.MicrosoftEnabled,
                 passwordEnabled: passwordLogin.Enabled,
                 redirectUri: redirectUri,
-                selfRegistered: client!.auto_registered != 0);
+                selfRegistered: client!.auto_registered != 0,
+                providerChoices: providers.EnabledProviders);
             return Results.Content(html, "text/html; charset=utf-8");
         });
 
@@ -102,7 +103,8 @@ public static class AuthorizationEndpoints
                     microsoftEnabled: providers.MicrosoftEnabled,
                     passwordEnabled: passwordLogin.Enabled,
                     redirectUri: redirectUri,
-                    selfRegistered: client!.auto_registered != 0);
+                    selfRegistered: client!.auto_registered != 0,
+                    providerChoices: providers.EnabledProviders);
                 ctx.Response.StatusCode = statusCode;
                 return Results.Content(html, "text/html; charset=utf-8");
             }

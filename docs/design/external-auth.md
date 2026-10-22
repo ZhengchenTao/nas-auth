@@ -768,7 +768,7 @@ verify 不读 `X-Forwarded-Host`。反向代理若信任它上游的代理（CDN
 { "aud": "docs-site", "resource_url": "https://docs.example.com", "display_name": "Family docs", "forward_auth": {} }
 ```
 
-- `resource_url` 必须是站点的来源（不带路径）；回跳地址、回调地址都由它拼。两个站点不能指向同一个来源，`aud` 不能重复，不能与 `proxy` 同配。这些在启动时校验，不合格直接启动失败。
+- `resource_url` 是站点公开 URL，可以带路径前缀；同一主机下前缀重叠时，verify 按最长匹配前缀选择资源。回跳地址、回调地址都由它拼。两个站点不能指向同一个主机与挂载路径，`aud` 不能重复，不能与 `proxy` 同配。这些在启动时校验，不合格直接启动失败。
 - `scopes` 可以不写，默认补一条 `access`，只是为了复用后台按 scope 勾选的授权模型。
 - `forward_auth.session_hours`：站点 cookie 寿命，1 到 720，默认 12。
 - `admin_only` 照常生效。

@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.RateLimiting;
 using NasAuth.Config;
@@ -14,6 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 // ---------- 配置 ----------
 var authOptions = new AuthOptions();
 builder.Configuration.GetSection(AuthOptions.SectionName).Bind(authOptions);
+authOptions.NormalizeAndValidate();
 builder.Services.AddSingleton(authOptions);
 
 var jwtOptions = new JwtOptions();
@@ -56,6 +58,11 @@ builder.Services.AddSingleton<JwtValidator>();
 builder.Services.AddSingleton<AuditLogger>();
 // forward-auth（external-auth.md §二十二）：站点 cookie / 票据 / state 的加解密，密钥用下面持久化的 DataProtection 那一套
 builder.Services.AddSingleton<ForwardAuthService>();
+builder.Services.AddSingleton<TicketReplayCache>();
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddHttpClient(ExternalTicketAuthenticationHandler.ValidationHttpClientName)
+    .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(10))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddHostedService<TokenCleanupService>();
 builder.Services.AddHttpContextAccessor();
 
@@ -78,7 +85,7 @@ builder.Services.AddSingleton(_ => new HttpMessageInvoker(new SocketsHttpHandler
 // ---------- 认证（cookie session + 外部 IdP）----------
 // 外部 IdP 凭证只从环境变量读（外部认证设计 §六）；没配的 provider 不注册 handler，
 // 登录页也不渲染按钮 —— 密码登录是永久兜底，外部登录纯增量。
-var externalProviders = ExternalProviderOptions.FromEnvironment();
+var externalProviders = ExternalProviderOptions.FromConfiguration(builder.Configuration);
 builder.Services.AddSingleton(externalProviders);
 
 // /account、/admin 写请求的 antiforgery token（external-auth.md §二十三）；令牌加密用下面持久化的 DataProtection 密钥
@@ -163,6 +170,83 @@ if (externalProviders.MicrosoftEnabled)
         options.Events.OnCreatingTicket = ctx => ExternalLoginEndpoints.AttachAvatarAsync(
             ctx, "https://graph.microsoft.com/v1.0/me/photos/240x240/$value", ctx.AccessToken);
     });
+}
+foreach (var provider in externalProviders.ConfiguredProviders.Where(p => p.IsEnabled))
+{
+    authBuilder.AddOpenIdConnect(provider.Scheme, options =>
+    {
+        options.Authority = provider.Authority;
+        options.ClientId = provider.ClientId;
+        options.ClientSecret = provider.ClientSecret;
+        options.CallbackPath = string.IsNullOrWhiteSpace(provider.CallbackPath)
+            ? $"/signin/{provider.Id}"
+            : provider.CallbackPath;
+        options.SignInScheme = ExternalLoginEndpoints.ExternalScheme;
+        options.ResponseType = "code";
+        options.UsePkce = true;
+        options.MapInboundClaims = false;
+        options.SaveTokens = false;
+        options.GetClaimsFromUserInfoEndpoint = provider.GetClaimsFromUserInfoEndpoint;
+        options.TokenValidationParameters.NameClaimType = provider.NameClaim;
+        options.Scope.Clear();
+        options.Scope.Add("openid");
+        foreach (var scope in provider.Scopes.Length == 0
+                     ? new[] { "profile", "email" }
+                     : provider.Scopes.Where(s => s != "openid"))
+            options.Scope.Add(scope);
+
+        // OIDC handlers keep their protocol state/correlation and nonce checks enabled.
+        // Only claims explicitly requested by the adapter are copied from UserInfo.
+        if (provider.GetClaimsFromUserInfoEndpoint)
+        {
+            options.ClaimActions.MapUniqueJsonKey(provider.SubjectClaim, provider.SubjectClaim);
+            if (!string.IsNullOrWhiteSpace(provider.EmailClaim))
+                options.ClaimActions.MapUniqueJsonKey(provider.EmailClaim, provider.EmailClaim);
+            if (!string.IsNullOrWhiteSpace(provider.NameClaim))
+                options.ClaimActions.MapUniqueJsonKey(provider.NameClaim, provider.NameClaim);
+            if (!string.IsNullOrWhiteSpace(provider.EmailVerifiedClaim))
+                options.ClaimActions.MapUniqueJsonKey(provider.EmailVerifiedClaim, provider.EmailVerifiedClaim);
+        }
+
+        options.Events.OnRemoteFailure = ExternalLoginEndpoints.HandleRemoteFailure;
+        options.Events.OnRedirectToIdentityProvider = ctx =>
+        {
+            var prompt = ctx.Properties?.GetParameter<string>(ExternalLoginEndpoints.BindPromptKey);
+            if (!string.IsNullOrWhiteSpace(prompt)) ctx.ProtocolMessage.Prompt = prompt;
+            else if (!string.IsNullOrWhiteSpace(provider.Prompt)) ctx.ProtocolMessage.Prompt = provider.Prompt;
+            return Task.CompletedTask;
+        };
+    });
+}
+foreach (var provider in externalProviders.ConfiguredTicketProviders.Where(p => p.IsEnabled))
+{
+    authBuilder.AddScheme<ExternalTicketAuthenticationOptions, ExternalTicketAuthenticationHandler>(
+        provider.Scheme, options =>
+        {
+            options.ProviderId = provider.Id;
+            options.CallbackBaseUrl = authOptions.Issuer;
+            options.LoginUrl = provider.LoginUrl;
+            options.ValidationUrl = provider.ValidationUrl;
+            options.ValidationToken = provider.ValidationToken;
+            options.CallbackPath = string.IsNullOrWhiteSpace(provider.CallbackPath)
+                ? $"/signin/{provider.Id}"
+                : provider.CallbackPath;
+            options.LoginCallbackParameter = provider.ReturnUrlParameter;
+            options.StateParameter = provider.StateParameter;
+            options.TicketParameter = provider.TicketParameter;
+            options.LoginParameters = provider.LoginParameters;
+            options.SubjectClaim = provider.SubjectClaim;
+            options.EmailClaim = provider.EmailClaim;
+            options.NameClaim = provider.NameClaim;
+            options.SignInScheme = ExternalLoginEndpoints.ExternalScheme;
+            options.StateLifetime = TimeSpan.FromMinutes(5);
+            options.CorrelationCookie.Path = "/";
+            options.CorrelationCookie.HttpOnly = true;
+            options.CorrelationCookie.SameSite = SameSiteMode.None;
+            options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.Always;
+            options.Events = new RemoteAuthenticationEvents();
+            options.Events.OnRemoteFailure = ExternalLoginEndpoints.HandleRemoteFailure;
+        });
 }
 builder.Services.AddAuthorization();
 builder.Services.AddScoped<ExternalSignInService>();
@@ -269,6 +353,23 @@ using (var scope = app.Services.CreateScope())
 
 // ---------- 中间件流水线 ----------
 app.UseForwardedHeaders();
+
+if (authOptions.PathBase.Length > 0)
+{
+    app.UsePathBase(authOptions.PathBase);
+    app.Use(async (ctx, next) =>
+    {
+        // Keep the existing container health probe at /healthz. The public auth surface itself
+        // must be reached below PathBase; otherwise root routes would still answer in parallel.
+        if (ctx.Request.PathBase.Value != authOptions.PathBase && ctx.Request.Path != "/healthz")
+        {
+            ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+        await next();
+    });
+}
+app.Use(PathBaseUrlMiddleware.InvokeAsync);
 
 // 安全响应头（CSP / X-Frame-Options / nosniff / Referrer-Policy / 端点响应 no-store），/proxy/* 不动。
 // 排在静态文件和所有端点之前，403 / 429 / 重定向也都带上。

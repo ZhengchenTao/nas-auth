@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.Extensions.Configuration;
 using NasAuth.Config;
 using NasAuth.Data;
 using NasAuth.Data.Repositories;
@@ -147,6 +148,32 @@ public class ExternalClaimsTests
         var p = Principal(new Claim(ClaimTypes.NameIdentifier, "x"));
         Assert.Null(ExternalClaims.GetSubject("gitee", p));
     }
+
+    [Fact]
+    public void GenericOidc_UsesConfiguredStableClaims_AndRequiresExplicitVerifiedEmailClaim()
+    {
+        var provider = new ExternalOidcProviderOptions
+        {
+            Id = "employee",
+            SubjectClaim = "employee_id",
+            EmailClaim = "mail",
+            NameClaim = "display_name",
+        };
+        var p = Principal(
+            new Claim("employee_id", "stable-id"),
+            new Claim("mail", "user@example.test"),
+            new Claim("display_name", "User"),
+            new Claim("email_verified", "true"));
+
+        Assert.Equal("stable-id", ExternalClaims.GetSubject("employee", p, provider));
+        Assert.Equal("user@example.test", ExternalClaims.GetEmail(p, provider));
+        Assert.Equal("User", ExternalClaims.GetDisplayName(p, provider));
+        Assert.False(ExternalClaims.IsEmailVerified("employee", p, provider));
+
+        provider.EmailVerifiedClaim = "email_verified";
+        Assert.True(ExternalClaims.IsEmailVerified("employee", p, provider));
+        Assert.Null(ExternalClaims.GetSubject("employee", Principal(new Claim("mail", "user@example.test")), provider));
+    }
 }
 
 /// <summary>provider 启用判定（env 凭证齐全才启用）与 return_url 本地校验。</summary>
@@ -182,6 +209,65 @@ public class ExternalProviderOptionsTests
             GoogleClientSecret = "secret",
         };
         Assert.False(o.IsEnabled("gitee"));
+    }
+
+    [Fact]
+    public void ExplicitEmptyProviderList_DisablesLegacyEnvironmentProviders()
+    {
+        var oldGoogleId = Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID");
+        var oldGoogleSecret = Environment.GetEnvironmentVariable("GOOGLE_CLIENT_SECRET");
+        var oldMicrosoftId = Environment.GetEnvironmentVariable("MS_CLIENT_ID");
+        var oldMicrosoftSecret = Environment.GetEnvironmentVariable("MS_CLIENT_SECRET");
+        try
+        {
+            Environment.SetEnvironmentVariable("GOOGLE_CLIENT_ID", "legacy-id");
+            Environment.SetEnvironmentVariable("GOOGLE_CLIENT_SECRET", "legacy-secret");
+            Environment.SetEnvironmentVariable("MS_CLIENT_ID", "legacy-id");
+            Environment.SetEnvironmentVariable("MS_CLIENT_SECRET", "legacy-secret");
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+                new Dictionary<string, string?> { ["ExternalProviders:UseConfiguredProviders"] = "true" }).Build();
+
+            var options = ExternalProviderOptions.FromConfiguration(configuration);
+
+            Assert.True(options.UsesConfiguredProviders);
+            Assert.Empty(options.EnabledProviders);
+            Assert.False(options.GoogleEnabled);
+            Assert.False(options.MicrosoftEnabled);
+            Assert.False(options.IsEnabled("google"));
+            Assert.Null(options.SchemeFor("microsoft"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GOOGLE_CLIENT_ID", oldGoogleId);
+            Environment.SetEnvironmentVariable("GOOGLE_CLIENT_SECRET", oldGoogleSecret);
+            Environment.SetEnvironmentVariable("MS_CLIENT_ID", oldMicrosoftId);
+            Environment.SetEnvironmentVariable("MS_CLIENT_SECRET", oldMicrosoftSecret);
+        }
+    }
+
+    [Fact]
+    public void ExplicitGenericProviderList_RegistersOnlyCompleteEnabledOidcProviders()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ExternalProviders:Providers:0:Id"] = "employee",
+            ["ExternalProviders:Providers:0:DisplayName"] = "Employee account",
+            ["ExternalProviders:Providers:0:Enabled"] = "true",
+            ["ExternalProviders:Providers:0:Authority"] = "https://identity.example.test/oidc",
+            ["ExternalProviders:Providers:0:ClientId"] = "client-id",
+            ["ExternalProviders:Providers:0:ClientSecret"] = "client-secret",
+            ["ExternalProviders:Providers:1:Id"] = "pending-uam",
+            ["ExternalProviders:Providers:1:DisplayName"] = "Employee UAM",
+            ["ExternalProviders:Providers:1:Enabled"] = "false",
+        }).Build();
+
+        var options = ExternalProviderOptions.FromConfiguration(configuration);
+
+        Assert.True(options.IsEnabled("employee"));
+        Assert.False(options.IsEnabled("pending-uam"));
+        Assert.False(options.IsEnabled("google"));
+        Assert.Equal("external:employee", options.SchemeFor("employee"));
+        Assert.Equal("Employee account", Assert.Single(options.EnabledProviders).DisplayName);
     }
 
     [Theory]

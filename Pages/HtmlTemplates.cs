@@ -1,4 +1,5 @@
 using System.Text;
+using NasAuth.Config;
 using NasAuth.Services;
 using static NasAuth.Pages.I18n;
 using static NasAuth.Pages.Ui;
@@ -15,7 +16,7 @@ public static class HtmlTemplates
     /// <param name="footer">卡片下方的一行（语言切换），可空。</param>
     public static string Layout(string title, string body, string? footer = null)
     {
-        return $@"<!doctype html>
+        return ApplyPathBase($@"<!doctype html>
 <html lang=""{(IsZh ? "zh-CN" : "en")}"">
 <head>
   <meta charset=""utf-8"">
@@ -32,26 +33,39 @@ public static class HtmlTemplates
     {footer}
   </main>
 </body>
-</html>";
+</html>");
     }
 
     /// <summary>卡片头。title / subtitle 是已转义的 HTML。</summary>
     private static string CardHeader(string title, string? subtitle = null) =>
         $"<header><h2>{title}</h2>{(string.IsNullOrEmpty(subtitle) ? "" : $"<p>{subtitle}</p>")}</header>";
 
-    /// <summary>Continue with Google / Microsoft 按钮组（设计 §5.1）。未启用的 provider 不渲染。</summary>
+    /// <summary>上游登录入口。未启用或配置不完整的 provider 不会出现在清单里。</summary>
     private static void AppendProviderButtons(StringBuilder sb, string returnUrl,
-        bool googleEnabled, bool microsoftEnabled)
+        IReadOnlyList<ExternalProviderChoice> providers, bool selectAnother = false, bool wrapStack = true)
     {
-        if (!googleEnabled && !microsoftEnabled) return;
+        if (providers.Count == 0) return;
         var encoded = Uri.EscapeDataString(returnUrl);
-        sb.Append("<div class='stack'>");
-        if (googleEnabled)
-            sb.Append($"<a class='btn block' data-variant='outline' href='/external/google/start?return_url={Esc(encoded)}'>{IconGoogle}{T("Continue with Google")}</a>");
-        if (microsoftEnabled)
-            sb.Append($"<a class='btn block' data-variant='outline' href='/external/microsoft/start?return_url={Esc(encoded)}'>{IconMicrosoft}{T("Continue with Microsoft")}</a>");
-        sb.Append("</div>");
+        if (wrapStack) sb.Append("<div class='stack'>");
+        foreach (var provider in providers)
+        {
+            var id = Uri.EscapeDataString(provider.Id);
+            var icon = ProviderIcon(provider.Id);
+            var label = selectAnother
+                ? T("Choose another {0} account", Esc(provider.DisplayName))
+                : T("Continue with {0}", Esc(provider.DisplayName));
+            var prompt = selectAnother ? "&amp;select_account=1" : "";
+            sb.Append($"<a class='btn block' data-variant='outline' href='/external/{id}/start?return_url={Esc(encoded)}{prompt}'>{icon}{label}</a>");
+        }
+        if (wrapStack) sb.Append("</div>");
     }
+
+    private static string ProviderIcon(string id) => id switch
+    {
+        "google" => IconGoogle,
+        "microsoft" => IconMicrosoft,
+        _ => "",
+    };
 
     /// <summary>
     /// 「换个账号」出口（等待批准 / 被拒 / IdP 失败页）：外部按钮带 select_account=1 强制弹账号选择器，
@@ -62,10 +76,7 @@ public static class HtmlTemplates
         if (o is null) return "";
         var encoded = Esc(Uri.EscapeDataString(o.ReturnUrl));
         var sb = new StringBuilder($"<div class='sep'>{T("Use a different account")}</div><div class='stack'>");
-        if (o.GoogleEnabled)
-            sb.Append($"<a class='btn block' data-variant='outline' href='/external/google/start?return_url={encoded}&amp;select_account=1'>{IconGoogle}{T("Choose another Google account")}</a>");
-        if (o.MicrosoftEnabled)
-            sb.Append($"<a class='btn block' data-variant='outline' href='/external/microsoft/start?return_url={encoded}&amp;select_account=1'>{IconMicrosoft}{T("Choose another Microsoft account")}</a>");
+        AppendProviderButtons(sb, o.ReturnUrl, o.Providers, selectAnother: true, wrapStack: false);
         // 回原流程：return_url 是授权页就回授权页（那里有密码和其他登录方式），否则回登录页
         var back = o.ReturnUrl.StartsWith("/authorize", StringComparison.Ordinal)
             ? Esc(o.ReturnUrl)
@@ -93,6 +104,14 @@ public static class HtmlTemplates
         if (fold) sb.Append("</details>");
     }
 
+    private static IReadOnlyList<ExternalProviderChoice> LegacyChoices(bool googleEnabled, bool microsoftEnabled)
+    {
+        var providers = new List<ExternalProviderChoice>();
+        if (googleEnabled) providers.Add(new("google", "Google", "Google"));
+        if (microsoftEnabled) providers.Add(new("microsoft", "Microsoft", "Microsoft"));
+        return providers;
+    }
+
     public static string Authorize(
         string clientName,
         string resourceDisplayName,
@@ -105,7 +124,8 @@ public static class HtmlTemplates
         bool microsoftEnabled = false,
         bool passwordEnabled = true,
         string? redirectUri = null,
-        bool selfRegistered = false)
+        bool selfRegistered = false,
+        IReadOnlyList<ExternalProviderChoice>? providerChoices = null)
     {
         clientName = ClientDisplayName(clientName);
         var sb = new StringBuilder();
@@ -137,7 +157,8 @@ public static class HtmlTemplates
             hidden.Append($"<input type='hidden' name='{Esc(k)}' value='{Esc(v ?? "")}'>");
 
         var hasSession = !string.IsNullOrEmpty(sessionUser);
-        var hasProviders = googleEnabled || microsoftEnabled;
+        var providers = providerChoices ?? LegacyChoices(googleEnabled, microsoftEnabled);
+        var hasProviders = providers.Count > 0;
 
         // 已有会话（密码或外部登录建立的）→ 一键授权，不再要密码
         if (hasSession)
@@ -150,7 +171,7 @@ public static class HtmlTemplates
             if (hasProviders) sb.Append($"<div class='sep'>{T("or use another account")}</div>");
         }
 
-        AppendProviderButtons(sb, returnUrl, googleEnabled, microsoftEnabled);
+        AppendProviderButtons(sb, returnUrl, providers);
 
         // 密码登录：开关关掉（设计 §十 二期）直接不渲染
         if (passwordEnabled)
@@ -185,7 +206,8 @@ public static class HtmlTemplates
     }
 
     public static string Login(string? returnUrl, string? error, string? notice,
-        bool googleEnabled = false, bool microsoftEnabled = false, bool passwordEnabled = true)
+        bool googleEnabled = false, bool microsoftEnabled = false, bool passwordEnabled = true,
+        IReadOnlyList<ExternalProviderChoice>? providerChoices = null)
     {
         var target = string.IsNullOrEmpty(returnUrl) ? "/account" : returnUrl;
         var sb = new StringBuilder();
@@ -194,10 +216,11 @@ public static class HtmlTemplates
         if (!string.IsNullOrEmpty(notice)) sb.Append(Alert(Esc(notice), error: false));
         if (!string.IsNullOrEmpty(error)) sb.Append(Alert(Esc(error), error: true));
 
-        AppendProviderButtons(sb, target, googleEnabled, microsoftEnabled);
+        var providers = providerChoices ?? LegacyChoices(googleEnabled, microsoftEnabled);
+        AppendProviderButtons(sb, target, providers);
 
         if (passwordEnabled)
-            AppendPasswordForm(sb, fold: googleEnabled || microsoftEnabled, open: !string.IsNullOrEmpty(error),
+            AppendPasswordForm(sb, fold: providers.Count > 0, open: !string.IsNullOrEmpty(error),
                 "/login", $"<input type='hidden' name='return_url' value='{Esc(target)}'>", T("Sign in"));
 
         sb.Append("</section>");
@@ -327,7 +350,7 @@ public static class HtmlTemplates
 }
 
 /// <summary>「换个账号」出口参数：回原流程的本地地址 + 哪些登录方式可用。</summary>
-public record SwitchAccountOptions(string ReturnUrl, bool GoogleEnabled, bool MicrosoftEnabled, bool PasswordEnabled);
+public record SwitchAccountOptions(string ReturnUrl, IReadOnlyList<ExternalProviderChoice> Providers, bool PasswordEnabled);
 
 public record AccountAuthorizationView(
     string ClientId,

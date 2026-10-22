@@ -62,6 +62,19 @@ public sealed class ForwardAuthService
 
     private long Now => _time.GetUtcNow().ToUnixTimeSeconds();
 
+    /// <summary>
+    /// Root-mounted legacy resources keep their historic cookie names. Each path-mounted app gets
+    /// an independent host-only cookie name derived from the complete aud using SHA-256.
+    /// </summary>
+    public static string SessionCookieFor(string aud, string basePath) =>
+        basePath == "/" ? SessionCookie : CookieFor("__Host-nas-auth-fa-", aud);
+
+    public static string StateCookieFor(string aud, string basePath) =>
+        basePath == "/" ? StateCookie : CookieFor("__Host-nas-auth-fa-state-", aud);
+
+    private static string CookieFor(string prefix, string aud) =>
+        prefix + Base64Url(SHA256.HashData(Encoding.UTF8.GetBytes(aud)));
+
     public static string NewNonce() => Base64Url(RandomNumberGenerator.GetBytes(16));
 
     public string CreateState(string aud, string returnPath, string nonce) =>
@@ -110,12 +123,36 @@ public sealed class ForwardAuthService
     /// 判据与 <see cref="ReturnUrl"/> 相同（防 <c>//evil</c>、控制字符、非 ASCII）；
     /// 另外不回到 <see cref="PathPrefix"/> 下面（回调 / 退出自己），太长的也不要（state 要放进 URL）。
     /// </summary>
-    public static string SafeReturnPath(string? forwardedUri)
+    public static string SafeReturnPath(string? forwardedUri) => SafeReturnPath(forwardedUri, "/");
+
+    /// <summary>回跳路径必须仍位于当前资源挂载前缀内；无效值落到该应用自己的首页。</summary>
+    public static string SafeReturnPath(string? forwardedUri, string basePath)
     {
-        if (!ReturnUrl.IsLocalUrl(forwardedUri) || forwardedUri[0] != '/') return "/";
-        if (forwardedUri.Length > MaxReturnPathLength) return "/";
-        if (forwardedUri.StartsWith(PathPrefix + "/", StringComparison.OrdinalIgnoreCase) ||
-            forwardedUri.Equals(PathPrefix, StringComparison.OrdinalIgnoreCase)) return "/";
+        var fallback = basePath == "/" ? "/" : basePath + "/";
+        if (!ReturnUrl.IsLocalUrl(forwardedUri) || forwardedUri![0] != '/' ||
+            forwardedUri.Length > MaxReturnPathLength || forwardedUri.Contains('\\') ||
+            forwardedUri.Any(char.IsControl)) return fallback;
+
+        var queryIndex = forwardedUri.IndexOf('?');
+        var path = queryIndex < 0 ? forwardedUri : forwardedUri[..queryIndex];
+        if (path.Contains("%2f", StringComparison.OrdinalIgnoreCase) ||
+            path.Contains("%5c", StringComparison.OrdinalIgnoreCase)) return fallback;
+        if (path.Split('/').Any(segment => segment is "." or "..")) return fallback;
+        try
+        {
+            var decodedPath = Uri.UnescapeDataString(path);
+            if (decodedPath.Contains('\\') || decodedPath.Split('/').Any(segment => segment is "." or ".."))
+                return fallback;
+        }
+        catch (UriFormatException)
+        {
+            return fallback;
+        }
+
+        if (basePath != "/" && !path.Equals(basePath, StringComparison.Ordinal) &&
+            !path.StartsWith(basePath + "/", StringComparison.Ordinal)) return fallback;
+        if (path.StartsWith(PathPrefix + "/", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals(PathPrefix, StringComparison.OrdinalIgnoreCase)) return fallback;
         return forwardedUri;
     }
 

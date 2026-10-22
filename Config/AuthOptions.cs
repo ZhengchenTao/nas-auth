@@ -1,19 +1,37 @@
 namespace NasAuth.Config;
 
-/// <summary>
-/// 顶层 Auth:* 配置。Issuer 必须是 https://auth.<domain>。
-/// </summary>
+/// <summary>顶层 Auth:* 配置。Issuer 是公开签发方地址；PathBase 为空时兼容根路径部署。</summary>
 public class AuthOptions
 {
     public const string SectionName = "Auth";
 
     public string Issuer { get; set; } = "";
+    /// <summary>可选的公开子路径，例如 /auth。Issuer 的路径部分必须与此值一致。</summary>
+    public string PathBase { get; set; } = "";
     public string Database { get; set; } = "";
     public string ResourcesPath { get; set; } = "";
     public string ClientsPresetPath { get; set; } = "";
     public AdminOptions Admin { get; set; } = new();
     public PasswordLoginOptions PasswordLogin { get; set; } = new();
     public DcrOptions Dcr { get; set; } = new();
+
+    public void NormalizeAndValidate()
+    {
+        PathBase = PathBase.Trim().TrimEnd('/');
+        if (PathBase.Length == 0) return;
+
+        if (!PathBase.StartsWith('/') || PathBase.StartsWith("//", StringComparison.Ordinal) ||
+            PathBase.Contains('\\') || PathBase.Contains('?') || PathBase.Contains('#') ||
+            PathBase.Contains('%') || PathBase.Split('/').Any(segment => segment is "." or ".."))
+            throw new InvalidOperationException("Auth:PathBase 必须是规范的站内路径，例如 /auth");
+
+        if (!Uri.TryCreate(Issuer, UriKind.Absolute, out var issuerUri) ||
+            (issuerUri.Scheme != Uri.UriSchemeHttp && issuerUri.Scheme != Uri.UriSchemeHttps) ||
+            !string.IsNullOrEmpty(issuerUri.UserInfo) || !string.IsNullOrEmpty(issuerUri.Query) ||
+            !string.IsNullOrEmpty(issuerUri.Fragment) ||
+            !string.Equals(issuerUri.AbsolutePath.TrimEnd('/'), PathBase, StringComparison.Ordinal))
+            throw new InvalidOperationException("Auth:PathBase 必须与 Auth:Issuer 的公开 URL 路径一致");
+    }
 }
 
 /// <summary>

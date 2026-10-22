@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using NasAuth.Config;
 using NasAuth.Data;
 using NasAuth.Data.Repositories;
 
@@ -102,7 +103,7 @@ public class ExternalSignInService
 
 /// <summary>
 /// 从外部 IdP 回调的 ClaimsPrincipal 里取身份字段。
-/// 身份主键只认 Google sub / Microsoft oid（fallback sub），绝不用 email（设计 §六 / §九）。
+/// 身份主键只认 provider 的稳定 subject claim，绝不用 email（设计 §六 / §九）。
 /// 注：AddMicrosoftAccount 走 Graph /me，把稳定的 Graph user id 映射到 NameIdentifier，
 /// 不带 oid claim —— fallback 链 oid → NameIdentifier 两种部署形态都覆盖。
 /// </summary>
@@ -110,20 +111,22 @@ public static class ExternalClaims
 {
     public const string OidClaimType = "http://schemas.microsoft.com/identity/claims/objectidentifier";
 
-    public static string? GetSubject(string provider, ClaimsPrincipal principal) => provider switch
+    public static string? GetSubject(string provider, ClaimsPrincipal principal,
+        IExternalClaimMapping? configured = null) => provider switch
     {
-        "google" => principal.FindFirstValue(ClaimTypes.NameIdentifier),
-        "microsoft" => principal.FindFirstValue(OidClaimType)
-                       ?? principal.FindFirstValue("oid")
-                       ?? principal.FindFirstValue(ClaimTypes.NameIdentifier),
+        "google" when configured is null => principal.FindFirstValue(ClaimTypes.NameIdentifier),
+        "microsoft" when configured is null => principal.FindFirstValue(OidClaimType)
+                                                   ?? principal.FindFirstValue("oid")
+                                                   ?? principal.FindFirstValue(ClaimTypes.NameIdentifier),
+        _ when configured is not null => principal.FindFirstValue(configured.SubjectClaim),
         _ => null,
     };
 
-    public static string? GetEmail(ClaimsPrincipal principal) =>
-        principal.FindFirstValue(ClaimTypes.Email);
+    public static string? GetEmail(ClaimsPrincipal principal, IExternalClaimMapping? configured = null) =>
+        principal.FindFirstValue(configured?.EmailClaim ?? ClaimTypes.Email);
 
-    public static string? GetDisplayName(ClaimsPrincipal principal) =>
-        principal.FindFirstValue(ClaimTypes.Name);
+    public static string? GetDisplayName(ClaimsPrincipal principal, IExternalClaimMapping? configured = null) =>
+        principal.FindFirstValue(configured?.NameClaim ?? ClaimTypes.Name);
 
     /// <summary>§十九：回调时下载好的外部头像文件名（<see cref="Endpoints.ExternalLoginEndpoints.AttachAvatarAsync"/> 加的）。</summary>
     public const string AvatarClaimType = "nas_avatar";
@@ -144,10 +147,13 @@ public static class ExternalClaims
     /// 取 mail ?? userPrincipalName，mail 可能是另一个地址，要求两者相同。
     /// 工作 / 学校账号的 email 可由租户管理员随意设置（nOAuth），那条路不走 /consumers/ 进不来；以后若改成 /common/，这里必须重审。
     /// </summary>
-    public static bool IsEmailVerified(string provider, ClaimsPrincipal principal) => provider switch
+    public static bool IsEmailVerified(string provider, ClaimsPrincipal principal,
+        IExternalClaimMapping? configured = null) => provider switch
     {
-        "google" => string.Equals(principal.FindFirstValue(EmailVerifiedClaimType), "true", StringComparison.OrdinalIgnoreCase),
-        "microsoft" => IsSignInEmail(principal.FindFirstValue(MicrosoftUpnClaimType), GetEmail(principal)),
+        "google" when configured is null => string.Equals(principal.FindFirstValue(EmailVerifiedClaimType), "true", StringComparison.OrdinalIgnoreCase),
+        "microsoft" when configured is null => IsSignInEmail(principal.FindFirstValue(MicrosoftUpnClaimType), GetEmail(principal)),
+        _ when !string.IsNullOrWhiteSpace(configured?.EmailVerifiedClaim) =>
+            string.Equals(principal.FindFirstValue(configured.EmailVerifiedClaim), "true", StringComparison.OrdinalIgnoreCase),
         _ => false,
     };
 

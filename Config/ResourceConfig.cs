@@ -38,7 +38,8 @@ public class ResourceConfig
     /// <summary>
     /// 可选。出现 = 这是一个由反向代理 forward-auth 保护的站点（external-auth.md §二十二）：
     /// 站点自己不做登录，反向代理每个请求先来问 <c>/forward-auth/verify?aud=…</c>。
-    /// 这类资源不参与 OAuth（/authorize 不认、不进 scopes_supported）；<c>resource_url</c> 必须是站点的来源（不带路径），
+    /// 这类资源不参与 OAuth（/authorize 不认、不进 scopes_supported）；<c>resource_url</c> 是被保护应用的公开挂载 URL，
+    /// 可以带路径前缀。同一 Host 可挂不同路径的应用，较长路径前缀优先。
     /// <c>scopes</c> 可以不写（默认一条 <c>access</c>，只是为了复用「给用户勾选」的授权模型）。
     /// </summary>
     [JsonPropertyName("forward_auth")]

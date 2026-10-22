@@ -38,7 +38,7 @@ public static class ExternalLoginEndpoints
         app.MapGet("/external/{provider}/start", (string provider, HttpContext ctx,
             ExternalProviderOptions providers) =>
         {
-            var scheme = SchemeOf(provider);
+            var scheme = providers.SchemeFor(provider);
             if (scheme is null || !providers.IsEnabled(provider))
                 return Results.NotFound();
 
@@ -67,8 +67,8 @@ public static class ExternalLoginEndpoints
         app.MapPost("/external/{provider}/bind", (string provider, HttpContext ctx,
             ExternalProviderOptions providers) =>
         {
-            var scheme = SchemeOf(provider);
-            if (scheme is null || !providers.IsEnabled(provider))
+            var scheme = providers.SchemeFor(provider);
+            if (scheme is null || !providers.IsEnabled(provider) || !providers.CanBind(provider))
                 return Results.NotFound();
 
             var sessionUid = ctx.User?.Identity?.IsAuthenticated == true ? ctx.User.Identity.Name : null;
@@ -108,12 +108,13 @@ public static class ExternalLoginEndpoints
 
             auth.Properties!.Items.TryGetValue(ProviderKey, out var provider);
             auth.Properties.Items.TryGetValue(ReturnUrlKey, out var rawReturnUrl);
-            if (provider is not "google" and not "microsoft")
+            if (string.IsNullOrWhiteSpace(provider) || !providers.IsEnabled(provider))
                 return ErrorPage(ctx, StatusCodes.Status400BadRequest,
                     "External sign-in failed", "Unknown provider.");
+            var configuredProvider = providers.FindClaimMapping(provider);
             var returnUrl = ReturnUrl.SafeLocal(rawReturnUrl);
 
-            var subject = ExternalClaims.GetSubject(provider, auth.Principal);
+            var subject = ExternalClaims.GetSubject(provider, auth.Principal, configuredProvider);
             if (string.IsNullOrEmpty(subject))
             {
                 audit.ExternalLogin(false, provider, "-", null, ctx.RemoteIp(), "no_subject_claim");
@@ -121,8 +122,8 @@ public static class ExternalLoginEndpoints
                     "External sign-in failed", "The identity provider did not return a stable subject.");
             }
 
-            var email = ExternalClaims.GetEmail(auth.Principal);
-            var displayName = ExternalClaims.GetDisplayName(auth.Principal);
+            var email = ExternalClaims.GetEmail(auth.Principal, configuredProvider);
+            var displayName = ExternalClaims.GetDisplayName(auth.Principal, configuredProvider);
             var avatar = ExternalClaims.GetAvatar(auth.Principal);
 
             // ---- 自绑定模式（§5.3）----
@@ -158,7 +159,7 @@ public static class ExternalLoginEndpoints
 
             // ---- 登录模式（§5.2 状态机）----
             var result = signIn.Resolve(provider, subject, email, displayName,
-                ExternalClaims.IsEmailVerified(provider, auth.Principal));
+                ExternalClaims.IsEmailVerified(provider, auth.Principal, configuredProvider));
             // §十九：每次外部登录都刷新快照（待批的也存，审批通过时给新用户补昵称 / 头像）
             identities.UpdateSnapshot(provider, subject, displayName, avatar);
             switch (result.Status)
@@ -228,13 +229,6 @@ public static class ExternalLoginEndpoints
                 sp.GetRequiredService<PasswordLoginGate>())));
     }
 
-    private static string? SchemeOf(string provider) => provider switch
-    {
-        "google" => GoogleDefaults.AuthenticationScheme,
-        "microsoft" => MicrosoftAccountDefaults.AuthenticationScheme,
-        _ => null,
-    };
-
     private static IResult ErrorPage(HttpContext ctx, int statusCode, string title, string message,
         SwitchAccountOptions? switchOptions = null)
     {
@@ -245,5 +239,5 @@ public static class ExternalLoginEndpoints
     /// <summary>等待批准 / 被拒 / IdP 失败页上「换个账号」出口需要的信息（此时没有会话，全靠 return_url 回原流程）。</summary>
     private static SwitchAccountOptions SwitchOptions(string returnUrl, ExternalProviderOptions providers,
         PasswordLoginGate passwordLogin) =>
-        new(returnUrl, providers.GoogleEnabled, providers.MicrosoftEnabled, passwordLogin.Enabled);
+        new(returnUrl, providers.EnabledProviders, passwordLogin.Enabled);
 }

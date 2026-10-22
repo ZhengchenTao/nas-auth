@@ -1,4 +1,5 @@
 using NasAuth.Pages;
+using NasAuth.Config;
 using Xunit;
 
 namespace NasAuth.Tests;
@@ -11,7 +12,11 @@ public class SwitchAccountTests
     {
         var ret = "/authorize?client_id=open-webui&state=s1";
         var html = HtmlTemplates.ExternalPending("google", "someone@example.com",
-            new SwitchAccountOptions(ret, GoogleEnabled: true, MicrosoftEnabled: true, PasswordEnabled: true));
+            new SwitchAccountOptions(ret, new[]
+            {
+                new ExternalProviderChoice("google", "Google", "Google"),
+                new ExternalProviderChoice("microsoft", "Microsoft", "Microsoft"),
+            }, PasswordEnabled: true));
 
         var encoded = Uri.EscapeDataString(ret);
         Assert.Contains($"/external/google/start?return_url={encoded}&amp;select_account=1", html);
@@ -24,7 +29,8 @@ public class SwitchAccountTests
     public void NonAuthorizeReturn_GoesBackViaLogin_AndHidesDisabledProviders()
     {
         var html = HtmlTemplates.ExternalError("Access denied", "nope",
-            new SwitchAccountOptions("/account", GoogleEnabled: true, MicrosoftEnabled: false, PasswordEnabled: false));
+            new SwitchAccountOptions("/account",
+                new[] { new ExternalProviderChoice("google", "Google", "Google") }, PasswordEnabled: false));
 
         Assert.Contains("/external/google/start?return_url=%2Faccount&amp;select_account=1", html);
         Assert.DoesNotContain("/external/microsoft/start", html);

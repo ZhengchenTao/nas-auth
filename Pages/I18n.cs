@@ -38,6 +38,9 @@ public static class I18n
         ["Use a different account"] = "换个账号",
         ["Choose another Google account"] = "选择其他 Google 账号",
         ["Choose another Microsoft account"] = "选择其他微软账号",
+        ["Continue with {0}"] = "使用 {0} 继续",
+        ["Choose another {0} account"] = "选择其他 {0} 账号",
+        ["Bind {0} account"] = "绑定 {0} 账号",
         ["Back to /account"] = "返回 /account",
 
         // ---- 系统：密码登录运行时开关 ----

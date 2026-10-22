@@ -19,6 +19,7 @@ MCP 客户端从 MCP 服务的元数据里找到授权服务，自己注册，�
 - 授权码 + PKCE（只支持 S256）、refresh token 轮换、动态客户端注册（RFC 7591）、资源指示（RFC 8707）、撤销和内省、受保护资源元数据（RFC 9728）。
 - 给网页应用用的最小 OIDC：发现文档、`id_token`、JWKS、`/userinfo`、RP 发起的退出。
 - 用 Google 或微软个人账号登录。新的外部账号要管理员批准，不会因为登录一次就自动开户；管理员也可以提前登记对方的邮箱，对方第一次登录就直接绑到指定用户上。本地密码（argon2id）作为兜底，可以关掉。
+- 可配置标准 OIDC 或 ticket 登录服务商。ticket 身份由单独配置的私有 adapter 校验，首次登录仍需管理员审批。
 - 用户 id 和显示用的昵称、头像分开：id 固定不变，下游应用按它认人；昵称和头像可以改，随 `name` / `picture` 下发给应用。
 - 按用户授权：哪个用户能用哪个资源、到哪些 scope。
 - `/proxy/{aud}`：上游只认一个固定 token 时用。nas-auth 先验自己的 JWT，再换成上游 token 流式转发。
@@ -82,6 +83,26 @@ EZBK_MCP_TOKEN=
 
 要用 Google 或微软登录，按这个顺序来。一旦配了外部登录，只有勾了「允许密码登录」的用户还能用密码，而管理员默认没勾。所以：先不配 `GOOGLE_*` / `MS_*` 启动，在 `/admin/users` 给 `admin` 勾上「允许密码登录」，再加上凭据重启，到「账号 → 登录与安全」绑定自己的 Google 或微软账号，之后想关密码登录再取消勾选。
 
+通用 OIDC 配置前缀是 `ExternalProviders__Providers__0__*`，ticket 登录是
+`ExternalProviders__TicketProviders__0__*`。两者都会进入显式 provider 清单；设置
+`ExternalProviders__UseConfiguredProviders=true` 后，即使清单为空也会禁用遗留的
+Google / 微软环境变量。ticket provider 的公开配置字段示例：
+
+```dotenv
+ExternalProviders__UseConfiguredProviders=true
+ExternalProviders__TicketProviders__0__Id=badge-login
+ExternalProviders__TicketProviders__0__DisplayName=Badge login
+ExternalProviders__TicketProviders__0__Enabled=true
+ExternalProviders__TicketProviders__0__LoginUrl=https://login.example.test/start
+ExternalProviders__TicketProviders__0__ValidationUrl=https://adapter.example.test/validate
+# ExternalProviders__TicketProviders__0__ValidationToken 从部署环境的 secret store 注入。
+```
+
+登录 URL 必须用 HTTPS；validation URL 必须是 HTTPS，只有 loopback 本机 adapter 可以用
+HTTP。adapter 收到 Bearer token 和 JSON `{"ticket":"…","client_ip":"…"}`，返回
+`{"subject":"stable-id","display_name":"…","email":"…"}`。`subject` 必须是稳定且不可变的账号 id。
+契约不包含 `email_verified`，所以 email 只用于展示，不会自动认领现有账号。首次登录进入待批；管理员可在待批页确认身份后，明确绑定到已有本地账号。登录参数名和静态 query 参数可配置。具体登录协议与 secret 只放私有部署配置。
+
 ## 配置
 
 用环境变量，`__` 表示层级（`Auth__Issuer` 就是 `Auth:Issuer`）。也可以写在 `appsettings*.json` 里，但密钥只放环境变量。
@@ -89,6 +110,7 @@ EZBK_MCP_TOKEN=
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `Auth__Issuer` | – | 对外地址，也是 `iss`。必填。 |
+| `Auth__PathBase` | 空 | 可选公开挂载前缀，例如 `/auth`，必须和 `Auth__Issuer` 的路径部分一致；留空兼容根路径部署。 |
 | `Auth__Database` | `Data Source=/app/data/auth.db` | RSA 私钥（`oidc_rs256_*.pem`）、cookie 密钥（`dp-keys/`）和头像（`avatars/`）放在同一个目录。 |
 | `Auth__ResourcesPath` | `/app/resources.json` | 必须有，启动时读一次。 |
 | `Auth__ClientsPresetPath` | `/app/clients.preset.json` | 可选。 |
@@ -160,7 +182,7 @@ Auth__Dcr__AllowedCustomSchemes__0=cursor
 { "aud": "docs-site", "resource_url": "https://docs.example.com", "display_name": "Family docs", "forward_auth": {} }
 ```
 
-`resource_url` 是站点的来源，不带路径。`scopes` 不用写。`"forward_auth": { "session_hours": 12 }` 可以改站点 cookie 的寿命（默认 12 小时，到期后只要 nas-auth 还登着就自动换新）。`admin_only` 照常可用。然后在后台给用户勾上这个资源。
+`resource_url` 是站点公开 URL，可以带路径前缀。同一主机上的前缀重叠时，最长匹配路径优先。`scopes` 不用写。`"forward_auth": { "session_hours": 12 }` 可以改站点 cookie 的寿命（默认 12 小时，到期后只要 nas-auth 还登着就自动换新）。`admin_only` 照常可用。然后在后台给用户勾上这个资源。
 
 Caddy 的写法：
 
@@ -208,6 +230,8 @@ auth.example.com {
 - nas-auth 不可用时，被保护的站点一律不可访问，不会放行。
 
 机制与取舍见 [docs/design/external-auth.md](docs/design/external-auth.md) 第二十二节。
+同一主机多路径应用的 Nginx `auth_request` 配置、`/auth` 挂载映射和通用 ticket adapter 契约见
+[docs/design/external-auth-deployment.md](docs/design/external-auth-deployment.md)。
 
 ### clients.preset.json
 
@@ -228,11 +252,11 @@ auth.example.com {
 
 管理员按配置创建。其他用户有三个来源：
 
-- **批准一次 Google / 微软登录。** 外部账号第一次登录只会生成一条申请，管理员在 `/admin/approvals` 里批准，绑到已有用户或新建用户，同时勾选这个用户能用哪些资源。
-- **管理员先建好，等对方来登。** 新建用户时不勾「允许密码登录」，这个用户就没有密码，只能用 Google / 微软登录；同时填上「预绑定登录邮箱」。对方第一次用这个邮箱的账号登录时直接绑到这个用户上，不经过审批。
+- **批准一次外部登录。** 外部账号第一次登录只会生成一条申请，管理员在 `/admin/approvals` 里批准，绑到已有用户或新建用户，同时勾选这个用户能用哪些资源。
+- **管理员先建好，等对方来登。** 新建用户时不勾「允许密码登录」，这个用户就没有密码，只能用已启用的外部登录；使用支持验证邮箱的服务商时，可填「预绑定登录邮箱」，匹配且验证通过后直接绑定，不经过审批。
 - **管理员建一个用密码的用户。** 勾「允许密码登录」并设一个密码。默认这就是正式密码；想让对方自己另设，再勾「首次登录必须改密」。重置密码时同样可选。
 
-预绑定只在登录服务商能证明对方拥有这个邮箱时生效：Google 要求 `email_verified`，微软要求登录名就是这个邮箱。对不上就照常生成一条申请。一条预绑定用一次就删除。已登录的用户可以自己再绑定别的 Google / 微软账号。
+预绑定只在登录服务商能证明对方拥有这个邮箱时生效：Google 要求 `email_verified`，微软要求登录名就是这个邮箱。ticket provider 没有 `email_verified`，不能使用邮箱预绑定；首次登录要管理员审批。对不上就照常生成一条申请。一条预绑定用一次就删除。已登录用户可以自绑定支持此功能的 OIDC 服务商；ticket 身份通过管理员审批绑定。
 
 用户 id 就是下游应用拿到的 `sub` 和 `preferred_username`，建好不能改，删掉的 id 也不能再用：应用按它认账号，同名的新用户会进到旧用户在各应用里的账号。昵称（`name`）和头像（`picture`）与 id 分开，用户在 `/account` 里改，管理员也能替人改；没设过的，取绑定的 Google / 微软账号的名字和头像。头像只收 PNG、JPEG、WebP，不超过 2 MB，通过 `/avatars/<文件名>` 提供，不需要登录，因为下游应用的服务端要来拉。
 
@@ -270,6 +294,8 @@ token 里的 claim：`iss`、`sub`、`aud`（字符串；一个 token 覆盖多�
 
 ## 端点
 
+下表路径是应用内部相对路径。设置 `Auth__PathBase=/auth` 后，对外路径要加上 `/auth`，例如 `/auth/login` 和 `/auth/authorize`。
+
 | 路径 | |
 |---|---|
 | `/.well-known/oauth-authorization-server`、`/.well-known/openid-configuration` | 元数据 |
@@ -280,7 +306,7 @@ token 里的 claim：`iss`、`sub`、`aud`（字符串；一个 token 覆盖多�
 | `/userinfo`、`/logout` | OIDC |
 | `/login`、`/account`、`/admin` | 页面 |
 | `/avatars/{file}` | 头像（公开，供下游应用拉取） |
-| `/external/{provider}/start` | Google / 微软登录 |
+| `/external/{provider}/start` | Google、微软、已配置的 OIDC 或 ticket 登录 |
 | `/proxy/{aud}/…` | 换 token 的反代（及其 RFC 9728 元数据） |
 | `/forward-auth/verify`、`/forward-auth/start` | forward-auth：反向代理的逐请求检查、登录后签发票据 |
 | `/.nas-auth/callback`、`/.nas-auth/logout` | forward-auth：落在被保护站点域名上的回调与退出 |

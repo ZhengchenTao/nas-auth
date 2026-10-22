@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 using NasAuth.Config;
 
 namespace NasAuth.Services;
@@ -31,7 +32,7 @@ public class ResourceCatalog
                 $"resources.json 为空或解析失败：{options.ResourcesPath}");
 
         // 基本校验：aud / resource_url 必填，scopes 至少一条
-        var forwardAuthOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var forwardAuthPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var r in list)
         {
             // forward-auth 站点没有真正的 scope，不写时补一条，授权模型（user_resources 按 scope 勾选）照常可用
@@ -85,27 +86,35 @@ public class ResourceCatalog
                 }
             }
 
-            // forward_auth 字段可选；一旦出现，resource_url 就是被保护站点的来源：回跳地址、回调地址都由它拼，
-            // 带路径 / query 或两个站点撞同一个来源都会让「这个请求属于哪个站」说不清，启动即失败。
+            // forward_auth 字段可选；resource_url 是被保护应用的公开挂载 URL，可以带路径前缀。
+            // 每个服务用独立 aud；相同 Host 下允许不同路径，但同一挂载路径不能重复注册。
             if (r.ForwardAuth is not null)
             {
                 if (!Uri.TryCreate(r.ResourceUrl, UriKind.Absolute, out var siteUri) ||
                     (siteUri.Scheme != "http" && siteUri.Scheme != "https") ||
-                    (siteUri.AbsolutePath != "/" && siteUri.AbsolutePath != "") ||
                     !string.IsNullOrEmpty(siteUri.Query) || !string.IsNullOrEmpty(siteUri.Fragment) ||
                     !string.IsNullOrEmpty(siteUri.UserInfo))
                 {
                     throw new InvalidOperationException(
-                        $"resources.json aud={r.Aud} 是 forward_auth 站点，resource_url 必须是站点来源（如 https://site.example.com，不带路径）：{r.ResourceUrl}");
+                        $"resources.json aud={r.Aud} 是 forward_auth 资源，resource_url 必须是无凭据、无 query/fragment 的 http(s) 挂载 URL：{r.ResourceUrl}");
                 }
+
+                var rawPath = RawPath(r.ResourceUrl);
+                if (!IsSafeSitePath(rawPath))
+                    throw new InvalidOperationException(
+                        $"resources.json aud={r.Aud} 的 resource_url 路径不能含点段、反斜杠或编码斜线：{r.ResourceUrl}");
+
+                if (!IsSafeForwardAuthAud(r.Aud))
+                    throw new InvalidOperationException(
+                        $"resources.json aud={r.Aud} 不合法（forward_auth aud 仅允许 1–128 位 ASCII 字母、数字、. _ : -）");
 
                 if (r.ForwardAuth.SessionHours < 1 || r.ForwardAuth.SessionHours > ForwardAuthConfig.MaxSessionHours)
                     throw new InvalidOperationException(
                         $"resources.json aud={r.Aud} 的 forward_auth.session_hours 须在 1–{ForwardAuthConfig.MaxSessionHours} 之间：{r.ForwardAuth.SessionHours}");
 
-                if (!forwardAuthOrigins.Add(SiteOrigin(r)))
+                if (!forwardAuthPaths.Add(SiteOrigin(r) + SiteBasePath(r)))
                     throw new InvalidOperationException(
-                        $"resources.json 里有两个 forward_auth 站点指向同一个来源：{SiteOrigin(r)}");
+                        $"resources.json 里有两个 forward_auth 资源占用同一个 Host 和挂载路径：{SiteOrigin(r)}{SiteBasePath(r)}");
             }
         }
 
@@ -175,9 +184,42 @@ public class ResourceCatalog
     public static string SiteOrigin(ResourceConfig r) =>
         new Uri(r.ResourceUrl).GetLeftPart(UriPartial.Authority);
 
+    /// <summary>被保护资源的路径前缀；根路径用 <c>/</c> 表示，其他路径不带尾斜杠。</summary>
+    public static string SiteBasePath(ResourceConfig r)
+    {
+        var path = new Uri(r.ResourceUrl).AbsolutePath.TrimEnd('/');
+        return path.Length == 0 ? "/" : path;
+    }
+
+    /// <summary>被保护服务首页，保留它的部署子路径。</summary>
+    public static string SiteRoot(ResourceConfig r) =>
+        SiteOrigin(r) + (SiteBasePath(r) == "/" ? "/" : SiteBasePath(r) + "/");
+
+    public static bool IsForwardAuthPath(ResourceConfig site, string? forwardedUri) =>
+        TryGetForwardedPath(forwardedUri, out var path) && IsPathWithinBase(path, SiteBasePath(site));
+
+    /// <summary>
+    /// 按可信反向代理传来的 Host + 原始路径选择最具体的应用挂载点。
+    /// Host 必须由代理覆盖为它实际服务的主机名；X-Forwarded-Host 不参与判定。
+    /// </summary>
+    public ResourceConfig? FindForwardAuthForRequest(HostString host, string? forwardedUri)
+    {
+        if (!host.HasValue || !TryGetForwardedPath(forwardedUri, out var path)) return null;
+        return _resources.Where(r => r.IsForwardAuth && HostMatches(r, host) &&
+                                     IsPathWithinBase(path, SiteBasePath(r)))
+            .OrderByDescending(r => SiteBasePath(r).Length)
+            .FirstOrDefault();
+    }
+
     /// <summary>按 aud 找 forward-auth 站点；aud 不存在或不是 forward-auth 资源都返回 null。</summary>
     public ResourceConfig? FindForwardAuth(string? aud) =>
         string.IsNullOrEmpty(aud) ? null : _resources.FirstOrDefault(r => r.IsForwardAuth && r.Aud == aud);
+
+    public ResourceConfig? FindForwardAuthForHost(HostString host, string? aud)
+    {
+        var site = FindForwardAuth(aud);
+        return site is not null && HostMatches(site, host) ? site : null;
+    }
 
     /// <summary>
     /// 按请求的 Host 找 forward-auth 站点（回调 / 退出落在被保护站点自己的域名上）。
@@ -186,18 +228,14 @@ public class ResourceCatalog
     public ResourceConfig? FindForwardAuthByHost(HostString host)
     {
         if (!host.HasValue) return null;
-        return _resources.FirstOrDefault(r =>
-        {
-            if (!r.IsForwardAuth) return false;
-            var u = new Uri(r.ResourceUrl);
-            return string.Equals(u.Host, host.Host, StringComparison.OrdinalIgnoreCase) &&
-                   (host.Port ?? u.Port) == u.Port && (host.Port is not null || u.IsDefaultPort);
-        });
+        var matches = _resources.Where(r => r.IsForwardAuth && HostMatches(r, host)).ToArray();
+        return matches.FirstOrDefault(r => SiteBasePath(r) == "/") ??
+               (matches.Length == 1 ? matches[0] : null);
     }
 
     /// <summary>全部 forward-auth 站点的来源（/logout 的回跳白名单用）。</summary>
     public IEnumerable<string> ForwardAuthOrigins() =>
-        _resources.Where(r => r.IsForwardAuth).Select(SiteOrigin);
+        _resources.Where(r => r.IsForwardAuth).Select(SiteOrigin).Distinct(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>聚合所有资源的 scope，给 /.well-known 用。forward-auth 站点不参与 OAuth，不算。</summary>
     public IReadOnlyList<string> AllScopes()
@@ -216,4 +254,65 @@ public class ResourceCatalog
         // forward-auth 站点不签 token：DCR 客户端请求了同名 scope 也不能把它拉进 aud
         return _resources.Where(r => !r.IsForwardAuth && r.Scopes.Any(set.Contains)).ToList();
     }
+
+    private static bool HostMatches(ResourceConfig site, HostString host)
+    {
+        var uri = new Uri(site.ResourceUrl);
+        return string.Equals(uri.Host, host.Host, StringComparison.OrdinalIgnoreCase) &&
+               (host.Port ?? uri.Port) == uri.Port && (host.Port is not null || uri.IsDefaultPort);
+    }
+
+    private static bool IsPathWithinBase(string path, string basePath) =>
+        basePath == "/" || path.Equals(basePath, StringComparison.Ordinal) ||
+        path.StartsWith(basePath + "/", StringComparison.Ordinal);
+
+    private static bool TryGetForwardedPath(string? forwardedUri, out string path)
+    {
+        path = "";
+        if (string.IsNullOrEmpty(forwardedUri) || forwardedUri.Length > 8192 ||
+            !forwardedUri.StartsWith('/') || forwardedUri.StartsWith("//", StringComparison.Ordinal) ||
+            forwardedUri.Contains('\\') || forwardedUri.Contains('#') || forwardedUri.Any(char.IsControl)) return false;
+
+        var queryIndex = forwardedUri.IndexOf('?');
+        path = queryIndex < 0 ? forwardedUri : forwardedUri[..queryIndex];
+        if (path.Contains("%2f", StringComparison.OrdinalIgnoreCase) ||
+            path.Contains("%5c", StringComparison.OrdinalIgnoreCase)) return false;
+        if (path.Split('/').Any(segment => segment is "." or "..")) return false;
+        try
+        {
+            var decoded = Uri.UnescapeDataString(path);
+            return !decoded.Contains('\\') && !decoded.Split('/').Any(segment => segment is "." or "..");
+        }
+        catch (UriFormatException)
+        {
+            return false;
+        }
+    }
+
+    private static string RawPath(string resourceUrl)
+    {
+        var authorityStart = resourceUrl.IndexOf("://", StringComparison.Ordinal) + 3;
+        var pathStart = resourceUrl.IndexOfAny(['/', '?', '#'], authorityStart);
+        if (pathStart < 0 || resourceUrl[pathStart] != '/') return "/";
+        var pathEnd = resourceUrl.IndexOfAny(['?', '#'], pathStart);
+        return pathEnd < 0 ? resourceUrl[pathStart..] : resourceUrl[pathStart..pathEnd];
+    }
+
+    private static bool IsSafeSitePath(string path)
+    {
+        if (path.Contains('\\') || path.Contains("%2f", StringComparison.OrdinalIgnoreCase) ||
+            path.Contains("%5c", StringComparison.OrdinalIgnoreCase)) return false;
+        try
+        {
+            var decoded = Uri.UnescapeDataString(path);
+            return !decoded.Contains('\\') && !decoded.Split('/').Any(segment => segment is "." or "..");
+        }
+        catch (UriFormatException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsSafeForwardAuthAud(string aud) =>
+        aud.Length is >= 1 and <= 128 && aud.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or ':' or '-');
 }

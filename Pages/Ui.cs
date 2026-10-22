@@ -1,5 +1,6 @@
 using System.Net;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 
 namespace NasAuth.Pages;
 
@@ -11,6 +12,37 @@ namespace NasAuth.Pages;
 public static class Ui
 {
     public const string BasecoatDir = "/vendor/basecoat-1.0.2";
+
+    private static readonly AsyncLocal<string?> RequestPathBase = new();
+    private static readonly Regex RootRelativeAttribute = new(
+        "(?<attribute>\\b(?:href|src|action)\\s*=\\s*)(?<quote>['\"])(?<url>/(?!/)[^'\"]*)\\k<quote>",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    public static string PathBase
+    {
+        get => RequestPathBase.Value ?? "";
+        set => RequestPathBase.Value = value;
+    }
+
+    /// <summary>
+    /// Add the request's public mount prefix to root-relative SSR links. This runs while each
+    /// page is rendered, so it does not depend on Accept headers or buffer HTTP response bodies.
+    /// </summary>
+    public static string ApplyPathBase(string html)
+    {
+        var prefix = PathBase;
+        if (prefix.Length == 0) return html;
+        return RootRelativeAttribute.Replace(html, match =>
+        {
+            var url = match.Groups["url"].Value;
+            var end = url.IndexOfAny(['?', '#']);
+            var path = end < 0 ? url : url[..end];
+            if (path.Equals(prefix, StringComparison.Ordinal) || path.StartsWith(prefix + "/", StringComparison.Ordinal))
+                return match.Value;
+            return match.Groups["attribute"].Value + match.Groups["quote"].Value +
+                   prefix + url + match.Groups["quote"].Value;
+        });
+    }
 
     /// <summary>
     /// 全部静态资源（app.css、theme.js、Basecoat 三个文件）的内容哈希，拼在每个引用 URL 上做缓存失效。

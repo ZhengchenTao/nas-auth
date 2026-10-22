@@ -14,11 +14,11 @@ namespace NasAuth.Endpoints;
 /// <para>四个端点，分落在两个域名上：</para>
 /// <list type="bullet">
 /// <item><c>GET /forward-auth/verify?aud=…</c> —— 只给反向代理调（Caddy <c>forward_auth</c> / nginx <c>auth_request</c>）。
-/// 2xx = 放行；页面导航且没会话 = 302 去登录；其它 = 401。</item>
+/// 2xx = 放行；默认页面导航且没会话 = 302 去登录。Nginx 模式用 401 + <c>X-Auth-Redirect</c>，因为它不接受 auth subrequest 的 302。</item>
 /// <item><c>GET /forward-auth/start</c> —— 在本服务自己的域名上，要求已登录（没登录走现有登录页再回来），
 /// 查这个人能不能进这个站，能就带一次性票据跳回站点。</item>
-/// <item><c>GET /.nas-auth/callback</c>、<c>GET /.nas-auth/logout</c> —— 落在<b>被保护站点</b>的域名上
-/// （反向代理把 <c>/.nas-auth/*</c> 原样转给本服务），在那个域名上种 / 清站点 cookie。</item>
+/// <item><c>GET /.nas-auth/callback</c>、<c>GET /.nas-auth/logout?aud=…</c> —— 落在<b>被保护站点</b>的域名上
+/// （反向代理把路径转给本服务的 PathBase 下），按 aud 与 Host 在那个域名上种 / 清站点 cookie。</item>
 /// </list>
 /// <para>
 /// 「这是哪个站」：verify 只认 query 里的 <c>aud</c>，由运维写死在反向代理配置里；
@@ -45,10 +45,19 @@ public static class ForwardAuthEndpoints
     {
         // aud 不存在、或不是 forward-auth 资源：反向代理把 404 原样回给访客，等于不放行
         var site = catalog.FindForwardAuth(ctx.Request.Query["aud"].ToString());
-        if (site is null) return Results.NotFound();
+        var authRequestMode = string.Equals(ctx.Request.Query["response"], "auth_request", StringComparison.Ordinal);
+        if (site is null) return authRequestMode ? Results.StatusCode(StatusCodes.Status403Forbidden) : Results.NotFound();
 
         var req = ctx.Request;
-        if (fa.TryReadSession(req.Cookies[ForwardAuthService.SessionCookie], out var session) &&
+        var forwardedUri = req.Headers["X-Forwarded-Uri"].ToString();
+        var routedSite = catalog.FindForwardAuthForRequest(req.Host, forwardedUri);
+        if (routedSite is null || routedSite.Aud != site.Aud)
+            return authRequestMode ? Results.StatusCode(StatusCodes.Status403Forbidden) : Results.NotFound();
+
+        var basePath = ResourceCatalog.SiteBasePath(site);
+        var sessionCookie = ForwardAuthService.SessionCookieFor(site.Aud, basePath);
+        var stateCookie = ForwardAuthService.StateCookieFor(site.Aud, basePath);
+        if (fa.TryReadSession(req.Cookies[sessionCookie], out var session) &&
             session.Aud == site.Aud &&
             users.GetById(session.UserId) is { } user &&
             user.session_version == session.SessionVersion &&   // 强制下线 / 改密 / 退出其他设备后立即失效
@@ -83,15 +92,21 @@ public static class ForwardAuthEndpoints
                 statusCode: StatusCodes.Status401Unauthorized);
 
         // 同一个浏览器并排开几个标签页时共用一个随机数：各自的回调都对得上，不会后开的把先开的顶掉
-        var nonce = req.Cookies[ForwardAuthService.StateCookie];
+        var nonce = req.Cookies[stateCookie];
         if (string.IsNullOrEmpty(nonce) || nonce.Length > 64) nonce = ForwardAuthService.NewNonce();
-        ctx.Response.Cookies.Append(ForwardAuthService.StateCookie, nonce,
+        ctx.Response.Cookies.Append(stateCookie, nonce,
             SiteCookie(ForwardAuthService.StateLifetime));
 
         var state = fa.CreateState(site.Aud,
-            ForwardAuthService.SafeReturnPath(req.Headers["X-Forwarded-Uri"].ToString()), nonce);
-        return Results.Redirect(
-            $"{options.Issuer.TrimEnd('/')}/forward-auth/start?aud={Uri.EscapeDataString(site.Aud)}&state={state}");
+            ForwardAuthService.SafeReturnPath(forwardedUri, basePath), nonce);
+        var loginUrl =
+            $"{options.Issuer.TrimEnd('/')}/forward-auth/start?aud={Uri.EscapeDataString(site.Aud)}&state={state}";
+        if (authRequestMode)
+        {
+            ctx.Response.Headers["X-Auth-Redirect"] = loginUrl;
+            return Results.StatusCode(StatusCodes.Status401Unauthorized);
+        }
+        return Results.Redirect(loginUrl);
     }
 
     private static IResult Start(HttpContext ctx, ForwardAuthService fa, ResourceCatalog catalog,
@@ -103,19 +118,20 @@ public static class ForwardAuthEndpoints
                 StatusCodes.Status400BadRequest);
 
         var origin = ResourceCatalog.SiteOrigin(site);
+        var siteRoot = ResourceCatalog.SiteRoot(site);
         var rawState = ctx.Request.Query["state"].ToString();
         // state 过期（登录页上停太久）或被改过：回站点重新来一遍，那边会签一份新的
         if (!fa.TryReadState(rawState, out var state) || state.Aud != site.Aud)
-            return Results.Redirect(origin + "/");
+            return Results.Redirect(siteRoot);
 
         var user = users.GetById(ctx.User.Identity!.Name!);
-        if (user is null) return Results.Redirect(origin + "/"); // 会话校验刚过、人就被删了
+        if (user is null) return Results.Redirect(siteRoot); // 会话校验刚过、人就被删了
 
         if (!IsAllowed(site, user.user_id, user.is_admin != 0, userResources))
         {
             audit.ForwardAuth(false, site.Aud, user.user_id, ctx.RemoteIp(), "access_denied_user_resource");
             // 换个账号 = 退出本服务后回到站点，站点再把人送回登录页
-            var switchUrl = "/logout?post_logout_redirect_uri=" + Uri.EscapeDataString(origin + "/");
+            var switchUrl = "/logout?post_logout_redirect_uri=" + Uri.EscapeDataString(siteRoot);
             return Page(HtmlTemplates.ForwardAuthDenied(site.DisplayName, user.user_id, switchUrl),
                 StatusCodes.Status403Forbidden);
         }
@@ -124,14 +140,24 @@ public static class ForwardAuthEndpoints
         var ticket = fa.CreateTicket(site.Aud, user.user_id, user.session_version, state.Nonce);
         // state 原样带回去，但重新编码：base64 解码会跳过空白，校验通过不代表串里没有不该进 Location 头的字符
         return Results.Redirect(
-            $"{origin}{ForwardAuthService.PathPrefix}/callback?ticket={ticket}&state={Uri.EscapeDataString(rawState)}");
+            $"{origin}{ForwardAuthService.PathPrefix}/callback?aud={Uri.EscapeDataString(site.Aud)}&ticket={ticket}&state={Uri.EscapeDataString(rawState)}");
     }
 
     private static IResult Callback(HttpContext ctx, ForwardAuthService fa, ResourceCatalog catalog,
         UserRepository users, ILoggerFactory loggers)
     {
-        var site = catalog.FindForwardAuthByHost(ctx.Request.Host);
+        var q = ctx.Request.Query;
+        if (!fa.TryReadTicket(q["ticket"].ToString(), out var ticketForSite))
+            return Page(HtmlTemplates.Bare(T("Sign-in could not be completed"),
+                    T("The sign-in link has expired or was already used. Make sure cookies are enabled for this site, then try again."),
+                    "/", T("Try again")), StatusCodes.Status400BadRequest);
+        if (!string.IsNullOrEmpty(q["aud"]) && q["aud"] != ticketForSite.Aud)
+            return Results.NotFound();
+        var site = catalog.FindForwardAuthForHost(ctx.Request.Host, ticketForSite.Aud);
         if (site is null) return Results.NotFound();
+        var basePath = ResourceCatalog.SiteBasePath(site);
+        var sessionCookie = ForwardAuthService.SessionCookieFor(site.Aud, basePath);
+        var stateCookie = ForwardAuthService.StateCookieFor(site.Aud, basePath);
 
         // 失败一律停在一张说明页上、给一个「重试」链接，不自动跳回去：
         // 浏览器禁了 cookie 这类必然失败的情况，自动重试就是无限重定向
@@ -145,9 +171,7 @@ public static class ForwardAuthEndpoints
                 StatusCodes.Status400BadRequest);
         }
 
-        var q = ctx.Request.Query;
-        if (!fa.TryReadTicket(q["ticket"].ToString(), out var ticket) || ticket.Aud != site.Aud)
-            return Fail("bad_ticket");
+        var ticket = ticketForSite;
         // 票据一经出示就作废，不等后面的检查通过。/forward-auth/start 是普通的 GET：别人能诱导已登录的人带着
         // 「别人的 state」去换票据，回调在下面的随机数那一步失败 —— 这时票据留在地址栏和访问日志里，不作废就还能用 60 秒。
         if (!fa.TryConsume(ticket)) return Fail("ticket_replayed");
@@ -156,7 +180,7 @@ public static class ForwardAuthEndpoints
         // 票据、state、浏览器里的 cookie 三处的随机数要一致：
         // - cookie 对不上 = 发起这次登录的不是这个浏览器（别人把自己的回调链接发来点）
         // - 票据对不上 = 票据不是为这份 state 签的（拿别人的 state 配自己的票据）
-        if (!ForwardAuthService.NonceMatches(ctx.Request.Cookies[ForwardAuthService.StateCookie], state.Nonce))
+        if (!ForwardAuthService.NonceMatches(ctx.Request.Cookies[stateCookie], state.Nonce))
             return Fail("state_cookie_mismatch");
         if (!ForwardAuthService.NonceMatches(ticket.Nonce, state.Nonce))
             return Fail("ticket_state_mismatch");
@@ -165,11 +189,11 @@ public static class ForwardAuthEndpoints
         if (user is null || user.session_version != ticket.SessionVersion) return Fail("session_revoked");
 
         var lifetime = TimeSpan.FromHours(site.ForwardAuth!.SessionHours);
-        ctx.Response.Cookies.Append(ForwardAuthService.SessionCookie,
+        ctx.Response.Cookies.Append(sessionCookie,
             fa.CreateSession(site.Aud, user.user_id, user.session_version, lifetime), SiteCookie(lifetime));
         // state cookie 不清，让它自己过期：并排开的其它标签页各有一张没用过的票据，还要靠它完成自己的回调。
         // 重放由「票据只能用一次」挡，不靠清这张 cookie。
-        return Results.Redirect(ForwardAuthService.SafeReturnPath(state.ReturnPath));
+        return Results.Redirect(ForwardAuthService.SafeReturnPath(state.ReturnPath, basePath));
     }
 
     /// <summary>
@@ -178,11 +202,15 @@ public static class ForwardAuthEndpoints
     /// </summary>
     private static IResult Logout(HttpContext ctx, ResourceCatalog catalog, AuthOptions options)
     {
-        var site = catalog.FindForwardAuthByHost(ctx.Request.Host);
+        var requestedAud = ctx.Request.Query["aud"].ToString();
+        var site = string.IsNullOrEmpty(requestedAud)
+            ? catalog.FindForwardAuthByHost(ctx.Request.Host)
+            : catalog.FindForwardAuthForHost(ctx.Request.Host, requestedAud);
         if (site is null) return Results.NotFound();
 
-        ctx.Response.Cookies.Delete(ForwardAuthService.SessionCookie, SiteCookie(null));
-        var back = Uri.EscapeDataString(ResourceCatalog.SiteOrigin(site) + "/");
+        var sessionCookie = ForwardAuthService.SessionCookieFor(site.Aud, ResourceCatalog.SiteBasePath(site));
+        ctx.Response.Cookies.Delete(sessionCookie, SiteCookie(null));
+        var back = Uri.EscapeDataString(ResourceCatalog.SiteRoot(site));
         return Results.Redirect($"{options.Issuer.TrimEnd('/')}/logout?post_logout_redirect_uri={back}");
     }
 

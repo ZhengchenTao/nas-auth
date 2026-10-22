@@ -39,6 +39,9 @@ OAuth server, and nas-auth can front any service that verifies JWTs.
   The admin can also register someone's email ahead of time, so that their
   first sign-in is linked straight to a chosen user. Local passwords (argon2id)
   are the fallback and can be turned off.
+- Configurable OIDC and ticket-based sign-in providers. Ticket identities are
+  validated by a separately configured private adapter and still require admin
+  approval on first sign-in.
 - A user id that never changes, which downstream apps use to recognise the
   user, and a separate nickname and avatar that can be edited and are sent to
   apps as `name` / `picture`.
@@ -122,6 +125,33 @@ password, and the admin starts without it. So: start without the `GOOGLE_*` /
 account under Account → Sign-in & security, then untick the password option if
 you like.
 
+Generic OIDC providers use `ExternalProviders__Providers__0__*`; ticket-based
+providers use `ExternalProviders__TicketProviders__0__*`. Both use an explicit
+provider list. Set `ExternalProviders__UseConfiguredProviders=true` to let an
+empty list disable the legacy Google/Microsoft environment variables. A
+ticket provider's public settings look like this:
+
+```dotenv
+ExternalProviders__UseConfiguredProviders=true
+ExternalProviders__TicketProviders__0__Id=badge-login
+ExternalProviders__TicketProviders__0__DisplayName=Badge login
+ExternalProviders__TicketProviders__0__Enabled=true
+ExternalProviders__TicketProviders__0__LoginUrl=https://login.example.test/start
+ExternalProviders__TicketProviders__0__ValidationUrl=https://adapter.example.test/validate
+# Inject ExternalProviders__TicketProviders__0__ValidationToken from the deployment secret store.
+```
+
+The login URL must use HTTPS. The validation URL must use HTTPS, except that
+HTTP is allowed for a loopback-only local adapter. The adapter receives a
+Bearer token and JSON `{"ticket":"…","client_ip":"…"}`, and may return
+`{"subject":"stable-id","display_name":"…","email":"…"}`. `subject` must
+be a stable, immutable account id. There is no `email_verified` value, so the
+email is informational: it cannot claim an existing account automatically.
+The first sign-in waits for approval; an administrator can explicitly bind
+that pending identity to an existing local account. Callback parameter names
+and static login query parameters can be configured. Provider-specific login
+details and secret values belong in private deployment configuration.
+
 ## Configuration
 
 Environment variables, with `__` for nesting (`Auth__Issuer` is `Auth:Issuer`).
@@ -130,6 +160,7 @@ Environment variables, with `__` for nesting (`Auth__Issuer` is `Auth:Issuer`).
 | Variable | Default | Notes |
 |---|---|---|
 | `Auth__Issuer` | – | Public base URL, used as `iss`. Required. |
+| `Auth__PathBase` | empty | Optional public mount prefix such as `/auth`; it must match the path in `Auth__Issuer`. Empty keeps root-path deployments. |
 | `Auth__Database` | `Data Source=/app/data/auth.db` | The RSA key (`oidc_rs256_*.pem`), cookie keys (`dp-keys/`) and avatars (`avatars/`) are kept next to it. |
 | `Auth__ResourcesPath` | `/app/resources.json` | Required; read once at startup. |
 | `Auth__ClientsPresetPath` | `/app/clients.preset.json` | Optional. |
@@ -219,7 +250,9 @@ the reverse proxy ask nas-auth before every request:
 { "aud": "docs-site", "resource_url": "https://docs.example.com", "display_name": "Family docs", "forward_auth": {} }
 ```
 
-`resource_url` is the site's origin, without a path. `scopes` can be left out.
+`resource_url` is the public site's URL and may include a path prefix. If
+forward-auth resources overlap on a host, the longest matching path prefix wins.
+`scopes` can be left out.
 `"forward_auth": { "session_hours": 12 }` changes how long the site cookie
 lasts (12 hours by default; when it runs out it is renewed automatically as
 long as you are still signed in to nas-auth). `admin_only` works as usual.
@@ -286,6 +319,9 @@ Things to get right:
 
 How it works and why: section 22 of
 [docs/design/external-auth.md](docs/design/external-auth.md) (in Chinese).
+The current deployment details, including a same-host, path-mounted Nginx
+`auth_request` example and the `/auth` mapping, are in
+[docs/design/external-auth-deployment.md](docs/design/external-auth-deployment.md).
 
 ### clients.preset.json
 
@@ -309,14 +345,14 @@ still hold a valid refresh token.
 The admin is created from the configuration. Other users come from one of
 three places:
 
-- **An approved Google/Microsoft sign-in.** The first sign-in only files a
+- **An approved external sign-in.** The first sign-in only files a
   request. The admin approves it under `/admin/approvals`, attaching it to an
   existing user or a new one and choosing which resources that user gets.
 - **A user the admin sets up in advance.** Create the user without "Allow
-  password sign-in": it has no password and can only sign in through Google or
-  Microsoft. Fill in "Pre-bind sign-in email" at the same time. The first time
-  someone signs in with an account for that email, it is linked to this user
-  directly, with no approval step.
+  password sign-in": it has no password and can only sign in through an
+  enabled external provider. Fill in "Pre-bind sign-in email" when using a
+  provider that can verify email ownership. The first matching verified sign-in
+  links directly to this user, with no approval step.
 - **A password user created by the admin.** Tick "Allow password sign-in" and
   set a password. By default that is the user's password from then on; tick
   "Must change password on first sign-in" if they should pick their own. The
@@ -324,9 +360,11 @@ three places:
 
 A pre-bound email only counts when the provider vouches that the person owns
 it: Google must report `email_verified`, and for Microsoft the sign-in name
-must be that email. Otherwise the sign-in files a request as usual. A
-pre-bound email is removed once it has been used. A signed-in user can link
-more Google/Microsoft accounts to themselves.
+must be that email. Ticket providers have no `email_verified` field and cannot
+use pre-bound email linking; their first sign-in needs admin approval. A
+pre-bound email is removed once it has been used. Signed-in users can link
+providers that support self-binding; ticket identities are linked through
+admin approval.
 
 The user id is what downstream apps receive as `sub` and
 `preferred_username`. It can't be changed, and the id of a deleted user can't
@@ -420,6 +458,9 @@ start with an HS256 key configured.
 
 ## Endpoints
 
+Paths below are app-relative. With `Auth__PathBase=/auth`, prepend `/auth` to
+the public path; for example, `/auth/login` and `/auth/authorize`.
+
 | Path | |
 |---|---|
 | `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | Metadata |
@@ -430,7 +471,7 @@ start with an HS256 key configured.
 | `/userinfo`, `/logout` | OIDC |
 | `/login`, `/account`, `/admin` | Pages |
 | `/avatars/{file}` | Avatars (public, fetched by downstream apps) |
-| `/external/{provider}/start` | Google / Microsoft sign-in |
+| `/external/{provider}/start` | Google, Microsoft, configured OIDC or ticket sign-in |
 | `/proxy/{aud}/…` | Token-swapping proxy (plus its RFC 9728 metadata) |
 | `/forward-auth/verify`, `/forward-auth/start` | forward-auth: the per-request check for the reverse proxy, and ticket issuance after sign-in |
 | `/.nas-auth/callback`, `/.nas-auth/logout` | forward-auth: callback and logout, served on the protected site's hostname |

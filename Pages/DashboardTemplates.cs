@@ -1,4 +1,5 @@
 using System.Text;
+using NasAuth.Config;
 using static NasAuth.Pages.I18n;
 using static NasAuth.Pages.Ui;
 
@@ -77,7 +78,7 @@ public static class DashboardTemplates
 
         // sidebar 预置 data-sidebar-initialized：Basecoat 的 CSS 在 JS 初始化前把 sidebar 藏起来，
         // 预置后没 JS 也能看到菜单；sidebar.min.js 照常接管（它只在已有 toggle 方法时才跳过初始化）。
-        return $@"<!doctype html>
+        return ApplyPathBase($@"<!doctype html>
 <html lang=""{(IsZh ? "zh-CN" : "en")}"">
 <head>
   <meta charset=""utf-8"">
@@ -118,7 +119,7 @@ public static class DashboardTemplates
     </main>
   </div>
 </body>
-</html>";
+</html>");
     }
 
     // ---------------------------------------------------------------- 公共小件
@@ -369,7 +370,8 @@ public static class DashboardTemplates
             GrantsTable(rows, "/account/revoke", userId: null));
 
     public static string SecuritySection(IReadOnlyList<BindingView> bindings,
-        bool googleEnabled, bool microsoftEnabled, bool passwordEnabled, IReadOnlyList<AuditView> recentLogins)
+        bool googleEnabled, bool microsoftEnabled, bool passwordEnabled, IReadOnlyList<AuditView> recentLogins,
+        IReadOnlyList<ExternalProviderChoice>? providerChoices = null)
     {
         var sb = new StringBuilder();
         if (bindings.Count == 0)
@@ -391,14 +393,16 @@ public static class DashboardTemplates
             }
             sb.Append("</tbody></table></div>");
         }
-        if (googleEnabled || microsoftEnabled)
+        var providers = providerChoices ?? LegacyChoices(googleEnabled, microsoftEnabled);
+        if (providers.Count > 0)
         {
             sb.Append("<div class='actions' style='margin-top:16px'>");
             // 绑定是写操作：用 POST 表单（受跨源写拦截保护），不再是任何站点都能诱导跳转的 GET 链接
-            if (googleEnabled)
-                sb.Append($"<form method='post' action='/external/google/bind'><button class='btn' data-variant='outline' type='submit'>{IconGoogle}{T("Bind Google account")}</button></form>");
-            if (microsoftEnabled)
-                sb.Append($"<form method='post' action='/external/microsoft/bind'><button class='btn' data-variant='outline' type='submit'>{IconMicrosoft}{T("Bind Microsoft account")}</button></form>");
+            foreach (var provider in providers.Where(p => p.CanBind))
+            {
+                var icon = provider.Id switch { "google" => IconGoogle, "microsoft" => IconMicrosoft, _ => "" };
+                sb.Append($"<form method='post' action='/external/{Esc(Uri.EscapeDataString(provider.Id))}/bind'><button class='btn' data-variant='outline' type='submit'>{icon}{T("Bind {0} account", Esc(provider.DisplayName))}</button></form>");
+            }
             sb.Append("</div>");
         }
         var html = Card(T("External identities"),
@@ -426,6 +430,14 @@ public static class DashboardTemplates
 
         html += Card(T("Recent sign-ins"), T("Includes failed attempts. Kept for 90 days."), LoginsTable(recentLogins));
         return html;
+    }
+
+    private static IReadOnlyList<ExternalProviderChoice> LegacyChoices(bool googleEnabled, bool microsoftEnabled)
+    {
+        var providers = new List<ExternalProviderChoice>();
+        if (googleEnabled) providers.Add(new("google", "Google", "Google"));
+        if (microsoftEnabled) providers.Add(new("microsoft", "Microsoft", "Microsoft"));
+        return providers;
     }
 
     // ================================================================ 管理后台

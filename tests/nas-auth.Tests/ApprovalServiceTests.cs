@@ -69,6 +69,21 @@ public class ApprovalServiceTests : IDisposable
     }
 
     [Fact]
+    public void ApproveBindExisting_CanExplicitlyBindTicketProviderIdentityToExistingAdmin()
+    {
+        _users.Upsert("admin", "admin", "hash", isAdmin: true);
+        _identities.InsertPending("badge-login", "stable-person-123", "a@example.test", "Admin Example");
+
+        var err = _service.ApproveBindExisting("badge-login", "stable-person-123", "admin", Array.Empty<string>());
+
+        Assert.Null(err);
+        var identity = _identities.Get("badge-login", "stable-person-123")!;
+        Assert.Equal("active", identity.status);
+        Assert.Equal("admin", identity.user_id);
+        Assert.Empty(_userResources.ListByUser("admin"));
+    }
+
+    [Fact]
     public void ApproveBindExisting_UnknownUser_Fails_StaysPending()
     {
         _identities.InsertPending("google", "sub-1", null, null);
