@@ -35,6 +35,14 @@ public class UserResourceRepository
             .ToDictionary(r => r.aud, r => (int)r.n);
     }
 
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> UserIdsByAud()
+    {
+        using var conn = _db.OpenConnection();
+        return conn.Query<(string aud, string user_id)>("SELECT aud, user_id FROM user_resources ORDER BY user_id")
+            .GroupBy(r => r.aud).ToDictionary(g => g.Key,
+                g => (IReadOnlyList<string>)g.Select(r => r.user_id).ToList());
+    }
+
     public void Upsert(string userId, string aud, string scopes)
     {
         using var conn = _db.OpenConnection();

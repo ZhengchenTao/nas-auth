@@ -426,6 +426,7 @@ public static class AdminEndpoints
         {
             var active = refreshTokens.ListActiveAll();
             var userCounts = userResources.CountByAud();
+            var userIds = userResources.UserIdsByAud();
             var resources = catalog.All.Select(r =>
             {
                 var url = r.ResourceUrl.TrimEnd('/');
@@ -433,7 +434,8 @@ public static class AdminEndpoints
                     .Where(t => t.resource.Split(' ', StringSplitOptions.RemoveEmptyEntries).Any(u => u.TrimEnd('/') == url))
                     .Select(t => (t.user_id, t.client_id)).Distinct().Count();
                 return new ResourceAdminView(r.Aud, r.DisplayName, r.ResourceUrl, r.Scopes, r.Proxy is not null,
-                    userCounts.TryGetValue(r.Aud, out var n) ? n : 0, grants, r.IsForwardAuth);
+                    userCounts.TryGetValue(r.Aud, out var n) ? n : 0, grants, r.IsForwardAuth,
+                    r.App, r.AdminOnly, userIds.TryGetValue(r.Aud, out var ids) ? ids : Array.Empty<string>());
             }).ToList();
 
             var grantsByClient = active.GroupBy(t => t.client_id)
@@ -448,11 +450,12 @@ public static class AdminEndpoints
                     CreatedAtDisplay: TimeDisplay(c.created_at),
                     LastUsedDisplay: c.last_used_at is { } t ? TimeDisplay(t) : "-",
                     ActiveGrants: grantsByClient.TryGetValue(c.client_id, out var g) ? g : 0,
-                    ExtraClaimNames: ExtraClaims.Parse(c.extra_claims).Keys.OrderBy(k => k, StringComparer.Ordinal).ToList()))
+                    ExtraClaimNames: ExtraClaims.Parse(c.extra_claims).Keys.OrderBy(k => k, StringComparer.Ordinal).ToList(),
+                    DefaultResource: c.default_resource))
                 .ToList();
 
             return Render(ctx, users, identities, DashboardSpace.Admin, "apps", "Apps & resources",
-                DashboardTemplates.AppsSection(resources, clientViews));
+                DashboardTemplates.AppsSection(resources, clientViews, ctx.Request.Query["view"].ToString()));
         });
 
         admin.MapPost("/apps/delete-client", async (HttpContext ctx, ClientRepository clients, AuditLogger audit) =>
@@ -460,10 +463,10 @@ public static class AdminEndpoints
             var form = await ctx.Request.ReadFormAsync();
             var clientId = form["client_id"].ToString();
             if (!clients.DeleteAutoRegistered(clientId))
-                return RedirectTo("/admin/apps", error: T("Only dynamically registered (DCR) clients can be deleted"));
+                return RedirectTo("/admin/apps?view=clients", error: T("Only dynamically registered (DCR) clients can be deleted"));
 
             audit.AccountAction("client-delete", true, AdminId(ctx), $"client={clientId}");
-            return RedirectTo("/admin/apps", notice: T("Deleted client {0} and its grants", clientId));
+            return RedirectTo("/admin/apps?view=clients", notice: T("Deleted client {0} and its grants", clientId));
         });
 
         // ----- 审计日志 -----

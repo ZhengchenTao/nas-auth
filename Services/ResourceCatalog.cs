@@ -33,8 +33,21 @@ public class ResourceCatalog
 
         // 基本校验：aud / resource_url 必填，scopes 至少一条
         var forwardAuthPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var appMetadata = new Dictionary<string, (string Name, string Description)>(StringComparer.Ordinal);
         foreach (var r in list)
         {
+            if (r.App is { } app)
+            {
+                if (string.IsNullOrWhiteSpace(app.Id) || string.IsNullOrWhiteSpace(app.Name) ||
+                    app.Capability is not ("web" or "mcp" or "api" or "gateway") ||
+                    (r.IsForwardAuth && app.Capability != "gateway") ||
+                    (!r.IsForwardAuth && app.Capability == "gateway"))
+                    throw new InvalidOperationException($"resources.json aud={r.Aud} 的 app 配置不合法");
+                var metadata = (app.Name, app.Description);
+                if (appMetadata.TryGetValue(app.Id, out var existing) && existing != metadata)
+                    throw new InvalidOperationException($"resources.json app.id={app.Id} 的名称或说明不一致");
+                appMetadata[app.Id] = metadata;
+            }
             // forward-auth 站点没有真正的 scope，不写时补一条，授权模型（user_resources 按 scope 勾选）照常可用
             if (r.IsForwardAuth && (r.Scopes is null || r.Scopes.Count == 0))
                 r.Scopes = new List<string> { ForwardAuthScope };

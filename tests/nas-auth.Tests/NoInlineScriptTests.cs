@@ -87,6 +87,8 @@ public class NoInlineScriptTests
             DashboardTemplates.UserEditSection(new UserDetailView(victim, resources, bindings, grants, logins)),
             DashboardTemplates.ApprovalsSection(pending, pending, new[] { self, victim }, resources),
             DashboardTemplates.AppsSection(catalog, clients),
+            DashboardTemplates.AppsSection(catalog, clients, "clients"),
+            DashboardTemplates.AppsSection(catalog, clients, "resources"),
             DashboardTemplates.AuditSection(new AuditFilter("login", x, true), logins),
             DashboardTemplates.SystemSection(x, true, false, true, true),
             // RS256 分支加的签名密钥卡片：RS256（RSA 轮换步骤）与 HS256（生成按钮）两种都要扫到
@@ -181,7 +183,7 @@ public class NoInlineScriptTests
     {
         I18n.Lang = "en";
         var html = DashboardTemplates.AppsSection(Array.Empty<ResourceAdminView>(),
-            new[] { new ClientAdminView("c_1", Hostile, true, "none", new[] { "https://claude.ai/cb" }, "-", "-") });
+            new[] { new ClientAdminView("c_1", Hostile, true, "none", new[] { "https://claude.ai/cb" }, "-", "-") }, "clients");
 
         AssertNoInlineScript(html);
         var expected = I18n.T("Delete client {0}? Its grants are revoked; the app must register again.", Hostile);
