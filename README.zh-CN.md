@@ -105,6 +105,36 @@ HTTP。adapter 收到 Bearer token 和 JSON `{"ticket":"…","client_ip":"…"}`
 
 ## 配置
 
+### 实例名称、图标与入口文案
+
+在部署用 `appsettings.<环境>.json` 添加顶层 `Branding` 即可；修改后重启生效。
+这些设置仅影响页面展示，不修改 issuer、Cookie、客户端 ID 或授权。
+
+```json
+{
+  "Branding": {
+    "SiteName": "Team Auth",
+    "LoginTitle": "团队统一登录",
+    "LoginSubtitle": "一个账号，访问团队应用",
+    "FaviconPath": "/branding/favicon.svg",
+    "LogoPath": "/branding/logo.svg",
+    "NavigationLabels": {
+      "apps": "应用接入",
+      "apps-apps": "接入应用",
+      "apps-clients": "客户端",
+      "apps-resources": "技术明细",
+      "personal": "个人中心",
+      "admin": "管理后台"
+    }
+  }
+}
+```
+
+图标文件放到或只读挂载到 `/app/wwwroot/branding/`。只允许站内路径，不接受远程地址或 HTML；
+图标内容参与静态资源版本哈希，路径自动兼容 `Auth:PathBase`。
+`NavigationLabels` 可按菜单 key 覆盖入口名称；不配的项目使用原文案。
+默认名称与图标保留原行为，无需为已有实例补配置。
+
 用环境变量，`__` 表示层级（`Auth__Issuer` 就是 `Auth:Issuer`）。也可以写在 `appsettings*.json` 里，但密钥只放环境变量。
 
 | 变量 | 默认值 | 说明 |

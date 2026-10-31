@@ -14,6 +14,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ---------- 配置 ----------
 var authOptions = new AuthOptions();
+var brandingOptions = builder.Configuration.GetSection("Branding").Get<BrandingOptions>() ?? new();
+brandingOptions.Validate();
 builder.Configuration.GetSection(AuthOptions.SectionName).Bind(authOptions);
 authOptions.NormalizeAndValidate();
 builder.Services.AddSingleton(authOptions);
@@ -309,9 +311,16 @@ builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>
 }
 
 var app = builder.Build();
+app.Use(async (context, next) =>
+{
+    var previous = NasAuth.Pages.Ui.Branding;
+    NasAuth.Pages.Ui.Branding = brandingOptions;
+    try { await next(context); }
+    finally { NasAuth.Pages.Ui.Branding = previous; }
+});
 
 // app.css / theme.js 的内容哈希，拼在页面引用的 URL 上（部署后浏览器不会拿旧样式配新 HTML）
-NasAuth.Pages.Ui.InitAssets(app.Environment.WebRootPath);
+NasAuth.Pages.Ui.InitAssets(app.Environment.WebRootPath, brandingOptions);
 
 // ---------- 启动期 bootstrap（任何失败 → fast fail）----------
 using (var scope = app.Services.CreateScope())

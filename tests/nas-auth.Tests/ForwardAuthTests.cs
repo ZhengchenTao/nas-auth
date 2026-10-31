@@ -366,6 +366,28 @@ public class ForwardAuthServiceTests : IDisposable
         Assert.False(ResourceCatalog.IsForwardAuthPath(cat.FindForwardAuth("docs")!, "/tools2/page"));
     }
 
+    [Fact]
+    public void Catalog_RootHomepageDoesNotShadowApplicationResources()
+    {
+        var cat = Load("""
+            [
+              { "aud": "homepage", "resource_url": "https://apps.example.com/", "forward_auth": {} },
+              { "aud": "logs", "resource_url": "https://apps.example.com/logs/", "forward_auth": {} },
+              { "aud": "git", "resource_url": "https://apps.example.com/git/", "forward_auth": {} }
+            ]
+            """);
+        var host = new HostString("apps.example.com");
+
+        Assert.Equal("homepage", cat.FindForwardAuthForRequest(host, "/")?.Aud);
+        Assert.Equal("homepage", cat.FindForwardAuthForRequest(host, "/icons/logs.svg")?.Aud);
+        Assert.Equal("logs", cat.FindForwardAuthForRequest(host, "/logs")?.Aud);
+        Assert.Equal("logs", cat.FindForwardAuthForRequest(host, "/logs/api?next=%2F")?.Aud);
+        Assert.Equal("git", cat.FindForwardAuthForRequest(host, "/git/team/repo")?.Aud);
+        Assert.Equal("homepage", cat.FindForwardAuthForRequest(host, "/logs-other/")?.Aud);
+        Assert.Null(cat.FindForwardAuthForRequest(host, "/logs/%2Fadmin"));
+        Assert.Null(cat.FindForwardAuthForRequest(new HostString("other.example.com"), "/"));
+    }
+
     [Theory]
     [InlineData("""[{ "aud": "s", "resource_url": "https://s.example.com/?a=1", "forward_auth": {} }]""", "无凭据、无 query/fragment")]
     [InlineData("""[{ "aud": "s", "resource_url": "https://u:p@s.example.com", "forward_auth": {} }]""", "无凭据、无 query/fragment")]

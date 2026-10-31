@@ -113,6 +113,44 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
 
     public HttpPipelineTests(NasAuthAppFactory app) => _app = app;
 
+    [Fact]
+    public async Task UserInfo_AdminGroups_AreOptInClientScopedAndRevokeWithCurrentRole()
+    {
+        using var scope = _app.Services.CreateScope();
+        var services = scope.ServiceProvider;
+        var options = services.GetRequiredService<NasAuth.Config.AuthOptions>();
+        var users = services.GetRequiredService<UserRepository>();
+        var issuer = services.GetRequiredService<JwtIssuer>();
+        const string userId = "groups-role-test";
+        const string clientId = "gitea-web";
+        var tokens = new Dictionary<string, string>();
+        async Task<JsonElement> Info(string client)
+        {
+            if (!tokens.TryGetValue(client, out var token))
+                tokens[client] = token = issuer.IssueAccessToken(userId, client, ["test"], "https://localhost/test", "openid");
+            var request = new HttpRequestMessage(HttpMethod.Get, "/userinfo");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var response = await _app.Client().SendAsync(request);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.Clone();
+        }
+        try
+        {
+            users.Upsert(userId, userId, PasswordHasher.UnusableHash(), isAdmin: true);
+            Assert.False((await Info(clientId)).TryGetProperty("groups", out _));
+            options.AdminGroupsByClient[clientId] = ["operators"];
+            Assert.Equal("operators", (await Info(clientId)).GetProperty("groups")[0].GetString());
+            Assert.False((await Info("other-client")).TryGetProperty("groups", out _));
+            users.Upsert(userId, userId, PasswordHasher.UnusableHash(), isAdmin: false);
+            Assert.Empty((await Info(clientId)).GetProperty("groups").EnumerateArray());
+        }
+        finally
+        {
+            options.AdminGroupsByClient.Remove(clientId);
+            users.Delete(userId, retireId: false);
+        }
+    }
+
     private static FormUrlEncodedContent Form(params (string K, string V)[] kv) =>
         new(kv.Select(p => new KeyValuePair<string, string>(p.K, p.V)));
 

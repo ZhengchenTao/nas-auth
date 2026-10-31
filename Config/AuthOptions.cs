@@ -14,6 +14,8 @@ public class AuthOptions
     public AdminOptions Admin { get; set; } = new();
     public PasswordLoginOptions PasswordLogin { get; set; } = new();
     public DcrOptions Dcr { get; set; } = new();
+    /// <summary>Opt-in UserInfo administrator groups, keyed by exact OIDC client ID. Empty by default.</summary>
+    public Dictionary<string, string[]> AdminGroupsByClient { get; set; } = new(StringComparer.Ordinal);
 
     public void NormalizeAndValidate()
     {

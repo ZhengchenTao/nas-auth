@@ -26,7 +26,7 @@ public static class HtmlTemplates
 </head>
 <body class=""auth-page"">
   <main class=""auth-wrap"">
-    <div class=""auth-brand"">{IconLogo}<span>nas-auth</span></div>
+    <div class=""auth-brand"">{BrandIcon}<span>{Esc(Branding.SiteName)}</span></div>
     <div class=""card auth-card"">
       {body}
     </div>
@@ -211,7 +211,8 @@ public static class HtmlTemplates
     {
         var target = string.IsNullOrEmpty(returnUrl) ? "/account" : returnUrl;
         var sb = new StringBuilder();
-        sb.Append(CardHeader(T("Sign in to nas-auth"), T("One account for all your NAS apps")));
+        sb.Append(CardHeader(string.IsNullOrEmpty(Branding.LoginTitle) ? T("Sign in to {0}", Esc(Branding.SiteName)) : Esc(Branding.LoginTitle),
+            string.IsNullOrEmpty(Branding.LoginSubtitle) ? T("One account for all your NAS apps") : Esc(Branding.LoginSubtitle)));
         sb.Append("<section>");
         if (!string.IsNullOrEmpty(notice)) sb.Append(Alert(Esc(notice), error: false));
         if (!string.IsNullOrEmpty(error)) sb.Append(Alert(Esc(error), error: true));
@@ -224,7 +225,7 @@ public static class HtmlTemplates
                 "/login", $"<input type='hidden' name='return_url' value='{Esc(target)}'>", T("Sign in"));
 
         sb.Append("</section>");
-        return Layout("Sign in · nas-auth", sb.ToString(), LangSwitcher());
+        return Layout($"Sign in · {Branding.SiteName}", sb.ToString(), LangSwitcher());
     }
 
     /// <summary>
@@ -248,7 +249,7 @@ public static class HtmlTemplates
                    $"<p class='hint'>{T("You will be able to sign in once an administrator approves this account. Nothing else is required from you right now.")}</p>" +
                    SwitchAccount(switchOptions) +
                    "</section>";
-        return Layout("Waiting for approval · nas-auth", body, LangSwitcher());
+        return Layout($"Waiting for approval · {Branding.SiteName}", body, LangSwitcher());
     }
 
     /// <summary>
@@ -264,7 +265,7 @@ public static class HtmlTemplates
                    $"<p class='hint'>{T("You can sign in with this external account from now on. If this is not the user you expected, unbind it immediately.")}</p>" +
                    $"<a class='btn block' data-variant='outline' href='/account/security'>{T("Sign-in & security")}</a>" +
                    "</section>";
-        return Layout("Account bound · nas-auth", body);
+        return Layout($"Account bound · {Branding.SiteName}", body);
     }
 
     /// <summary>外部登录失败 / 拒绝页。不暴露内部状态细节。</summary>
@@ -277,7 +278,7 @@ public static class HtmlTemplates
                        ? $"<a class='btn block' data-variant='outline' href='/login'>{T("Back to sign-in")}</a>"
                        : SwitchAccount(switchOptions)) +
                    "</section>";
-        return Layout($"{title} · nas-auth", body);
+        return Layout($"{title} · {Branding.SiteName}", body);
     }
 
     /// <summary>
@@ -296,7 +297,7 @@ public static class HtmlTemplates
         sb.Append($"<button class='btn block' type='submit'>{T("Set password")}</button>");
         sb.Append("</form>");
         sb.Append("</section>");
-        return Layout("Change password · nas-auth", sb.ToString());
+        return Layout($"Change password · {Branding.SiteName}", sb.ToString());
     }
 
     /// <summary>
@@ -311,7 +312,7 @@ public static class HtmlTemplates
                        Esc(userId), Esc(siteName)), error: true) +
                    $"<a class='btn block' data-variant='outline' href='{Esc(switchUrl)}'>{T("Use a different account")}</a>" +
                    "</section>";
-        return Layout("No access · nas-auth", body, LangSwitcher());
+        return Layout($"No access · {Branding.SiteName}", body, LangSwitcher());
     }
 
     /// <summary>

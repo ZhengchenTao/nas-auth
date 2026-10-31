@@ -47,7 +47,7 @@ public static class DashboardTemplates
             var badge = key == "approvals" && pendingCount > 0
                 ? $"<span class='badge nav-count' data-variant='destructive'>{pendingCount}</span>" : "";
             var current = key == activeKey ? " aria-current='page'" : "";
-            nav.Append($"<li><a href='{Esc(href)}'{current}>{NavIcon(key)}<span>{Esc(T(label))}</span>{badge}</a></li>");
+            nav.Append($"<li><a href='{Esc(href)}'{current}>{NavIcon(key)}<span>{Esc(Label(key, label))}</span>{badge}</a></li>");
         }
         var groupTitle = space == DashboardSpace.Admin ? T("Administration") : T("Personal");
         var groups = $"<div role='group' aria-labelledby='nav-group'><h3 id='nav-group'>{groupTitle}</h3><ul>{nav}</ul></div>";
@@ -61,8 +61,8 @@ public static class DashboardTemplates
             var pendingDot = pendingCount > 0 ? $"<span class='badge nav-count' data-variant='destructive'>{pendingCount}</span>" : "";
             // 用 div 不用 nav：Basecoat 把 .sidebar 里的 nav 都当侧边栏主体（fixed 定位）
             switcher = "<div class='space-switch' role='group' aria-label='space'>" +
-                       Seg(DashboardSpace.Personal, "/account", T("Personal"), "") +
-                       Seg(DashboardSpace.Admin, "/admin", T("Admin"), pendingDot) +
+                       Seg(DashboardSpace.Personal, "/account", Esc(Label("personal", "Personal")), "") +
+                       Seg(DashboardSpace.Admin, "/admin", Esc(Label("admin", "Admin")), pendingDot) +
                        "</div>";
         }
 
@@ -83,16 +83,16 @@ public static class DashboardTemplates
 <head>
   <meta charset=""utf-8"">
   <meta name=""viewport"" content=""width=device-width,initial-scale=1"">
-  <title>{Esc(T(title))} · nas-auth</title>
+  <title>{Esc(T(title))} · {Esc(Branding.SiteName)}</title>
   {HeadAssets()}
   <script src=""{BasecoatDir}/basecoat.min.js?v={AssetVersion}"" defer></script>
   <script src=""{BasecoatDir}/sidebar.min.js?v={AssetVersion}"" defer></script>
 </head>
 <body>
   <aside class=""sidebar"" data-side=""left"" aria-hidden=""false"" data-sidebar-initialized=""true"">
-    <nav aria-label=""nas-auth"">
+    <nav aria-label=""{Esc(Branding.SiteName)}"">
       <header>
-        <a class=""sb-brand"" href=""{(space == DashboardSpace.Admin ? "/admin" : "/account")}"">{IconLogo}<span>nas-auth</span></a>
+        <a class=""sb-brand"" href=""{(space == DashboardSpace.Admin ? "/admin" : "/account")}"">{BrandIcon}<span>{Esc(Branding.SiteName)}</span></a>
         {switcher}
       </header>
       <section class=""scrollbar"">{groups}</section>
@@ -110,7 +110,7 @@ public static class DashboardTemplates
     <header class=""topbar"">
       <button type=""button"" class=""btn"" data-variant=""ghost"" data-size=""icon"" aria-label=""{T("Menu")}""
               data-sidebar-toggle>{IconMenu}</button>
-      <span>nas-auth</span>
+      <span>{Esc(Branding.SiteName)}</span>
     </header>
     <main class=""dash-main"">
       <h1>{Esc(T(title))}</h1>
@@ -709,7 +709,7 @@ public static class DashboardTemplates
         view = view is "clients" or "resources" ? view : "apps";
         var nav = new StringBuilder($"<nav class='app-tabs' aria-label='{T("Application views")}'>");
         foreach (var (key, label) in new[] { ("apps", "Connected apps"), ("clients", "OAuth clients"), ("resources", "Technical details") })
-            nav.Append($"<a href='/admin/apps?view={key}'{(view == key ? " aria-current='page'" : "")}>{T(label)}</a>");
+            nav.Append($"<a href='/admin/apps?view={key}'{(view == key ? " aria-current='page'" : "")}>{Esc(Label("apps-" + key, label))}</a>");
         nav.Append("</nav>");
         var overview = new StringBuilder();
         if (resources.Count == 0) overview.Append(Empty(T("No resources.")));

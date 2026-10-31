@@ -55,7 +55,8 @@ public static class OidcEndpoints
         UserRepository users,
         ExternalIdentityRepository identities,
         ProfileService profiles,
-        ClientRepository clients)
+        ClientRepository clients,
+        AuthOptions authOptions)
     {
         var auth = ctx.Request.Headers.Authorization.ToString();
         if (!auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
@@ -84,6 +85,10 @@ public static class OidcEndpoints
         var clientId = principal?.FindFirst("client_id")?.Value;
         if (!string.IsNullOrEmpty(clientId) && clients.GetById(clientId) is { } client)
         {
+            // Explicitly configured clients may consume the current administrator role.
+            // Evaluate it on every UserInfo request; an old token cannot retain a revoked role.
+            if (authOptions.AdminGroupsByClient.TryGetValue(clientId, out var groups))
+                body["groups"] = users.GetById(userId)!.is_admin != 0 ? groups : Array.Empty<string>();
             foreach (var (type, value) in ExtraClaims.Parse(client.extra_claims))
                 body.TryAdd(type, value);
         }

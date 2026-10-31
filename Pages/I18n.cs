@@ -358,6 +358,7 @@ public static class I18n
             "设一个新密码并告诉对方；对方当前的登录立即失效。",
         ["Resource catalog"] = "资源",
         ["Connected apps"] = "接入应用",
+        ["Sign in to {0}"] = "登录 {0}",
         ["Application views"] = "应用视图",
         ["Technical details"] = "技术明细",
         ["Web sign-in"] = "网页登录",

@@ -154,6 +154,15 @@ details and secret values belong in private deployment configuration.
 
 ## Configuration
 
+### Instance branding
+
+An optional top-level `Branding` section configures `SiteName`, `LoginTitle`, `LoginSubtitle`,
+`FaviconPath`, `LogoPath`, and `NavigationLabels` (menu key to display text). Defaults preserve
+existing branding. Asset paths must be local, e.g. `/branding/icon.svg`; mount custom files
+read-only under `/app/wwwroot/branding`. Paths respect `Auth:PathBase`, asset contents participate
+in cache versioning, and all display text is HTML encoded. Restart after changes. This changes
+presentation only: issuer, cookies, client ids, authentication and grants remain unchanged.
+
 Environment variables, with `__` for nesting (`Auth__Issuer` is `Auth:Issuer`).
 `appsettings*.json` works too, but keep secrets in the environment.
 
@@ -165,6 +174,7 @@ Environment variables, with `__` for nesting (`Auth__Issuer` is `Auth:Issuer`).
 | `Auth__ResourcesPath` | `/app/resources.json` | Required; read once at startup. |
 | `Auth__ClientsPresetPath` | `/app/clients.preset.json` | Optional. |
 | `Auth__Admin__Username` | `admin` | Created at startup, always an admin. |
+| `Auth__AdminGroupsByClient__<client-id>__0` | unset | Optional administrator group in UserInfo for this exact client. Current admins receive the configured groups, other users receive an empty array. Unconfigured clients are unchanged. |
 | `Auth__Admin__Password` / `__PasswordHash` | – | One of them is needed on first start. The hash (argon2id) wins if both are set. Reapplied on every start. |
 | `Auth__PasswordLogin__Enabled` | `true` | Master switch for passwords; also toggled at runtime in `/admin/system`. Always on while no Google/Microsoft is configured, so you can't lock yourself out. |
 | `Auth__Dcr__AllowedRedirectHosts__N` | – | See below. |

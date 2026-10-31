@@ -124,6 +124,7 @@ img.sb-avatar { object-fit: cover; }
 .capability-detail .kv { grid-template-columns: minmax(72px, max-content) minmax(0, 1fr); gap: 10px 20px; }
 .capability-detail .kv dd { min-width: 0; overflow-wrap: anywhere; gap: 4px 12px; }
 .application-source { margin: 4px 0 0; }
+.brand-icon { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; }
 @media (max-width: 600px) {
   .application-row > summary { gap: 12px; padding: 14px; }
   .application-name { flex-basis: 100%; }

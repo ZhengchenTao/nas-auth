@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
+using NasAuth.Config;
 
 namespace NasAuth.Pages;
 
@@ -12,6 +13,17 @@ namespace NasAuth.Pages;
 public static class Ui
 {
     public const string BasecoatDir = "/vendor/basecoat-1.0.2";
+    private static readonly AsyncLocal<BrandingOptions?> RequestBranding = new();
+    private static readonly BrandingOptions DefaultBranding = new();
+    public static BrandingOptions Branding
+    {
+        get => RequestBranding.Value ?? DefaultBranding;
+        set => RequestBranding.Value = value;
+    }
+    public static string Label(string key, string fallback) =>
+        Branding.NavigationLabels.TryGetValue(key, out var label) ? label : I18n.T(fallback);
+    public static string BrandIcon => string.IsNullOrEmpty(Branding.LogoPath) ? IconLogo :
+        $"<img class='brand-icon' src='{Esc(Branding.LogoPath)}?v={AssetVersion}' alt=''>";
 
     private static readonly AsyncLocal<string?> RequestPathBase = new();
     private static readonly Regex RootRelativeAttribute = new(
@@ -51,11 +63,12 @@ public static class Ui
     /// </summary>
     public static string AssetVersion { get; private set; } = "0";
 
-    public static void InitAssets(string? webRootPath)
+    public static void InitAssets(string? webRootPath, BrandingOptions? branding = null)
     {
         if (string.IsNullOrEmpty(webRootPath)) return;
         using var sha = SHA256.Create();
-        foreach (var name in new[] { "app.css", "theme.js", $"{BasecoatDir[1..]}/basecoat.cdn.min.css", $"{BasecoatDir[1..]}/basecoat.min.js", $"{BasecoatDir[1..]}/sidebar.min.js" })
+        foreach (var name in new[] { "app.css", "theme.js", $"{BasecoatDir[1..]}/basecoat.cdn.min.css", $"{BasecoatDir[1..]}/basecoat.min.js", $"{BasecoatDir[1..]}/sidebar.min.js",
+                     (branding?.FaviconPath ?? "/favicon.png").TrimStart('/'), branding?.LogoPath?.TrimStart('/') ?? "" })
         {
             var path = Path.Combine(webRootPath, name);
             if (!File.Exists(path)) continue;
@@ -69,7 +82,7 @@ public static class Ui
     /// <summary>head 公共片段。theme.js 同步加载（要在首帧前定下亮 / 暗色）。</summary>
     public static string HeadAssets() =>
         $@"<meta name=""color-scheme"" content=""light dark"">
-  <link rel=""icon"" type=""image/png"" href=""/favicon.png"">
+  <link rel=""icon"" href=""{Esc(Branding.FaviconPath)}?v={AssetVersion}"">
   <link rel=""stylesheet"" href=""{BasecoatDir}/basecoat.cdn.min.css?v={AssetVersion}"">
   <link rel=""stylesheet"" href=""/app.css?v={AssetVersion}"">
   <script src=""/theme.js?v={AssetVersion}""></script>";
