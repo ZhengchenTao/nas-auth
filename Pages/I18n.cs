@@ -366,6 +366,7 @@ public static class I18n
         ["Address"] = "地址",
         ["Administrators only"] = "仅限管理员",
         ["No users granted"] = "尚未开通用户",
+        ["Authorized users"] = "授权用户",
         ["OIDC clients"] = "OIDC 客户端",
         ["Refresh-token grants, not online users."] = "有效的续期授权记录，不代表在线人数。",
         ["Apps and their sign-in or access capabilities. User counts are shown separately for each capability."] = "按应用查看已接入的能力，展开查看授权与配置详情。可用用户数按各项能力分别统计。",

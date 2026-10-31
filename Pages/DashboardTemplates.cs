@@ -719,7 +719,7 @@ public static class DashboardTemplates
                 {
                     overview.Append($"<section class='capability-detail'><h3>{CapabilityLabel(r)} <span class='hint'>{Esc(r.DisplayName)}</span></h3>");
                     if (r.AdminOnly) overview.Append($"<p class='hint'>{T("Administrators only")}</p>");
-                    overview.Append($"<dl class='kv'><dt>{T("Granted users")}</dt><dd>");
+                    overview.Append($"<dl class='kv'><dt>{T("Authorized users")}</dt><dd>");
                     if (r.GrantedUserIds is { Count: > 0 })
                         foreach (var id in r.GrantedUserIds) overview.Append($"<a href='{Esc(EditHref(id))}'>{Esc(id)}</a> ");
                     else overview.Append(r.UserCount == 0 ? T("No users granted") : r.UserCount.ToString());
