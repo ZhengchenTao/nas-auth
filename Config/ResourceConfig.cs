@@ -16,6 +16,10 @@ public class ResourceConfig
     [JsonPropertyName("display_name")]
     public string DisplayName { get; set; } = "";
 
+    /// <summary>可选的展示归属；不参与授权。未配置时按独立资源展示，不猜测应用归属。</summary>
+    [JsonPropertyName("app")]
+    public ResourceAppConfig? App { get; set; }
+
     [JsonPropertyName("scopes")]
     public List<string> Scopes { get; set; } = new();
 
@@ -49,6 +53,19 @@ public class ResourceConfig
 
     /// <summary>该用户能否持有 / 使用本资源（只看 admin_only，不看 user_resources）。</summary>
     public bool AllowsUser(bool isAdmin) => !AdminOnly || isAdmin;
+}
+
+/// <summary>应用展示归属与能力类型；同一 id 的名称与说明须一致。</summary>
+public class ResourceAppConfig
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = "";
+    [JsonPropertyName("capability")]
+    public string Capability { get; set; } = "api";
 }
 
 /// <summary>forward-auth 站点的选项。写成 <c>"forward_auth": {}</c> 即全部用默认值。</summary>

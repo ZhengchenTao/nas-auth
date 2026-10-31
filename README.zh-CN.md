@@ -123,6 +123,13 @@ Auth__Dcr__AllowedCustomSchemes__0=cursor
 
 ### resources.json
 
+后台「应用与资源」默认按应用显示接入能力；「OAuth 客户端」和「技术明细」页签保留完整列表。
+资源可选配置 `app`，例如 `{"id":"gitea","name":"Gitea","description":"代码托管","capability":"web"}`。
+同一应用的资源使用相同 `id`、`name` 和 `description`；`capability` 支持 `web`（网页登录）、
+`mcp`（MCP 访问）、`api`（API 访问）和 `gateway`（仅限 forward-auth 入口保护）。未配置的资源独立展示，
+不会按名称自动归并。人数按每项能力分别统计；活跃授权指有效续期授权，不代表在线人数。
+这些字段只控制展示，不改变授权；编辑配置后重启生效。
+
 定义有哪些资源可以申请。启动时读取，改完要重启。
 
 ```json

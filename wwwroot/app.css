@@ -101,15 +101,35 @@ img.sb-avatar { object-fit: cover; }
 .card.danger { border-color: color-mix(in oklab, var(--destructive) 45%, var(--border)); }
 .res-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
 .res-grid > .group-box { margin: 0; }
-.app-overview { grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
-.app-overview legend { font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
-.app-mode { margin: 4px 0 8px; font-size: .8125rem; }
-.app-address { margin: 0 0 16px; color: var(--muted-foreground); font-size: .8125rem; overflow-wrap: anywhere; }
-.app-stats { display: flex; flex-wrap: wrap; gap: 12px 28px; margin: 0 0 16px; }
-.app-stats dt { color: var(--muted-foreground); font-size: .75rem; }
-.app-stats dd { margin: 2px 0 0; font-size: 1.25rem; font-weight: 600; }
-.app-scopes { display: flex; flex-wrap: wrap; gap: 6px; }
-.app-scopes .badge { white-space: normal; overflow-wrap: anywhere; }
+.app-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+.app-tabs a { padding: 10px 16px; text-decoration: none; color: var(--muted-foreground); border-bottom: 2px solid transparent; }
+.app-tabs a[aria-current] { color: var(--foreground); border-color: var(--foreground); font-weight: 600; }
+.application-list { display: grid; gap: 10px; }
+.application-row { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); }
+.application-row > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 18px 20px; cursor: pointer; list-style: none; }
+.application-row > summary::-webkit-details-marker { display: none; }
+.application-row > summary:hover { background: var(--muted); }
+.application-name { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.application-name strong { font-size: .9375rem; }
+.application-capabilities { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+.capability-summary { display: flex; flex-direction: column; gap: 5px; font-size: .75rem; color: var(--muted-foreground); }
+.application-disclosure { font-size: .8125rem; color: var(--muted-foreground); }
+.application-disclosure::after { content: ' ＋'; }
+.application-row[open] .application-disclosure::after { content: ' −'; }
+.application-details { padding: 0 20px 16px; border-top: 1px solid var(--border); }
+.capability-detail { padding: 18px 0; }
+.capability-detail + .capability-detail { border-top: 1px solid var(--border); }
+.capability-detail h3 { font-size: .9375rem; margin: 0 0 14px; }
+.capability-detail h3 .hint { display: block; margin-top: 4px; font-weight: 400; }
+.capability-detail .kv { grid-template-columns: minmax(72px, max-content) minmax(0, 1fr); gap: 10px 20px; }
+.capability-detail .kv dd { min-width: 0; overflow-wrap: anywhere; gap: 4px 12px; }
+.application-source { margin: 4px 0 0; }
+@media (max-width: 600px) {
+  .application-row > summary { gap: 12px; padding: 14px; }
+  .application-name { flex-basis: 100%; }
+  .application-disclosure { margin-left: auto; }
+  .application-details { padding: 0 14px 14px; }
+}
 
 /* ---- 个人中心 / 管理后台切换（§十六），sidebar 头部 ---- */
 .space-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin: 4px 8px 0; padding: 3px;

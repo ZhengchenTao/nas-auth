@@ -734,7 +734,7 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
             // 管理后台的客户端列表标出哪个客户端带附加字段
             var c = _app.Client();
             Assert.Equal(HttpStatusCode.Redirect, (await Login(c, "/admin/apps")).StatusCode);
-            var apps = await c.GetStringAsync("/admin/apps");
+            var apps = await c.GetStringAsync("/admin/apps?view=clients");
             Assert.Contains("app_roles, tenant", apps);
         }
         finally

@@ -1,4 +1,5 @@
 using System.Text;
+using NasAuth.Config;
 using static NasAuth.Pages.I18n;
 using static NasAuth.Pages.Ui;
 
@@ -684,26 +685,63 @@ public static class DashboardTemplates
     }
 
     // ---- 应用与资源 ----
-    public static string AppsSection(IReadOnlyList<ResourceAdminView> resources, IReadOnlyList<ClientAdminView> clients)
+    private static string CapabilityLabel(ResourceAdminView r) => r.App?.Capability switch
     {
+        "web" => T("Web sign-in"),
+        "mcp" => T("MCP access"),
+        "gateway" => T("Protected entry"),
+        _ => r.IsForwardAuth ? T("Protected entry") : T("API access")
+    };
+
+    public static string AppsSection(IReadOnlyList<ResourceAdminView> resources, IReadOnlyList<ClientAdminView> clients, string? view = null)
+    {
+        view = view is "clients" or "resources" ? view : "apps";
+        var nav = new StringBuilder($"<nav class='app-tabs' aria-label='{T("Application views")}'>");
+        foreach (var (key, label) in new[] { ("apps", "Connected apps"), ("clients", "OAuth clients"), ("resources", "Technical details") })
+            nav.Append($"<a href='/admin/apps?view={key}'{(view == key ? " aria-current='page'" : "")}>{T(label)}</a>");
+        nav.Append("</nav>");
         var overview = new StringBuilder();
         if (resources.Count == 0) overview.Append(Empty(T("No resources.")));
         else
         {
-            overview.Append("<div class='res-grid app-overview'>");
-            foreach (var r in resources)
+            overview.Append("<div class='application-list'>");
+            foreach (var group in resources.GroupBy(r => r.App is null ? "resource:" + r.Aud : "app:" + r.App.Id))
             {
-                overview.Append($"<fieldset class='group-box'><legend>{Esc(r.DisplayName)}</legend>");
-                overview.Append($"<p class='app-mode'>{(r.IsForwardAuth ? T("Forward-auth (site gate)") : r.IsProxy ? T("Proxy (token translation)") : T("Direct JWT"))}</p>");
-                overview.Append($"<p class='app-address'>{Esc(r.ResourceUrl)}</p>");
-                overview.Append($"<dl class='app-stats'><div><dt>{T("Granted users")}</dt><dd>{r.UserCount}</dd></div><div><dt>{T("Active grants")}</dt><dd>{r.ActiveGrants}</dd></div></dl>");
-                overview.Append($"<div class='app-scopes'><span class='badge mono' data-variant='outline'>{Esc(r.Aud)}</span>");
-                foreach (var s in r.Scopes) overview.Append($"<span class='badge mono' data-variant='secondary'>{Esc(s)}</span>");
-                overview.Append("</div></fieldset>");
+                var first = group.First();
+                overview.Append($"<details class='application-row'><summary><span class='application-name'><strong>{Esc(first.App?.Name ?? first.DisplayName)}</strong>");
+                if (!string.IsNullOrEmpty(first.App?.Description))
+                    overview.Append($"<span class='sub'>{Esc(first.App.Description)}</span>");
+                overview.Append("</span><span class='application-capabilities'>");
+                foreach (var r in group)
+                    overview.Append($"<span class='capability-summary'><span class='badge' data-variant='secondary'>{CapabilityLabel(r)}</span><span>{T("{0} users", r.UserCount)}</span></span>");
+                overview.Append($"</span><span class='application-disclosure'>{T("Details")}</span></summary><div class='application-details'>");
+                foreach (var r in group)
+                {
+                    overview.Append($"<section class='capability-detail'><h3>{CapabilityLabel(r)} <span class='hint'>{Esc(r.DisplayName)}</span></h3>");
+                    if (r.AdminOnly) overview.Append($"<p class='hint'>{T("Administrators only")}</p>");
+                    overview.Append($"<dl class='kv'><dt>{T("Granted users")}</dt><dd>");
+                    if (r.GrantedUserIds is { Count: > 0 })
+                        foreach (var id in r.GrantedUserIds) overview.Append($"<a href='{Esc(EditHref(id))}'>{Esc(id)}</a> ");
+                    else overview.Append(r.UserCount == 0 ? T("No users granted") : r.UserCount.ToString());
+                    overview.Append($"</dd><dt>{T("Resource")}</dt><dd class='mono'>{Esc(r.Aud)}</dd><dt>{T("Address")}</dt><dd>{Esc(r.ResourceUrl)}</dd><dt>{T("Scopes")}</dt><dd>");
+                    foreach (var s in r.Scopes) overview.Append($"<span class='badge mono' data-variant='outline'>{Esc(s)}</span> ");
+                    overview.Append($"</dd><dt>{T("Mode")}</dt><dd>{(r.IsForwardAuth ? T("Forward-auth (site gate)") : r.IsProxy ? T("Proxy (token translation)") : T("Direct JWT"))}</dd>");
+                    if (!r.IsForwardAuth)
+                        overview.Append($"<dt>{T("Active grants")}</dt><dd>{r.ActiveGrants} <span class='hint'>{T("Refresh-token grants, not online users.")}</span></dd>");
+                    var linked = clients.Where(c => !c.AutoRegistered && c.DefaultResource?.TrimEnd('/') == r.ResourceUrl.TrimEnd('/')).ToList();
+                    if (linked.Count > 0)
+                    {
+                        overview.Append($"<dt>{T("OIDC clients")}</dt><dd>");
+                        foreach (var c in linked) overview.Append($"<span>{Esc(c.ClientName)} <span class='mono hint'>{Esc(c.ClientId)}</span></span>");
+                        overview.Append("</dd>");
+                    }
+                    overview.Append("</dl></section>");
+                }
+                overview.Append($"<p class='hint application-source'>{T("Read-only configuration: resources.json; preset clients: clients.preset.json. Edit the files and restart. Manage user access under Users.")}</p></div></details>");
             }
             overview.Append("</div>");
         }
-        var html = Card(T("Connected apps"), T("All configured resources, independent of any user's grants. Read-only."), overview.ToString());
+        var html = Card(T("Connected apps"), T("Apps and their sign-in or access capabilities. User counts are shown separately for each capability."), overview.ToString());
 
         var rs = new StringBuilder();
         if (resources.Count == 0) rs.Append(Empty(T("No resources.")));
@@ -720,8 +758,7 @@ public static class DashboardTemplates
             }
             rs.Append("</tbody></table></div>");
         }
-        html += Card(T("Resource catalog"), T("From resources.json (read-only; edit the file and restart to change). Users = accounts granted this resource under Users → Resource grants."),
-            $"<details><summary>{T("View resource table")}</summary>{rs}</details>");
+        var resourceTable = Card(T("Resource catalog"), T("From resources.json (read-only; edit the file and restart to change). Users = accounts granted this resource under Users → Resource grants."), rs.ToString());
 
         var sb = new StringBuilder();
         if (clients.Count == 0)
@@ -751,10 +788,10 @@ public static class DashboardTemplates
             }
             sb.Append("</tbody></table></div>");
         }
-        html += Card(T("OAuth clients"),
+        var clientTable = Card(T("OAuth clients"),
             T("Preset clients come from clients.preset.json; DCR ones registered themselves (e.g. Claude, Grok). DCR clients unused for 30 days with no live grants are cleaned up automatically; delete one here to cut it off now."),
             sb.ToString());
-        return html;
+        return nav + (view == "clients" ? clientTable : view == "resources" ? resourceTable : html);
     }
 
     // ---- 审计日志 ----
@@ -896,7 +933,8 @@ public record ClientAdminView(
     string CreatedAtDisplay,
     string LastUsedDisplay,
     int ActiveGrants = 0,
-    IReadOnlyList<string>? ExtraClaimNames = null
+    IReadOnlyList<string>? ExtraClaimNames = null,
+    string? DefaultResource = null
 );
 
 public record ProfileAppView(string DisplayName, string Aud, IReadOnlyList<string> Scopes);
@@ -930,4 +968,5 @@ public record AuditView(string TimeDisplay, string Event, bool Success,
 public record AuditFilter(string Type, string User, bool FailedOnly);
 
 public record ResourceAdminView(string Aud, string DisplayName, string ResourceUrl,
-    IReadOnlyList<string> Scopes, bool IsProxy, int UserCount, int ActiveGrants, bool IsForwardAuth = false);
+    IReadOnlyList<string> Scopes, bool IsProxy, int UserCount, int ActiveGrants, bool IsForwardAuth = false,
+    ResourceAppConfig? App = null, bool AdminOnly = false, IReadOnlyList<string>? GrantedUserIds = null);

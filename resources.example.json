@@ -21,6 +21,7 @@
     "aud": "gitea",
     "resource_url": "https://gitea-mcp.example.com",
     "display_name": "Gitea MCP",
+    "app": { "id": "gitea", "name": "Gitea", "description": "Code hosting", "capability": "mcp" },
     "scopes": ["read:gitea"],
     "admin_only": true
   },
@@ -28,6 +29,7 @@
     "aud": "gitea-web",
     "resource_url": "https://git.example.com",
     "display_name": "Gitea Web SSO",
+    "app": { "id": "gitea", "name": "Gitea", "description": "Code hosting", "capability": "web" },
     "scopes": ["openid", "email", "profile"]
   },
   {

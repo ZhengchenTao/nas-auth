@@ -172,6 +172,14 @@ only expose it through your proxy.
 
 ### resources.json
 
+The admin application overview groups resources by optional `app` metadata, for example
+`{"id":"gitea","name":"Gitea","description":"Code hosting","capability":"web"}`.
+Resources with the same application id must share its name and description. Capabilities
+are `web`, `mcp`, `api`, or `gateway` (forward-auth only). Unassigned resources remain separate;
+names are never used to infer membership. User counts stay separate for each capability.
+Metadata only affects presentation and is read at startup. Client registrations and the
+original resource table remain available in separate tabs.
+
 What can be asked for. Read at startup; restart to apply changes.
 
 ```json
