@@ -686,6 +686,25 @@ public static class DashboardTemplates
     // ---- 应用与资源 ----
     public static string AppsSection(IReadOnlyList<ResourceAdminView> resources, IReadOnlyList<ClientAdminView> clients)
     {
+        var overview = new StringBuilder();
+        if (resources.Count == 0) overview.Append(Empty(T("No resources.")));
+        else
+        {
+            overview.Append("<div class='res-grid app-overview'>");
+            foreach (var r in resources)
+            {
+                overview.Append($"<fieldset class='group-box'><legend>{Esc(r.DisplayName)}</legend>");
+                overview.Append($"<p class='app-mode'>{(r.IsForwardAuth ? T("Forward-auth (site gate)") : r.IsProxy ? T("Proxy (token translation)") : T("Direct JWT"))}</p>");
+                overview.Append($"<p class='app-address'>{Esc(r.ResourceUrl)}</p>");
+                overview.Append($"<dl class='app-stats'><div><dt>{T("Granted users")}</dt><dd>{r.UserCount}</dd></div><div><dt>{T("Active grants")}</dt><dd>{r.ActiveGrants}</dd></div></dl>");
+                overview.Append($"<div class='app-scopes'><span class='badge mono' data-variant='outline'>{Esc(r.Aud)}</span>");
+                foreach (var s in r.Scopes) overview.Append($"<span class='badge mono' data-variant='secondary'>{Esc(s)}</span>");
+                overview.Append("</div></fieldset>");
+            }
+            overview.Append("</div>");
+        }
+        var html = Card(T("Connected apps"), T("All configured resources, independent of any user's grants. Read-only."), overview.ToString());
+
         var rs = new StringBuilder();
         if (resources.Count == 0) rs.Append(Empty(T("No resources.")));
         else
@@ -701,7 +720,8 @@ public static class DashboardTemplates
             }
             rs.Append("</tbody></table></div>");
         }
-        var html = Card(T("Resource catalog"), T("From resources.json (read-only; edit the file and restart to change). Users = accounts granted this resource under Users → Resource grants."), rs.ToString());
+        html += Card(T("Resource catalog"), T("From resources.json (read-only; edit the file and restart to change). Users = accounts granted this resource under Users → Resource grants."),
+            $"<details><summary>{T("View resource table")}</summary>{rs}</details>");
 
         var sb = new StringBuilder();
         if (clients.Count == 0)

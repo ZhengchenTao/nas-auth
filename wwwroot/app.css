@@ -101,6 +101,15 @@ img.sb-avatar { object-fit: cover; }
 .card.danger { border-color: color-mix(in oklab, var(--destructive) 45%, var(--border)); }
 .res-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
 .res-grid > .group-box { margin: 0; }
+.app-overview { grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+.app-overview legend { font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
+.app-mode { margin: 4px 0 8px; font-size: .8125rem; }
+.app-address { margin: 0 0 16px; color: var(--muted-foreground); font-size: .8125rem; overflow-wrap: anywhere; }
+.app-stats { display: flex; flex-wrap: wrap; gap: 12px 28px; margin: 0 0 16px; }
+.app-stats dt { color: var(--muted-foreground); font-size: .75rem; }
+.app-stats dd { margin: 2px 0 0; font-size: 1.25rem; font-weight: 600; }
+.app-scopes { display: flex; flex-wrap: wrap; gap: 6px; }
+.app-scopes .badge { white-space: normal; overflow-wrap: anywhere; }
 
 /* ---- 个人中心 / 管理后台切换（§十六），sidebar 头部 ---- */
 .space-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin: 4px 8px 0; padding: 3px;

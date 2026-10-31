@@ -354,6 +354,9 @@ public static class I18n
         ["Set a new password and tell them. Their current sessions end immediately."] =
             "设一个新密码并告诉对方；对方当前的登录立即失效。",
         ["Resource catalog"] = "资源",
+        ["Connected apps"] = "接入应用",
+        ["All configured resources, independent of any user's grants. Read-only."] = "全部已配置的应用与服务，不受单个用户授权范围限制。此处只读。",
+        ["View resource table"] = "查看资源明细表",
         ["From resources.json (read-only; edit the file and restart to change). Users = accounts granted this resource under Users → Resource grants."] =
             "来自 resources.json（只读，改文件后重启生效）。开通用户数 = 在「用户 → 资源授权」里开了这个资源的账号数。",
         ["Granted users"] = "开通用户数",
