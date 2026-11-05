@@ -507,7 +507,7 @@ public static class DashboardTemplates
     }
 
     // ---- 用户：列表 + 新建；单个用户的全部操作在 UserEditSection ----
-    public static string UsersSection(IReadOnlyList<UserAdminView> users, NasAuth.Config.ExternalProfilesOptions? profiles = null)
+    public static string UsersSection(IReadOnlyList<UserAdminView> users, NasAuth.Config.ExternalProfilesOptions? profiles = null, bool externalSignInEnabled = true)
     {
         var create = new StringBuilder("<form method='post' action='/admin/users/create'><div class='form-grid'>");
         create.Append($"<div class='field'><label for='new_username'>{T("Username")}</label><input type='text' id='new_username' name='username' required pattern='[a-zA-Z0-9._-]{{1,32}}' autocomplete='off' placeholder='{T("letters, digits, . _ -")}'></div>");
@@ -545,8 +545,8 @@ public static class DashboardTemplates
                 external.Append(DirectoryWidget(id, provider, null, false, null));
         if (external.Length == 0)
             external.Append($"<form method='post' action='/admin/users/create'><input type='hidden' name='invite_by_email' value='1'><div class='field'><label>{T("Email")}</label><input class='input' type='email' name='email' required autocomplete='off'></div><p class='hint'>{T("The first verified external sign-in will bind this account. No password is created.")}</p><button class='btn'>{T("Create external account")}</button></form>");
-        return Card(T("Users"), null, sb.ToString()) + Card(T("Create external account"), null, external.ToString()) +
-            $"<details><summary>{T("Create password account")}</summary>" +
+        return Card(T("Users"), null, sb.ToString()) + (externalSignInEnabled ? Card(T("Create external account"), null, external.ToString()) : "") +
+            $"<details{(externalSignInEnabled ? "" : " open")}><summary>{T("Create password account")}</summary>" +
             Card(T("Create password account"), T("Tell the user their password. Turn on \"Must change password on first sign-in\" if they should pick their own."), create.ToString()) + "</details>";
     }
 

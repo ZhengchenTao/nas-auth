@@ -55,9 +55,9 @@ public static class AdminEndpoints
         });
 
         // ----- 用户 -----
-        admin.MapGet("/users", (HttpContext ctx, UserRepository users, ExternalIdentityRepository identities, ExternalProfilesOptions profiles) =>
+        admin.MapGet("/users", (HttpContext ctx, UserRepository users, ExternalIdentityRepository identities, ExternalProfilesOptions profiles, ExternalProviderOptions providers) =>
             Render(ctx, users, identities, DashboardSpace.Admin, "users", "Users",
-                DashboardTemplates.UsersSection(UserViews(users, AdminId(ctx)), profiles)));
+                DashboardTemplates.UsersSection(UserViews(users, AdminId(ctx)), profiles, providers.EnabledProviders.Count > 0)));
 
         admin.MapPost("/users/create", async (HttpContext ctx, UserRepository users,
             ExternalInviteRepository invites, AuditLogger audit) =>

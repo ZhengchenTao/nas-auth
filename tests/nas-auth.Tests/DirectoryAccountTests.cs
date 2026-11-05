@@ -35,6 +35,16 @@ public sealed class DirectoryAccountTests : IClassFixture<TicketAuthFactory>
     { ["user_id"] = subject, ["username"] = username, ["name"] = "Example Staff", ["email"] = "staff@example.test", ["department"] = "Example department", ["private_attribute"] = "drop-me" };
 
     [Fact]
+    public void PasswordOnlyDeploymentDoesNotOfferUnusableDirectoryOrExternalInvitations()
+    {
+        var html=NasAuth.Pages.DashboardTemplates.UsersSection(Array.Empty<NasAuth.Pages.UserAdminView>(),new ExternalProfilesOptions(),false);
+        Assert.DoesNotContain("data-directory=",html);
+        Assert.DoesNotContain("invite_by_email",html);
+        Assert.Contains("name='temp_password'",html);
+        Assert.Contains("<details open>",html);
+    }
+
+    [Fact]
     public void ConfiguredCreationBindsExactIdentityWithoutPasswordAdministratorOrGrants()
     {
         using var scope = _app.Services.CreateScope();
