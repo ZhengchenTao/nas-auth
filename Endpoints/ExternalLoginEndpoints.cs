@@ -162,6 +162,9 @@ public static class ExternalLoginEndpoints
                 ExternalClaims.IsEmailVerified(provider, auth.Principal, configuredProvider));
             // §十九：每次外部登录都刷新快照（待批的也存，审批通过时给新用户补昵称 / 头像）
             identities.UpdateSnapshot(provider, subject, displayName, avatar);
+            if (configuredProvider is NasAuth.Config.ExternalTicketProviderOptions)
+                identities.UpdateProfileSnapshot(provider, subject,
+                    ExternalProfileData.Read(auth.Principal.FindFirstValue(ExternalProfileData.ClaimType)));
             switch (result.Status)
             {
                 case ExternalSignInStatus.Active:

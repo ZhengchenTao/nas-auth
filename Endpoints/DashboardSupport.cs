@@ -104,7 +104,8 @@ public static class DashboardSupport
         identities.ListByUser(userId)
             .Where(r => r.status == "active")
             .Select(r => new BindingView(r.provider, r.subject, r.email, r.display_name,
-                TimeDisplay(r.approved_at ?? r.created_at), r.avatar))
+                TimeDisplay(r.approved_at ?? r.created_at), r.avatar,
+                ExternalProfileData.Read(r.profile_json), r.profile_updated_at is { } ts ? TimeDisplay(ts) : null))
             .ToList();
 
     public static List<AuditView> AuditViews(IEnumerable<AuditRow> rows) =>

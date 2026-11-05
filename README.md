@@ -141,6 +141,9 @@ ExternalProviders__TicketProviders__0__ValidationUrl=https://adapter.example.tes
 # Optional: accept protected state inside an echoed callback URL query value.
 # Default false; requires the exact configured callback target and correlation cookie.
 ExternalProviders__TicketProviders__0__StateInReturnedCallback=false
+# Private ticket adapters may return optional bounded informational profile attributes.
+# They are stored per (provider, subject) and shown only to that user and administrators.
+# Profile attributes never select users, verify email, grant access, or enter downstream tokens.
 # Inject ExternalProviders__TicketProviders__0__ValidationToken from the deployment secret store.
 ```
 

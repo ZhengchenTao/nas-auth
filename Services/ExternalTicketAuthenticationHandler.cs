@@ -154,6 +154,12 @@ public sealed class ExternalTicketAuthenticationHandler : RemoteAuthenticationHa
             return HandleRequestResult.Fail("The validation adapter returned an invalid identity.");
 
         var claims = new List<Claim> { new(Options.SubjectClaim, identity.Subject!) };
+        try
+        {
+            if (ExternalProfileData.Encode(identity.Profile) is { } profile)
+                claims.Add(new Claim(ExternalProfileData.ClaimType, profile));
+        }
+        catch (InvalidDataException) { return HandleRequestResult.Fail("The validation adapter returned an invalid profile."); }
         if (!string.IsNullOrWhiteSpace(identity.DisplayName))
             claims.Add(new Claim(Options.NameClaim, identity.DisplayName));
         if (!string.IsNullOrWhiteSpace(identity.Email))
@@ -223,6 +229,8 @@ public sealed record TicketValidationRequest(
     [property: JsonPropertyName("client_ip")] string? ClientIp);
 public sealed class TicketValidationResponse
 {
+    [JsonPropertyName("profile")]
+    public Dictionary<string, string>? Profile { get; set; }
     [JsonPropertyName("subject")]
     public string? Subject { get; set; }
 

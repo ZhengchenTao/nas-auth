@@ -68,6 +68,8 @@ public class AuthDb
         TryAddColumn(conn, "ALTER TABLE users ADD COLUMN display_name TEXT");
         TryAddColumn(conn, "ALTER TABLE users ADD COLUMN avatar TEXT");
         TryAddColumn(conn, "ALTER TABLE external_identities ADD COLUMN avatar TEXT");
+        TryAddColumn(conn, "ALTER TABLE external_identities ADD COLUMN profile_json TEXT");
+        TryAddColumn(conn, "ALTER TABLE external_identities ADD COLUMN profile_updated_at INTEGER");
         BackfillDisplayNamesOnce(conn);
     }
 

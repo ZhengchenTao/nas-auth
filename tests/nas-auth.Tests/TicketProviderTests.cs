@@ -303,6 +303,39 @@ public sealed class TicketProviderPipelineTests : IClassFixture<TicketAuthFactor
         Assert.Equal(1, _app.Probe.RequestCountFor("nested-valid"));
     }
 
+    [Fact]
+    public async Task ExternalProfilePersistsWithoutChangingUserEmailOrPermissionsAndOutageKeepsLastFields()
+    {
+        _app.Probe.SetResponse("profile-first", "{\"subject\":\"stable-person-123\",\"display_name\":\"Alice Example\",\"email\":\"directory@example.test\",\"profile\":{\"department\":\"Engineering <staff>\",\"email\":\"directory@example.test\",\"directory_status\":\"matched\"}}");
+        using var browser = _app.Browser();
+        var first = await Start(browser);
+        var callback = await browser.GetAsync(CallbackWithTicket(first.Callback, "profile-first"));
+        Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
+        await browser.GetAsync(callback.Headers.Location);
+        using var scope = _app.Services.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<ExternalIdentityRepository>();
+        var row = repo.Get("badge-login", "stable-person-123")!;
+        Assert.Equal("active", row.status);
+        Assert.Equal("alice", row.user_id);
+        Assert.Equal("Engineering <staff>", ExternalProfileData.Read(row.profile_json)!["department"]);
+        Assert.NotNull(row.profile_updated_at);
+        Assert.Equal("alice@example.test", scope.ServiceProvider.GetRequiredService<UserRepository>().GetById("alice")!.email);
+        var page = await browser.GetStringAsync("/auth/account");
+        Assert.Contains("Engineering &lt;staff&gt;", page);
+        Assert.DoesNotContain("Engineering <staff>", page);
+        repo.UpdateProfileSnapshot("badge-login", "stable-person-123", new Dictionary<string, string> { ["directory_status"] = "unavailable" });
+        Assert.Equal("Engineering <staff>", ExternalProfileData.Read(repo.Get("badge-login", "stable-person-123")!.profile_json)!["department"]);
+        Assert.Empty(scope.ServiceProvider.GetRequiredService<UserResourceRepository>().ListByUser("alice"));
+    }
+
+    [Fact]
+    public void ExternalProfileRejectsUnsafeOrUnboundedAttributes()
+    {
+        Assert.Null(ExternalProfileData.Read("{\"department\":\"unsafe\\nvalue\"}"));
+        Assert.Null(ExternalProfileData.Read("{\"bad-key\":\"value\"}"));
+        Assert.Throws<InvalidDataException>(() => ExternalProfileData.Encode(new Dictionary<string, string> { ["department"] = new string('x', 257) }));
+    }
+
     [Theory]
     [InlineData("https://other.example.test/auth/signin/badge-login", "")]
     [InlineData("https://auth.example.test/auth/signin/other", "")]

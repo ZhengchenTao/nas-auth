@@ -291,6 +291,7 @@ public static class DashboardTemplates
         info.Append("</dl>");
         var html = Card(T("My account"), null, info.ToString(), action:
             $"<a class='btn' data-variant='outline' data-size='sm' href='/account/security'>{T("Sign-in & security")}</a>");
+        html += ExternalProfilesSection(p.Bindings);
         html += ProfileEditCard(u, p.Bindings);
 
         var apps = new StringBuilder();
@@ -315,6 +316,32 @@ public static class DashboardTemplates
     /// <summary>
     /// §十九 资料卡片：昵称、头像（上传 / 去掉 / 用已绑定外部账号的）。用户名（user_id）不可改：各应用按它认人。
     /// </summary>
+    private static string ExternalProfilesSection(IReadOnlyList<BindingView> bindings)
+    {
+        var html = new StringBuilder();
+        foreach (var binding in bindings.Where(x => x.Profile?.Count > 0))
+        {
+            var rows = new StringBuilder("<dl class='kv'>");
+            foreach (var field in binding.Profile!)
+            {
+                var label = field.Key switch
+                {
+                    "user_id" => "External user ID", "user_name" => "Name", "domain_account" => "Domain account",
+                    "full_domain_account" => "Full domain account", "user_source_id" => "Login source ID",
+                    "user_type" => "User type", "department_id" => "Department ID", "department" => "Department",
+                    "position" => "Position", "source_id" => "Employee number", "email" => "Email",
+                    "directory_status" => "Directory status", "directory_synced_at" => "Directory updated at", _ => field.Key
+                };
+                var value = field.Key == "directory_status" ? T(field.Value) : field.Value;
+                rows.Append($"<dt>{Esc(T(label))}</dt><dd>{Esc(value)}</dd>");
+            }
+            rows.Append($"<dt>{T("Updated at")}</dt><dd>{Esc(binding.ProfileUpdatedAt ?? "-")}</dd></dl>");
+            html.Append(Card(T("External profile") + " · " + Esc(binding.Provider),
+                T("Informational profile from your identity provider. Does not change account matching or permissions."), rows.ToString()));
+        }
+        return html.ToString();
+    }
+
     private static string ProfileEditCard(UserAdminView u, IReadOnlyList<BindingView> bindings)
     {
         var sb = new StringBuilder();
@@ -534,6 +561,7 @@ public static class DashboardTemplates
             T("Email is what apps (e.g. Immich) use to match this person to their own account — set it to the email of their account in that app. Accounts that sign in with Google / Microsoft should usually have password sign-in turned off."),
             profile.ToString()));
 
+        html.Append(ExternalProfilesSection(d.Bindings));
         // 资源授权（checkbox）
         var res = new StringBuilder($"<form method='post' action='/admin/users/resources'>{uid}<div class='res-grid'>");
         foreach (var r in d.Resources)
@@ -916,7 +944,9 @@ public record BindingView(
     string? Email,
     string? DisplayName,
     string BoundAtDisplay,
-    string? AvatarFile = null
+    string? AvatarFile = null,
+    IReadOnlyDictionary<string, string>? Profile = null,
+    string? ProfileUpdatedAt = null
 );
 
 public record PendingApprovalView(

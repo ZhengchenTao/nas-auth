@@ -77,7 +77,9 @@ public record ExternalIdentityRow(
     string status,
     long created_at,
     long? approved_at,
-    string? avatar = null
+    string? avatar = null,
+    string? profile_json = null,
+    long? profile_updated_at = null
 );
 
 /// <summary>external_invites 表的一行（§十八）。</summary>
