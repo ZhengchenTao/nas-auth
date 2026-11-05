@@ -159,7 +159,7 @@ public sealed class ExternalTicketAuthenticationHandler : RemoteAuthenticationHa
             if (ExternalProfileData.Encode(identity.Profile) is { } profile)
                 claims.Add(new Claim(ExternalProfileData.ClaimType, profile));
         }
-        catch (InvalidDataException) { return HandleRequestResult.Fail("The validation adapter returned an invalid profile."); }
+        catch (InvalidDataException) { /* Optional attributes cannot invalidate an already validated identity. */ }
         if (!string.IsNullOrWhiteSpace(identity.DisplayName))
             claims.Add(new Claim(Options.NameClaim, identity.DisplayName));
         if (!string.IsNullOrWhiteSpace(identity.Email))

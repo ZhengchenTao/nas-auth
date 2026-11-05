@@ -19,6 +19,10 @@ brandingOptions.Validate();
 builder.Configuration.GetSection(AuthOptions.SectionName).Bind(authOptions);
 authOptions.NormalizeAndValidate();
 builder.Services.AddSingleton(authOptions);
+var externalProfiles = builder.Configuration.GetSection("ExternalProfiles").Get<ExternalProfilesOptions>() ?? new();
+externalProfiles.Validate(authOptions.Issuer);
+builder.Services.AddSingleton(externalProfiles);
+builder.Services.AddScoped<DirectoryAccountService>();
 
 var jwtOptions = new JwtOptions();
 builder.Configuration.GetSection(JwtOptions.SectionName).Bind(jwtOptions);
@@ -468,6 +472,7 @@ app.MapAuthorizationEndpoints();
 app.MapTokenEndpoints();
 app.MapAccountEndpoints();
 app.MapAdminEndpoints();
+app.MapExternalProfileEndpoints();
 app.MapExternalLoginEndpoints();
 app.MapProfileEndpoints();
 app.MapProxyEndpoints();

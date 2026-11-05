@@ -291,7 +291,7 @@ public static class DashboardTemplates
         info.Append("</dl>");
         var html = Card(T("My account"), null, info.ToString(), action:
             $"<a class='btn' data-variant='outline' data-size='sm' href='/account/security'>{T("Sign-in & security")}</a>");
-        html += ExternalProfilesSection(p.Bindings);
+        html += ExternalProfilesSection(p.Bindings, self: true);
         html += ProfileEditCard(u, p.Bindings);
 
         var apps = new StringBuilder();
@@ -316,30 +316,44 @@ public static class DashboardTemplates
     /// <summary>
     /// §十九 资料卡片：昵称、头像（上传 / 去掉 / 用已绑定外部账号的）。用户名（user_id）不可改：各应用按它认人。
     /// </summary>
-    private static string ExternalProfilesSection(IReadOnlyList<BindingView> bindings)
+    private static string ExternalProfilesSection(IReadOnlyList<BindingView> bindings, bool self = false)
     {
         var html = new StringBuilder();
-        foreach (var binding in bindings.Where(x => x.Profile?.Count > 0))
+        foreach (var binding in bindings.Where(x => x.ProfileDefinition is not null))
         {
             var rows = new StringBuilder("<dl class='kv'>");
-            foreach (var field in binding.Profile!)
+            foreach (var definition in binding.ProfileDefinition!.Fields.Where(x => x.Value.Visible))
             {
-                var label = field.Key switch
-                {
-                    "user_id" => "External user ID", "user_name" => "Name", "domain_account" => "Domain account",
-                    "full_domain_account" => "Full domain account", "user_source_id" => "Login source ID",
-                    "user_type" => "User type", "department_id" => "Department ID", "department" => "Department",
-                    "position" => "Position", "source_id" => "Employee number", "email" => "Email",
-                    "directory_status" => "Directory status", "directory_synced_at" => "Directory updated at", _ => field.Key
-                };
-                var value = field.Key == "directory_status" ? T(field.Value) : field.Value;
-                rows.Append($"<dt>{Esc(T(label))}</dt><dd>{Esc(value)}</dd>");
+                var value = binding.Profile?.GetValueOrDefault(definition.Key);
+                rows.Append($"<dt>{Esc(definition.Value.Label)}</dt><dd>{Esc(value ?? "—")}</dd>");
             }
             rows.Append($"<dt>{T("Updated at")}</dt><dd>{Esc(binding.ProfileUpdatedAt ?? "-")}</dd></dl>");
             html.Append(Card(T("External profile") + " · " + Esc(binding.Provider),
                 T("Informational profile from your identity provider. Does not change account matching or permissions."), rows.ToString()));
+            if (binding.ProfileDefinition.BrowserLookupUrl.Length > 0 && (!self || binding.ProfileDefinition.AllowSelfRefresh))
+                html.Append(DirectoryWidget(binding.Provider, binding.ProfileDefinition, binding.Subject, self, binding.Profile));
         }
         return html.ToString();
+    }
+
+    private static string DirectoryWidget(string provider, NasAuth.Config.ExternalProfileProvider definition,
+        string? subject, bool self, IReadOnlyDictionary<string, string>? profile)
+    {
+        var name = profile?.GetValueOrDefault(definition.NameField) ?? "";
+        var config = System.Text.Json.JsonSerializer.Serialize(new { provider, bridge = definition.BrowserLookupUrl,
+            subject, self, name, subjectField = definition.SubjectField, nameField = definition.NameField,
+            fields = definition.Fields.ToDictionary(x => x.Key, x => x.Value.Label),
+            visible = definition.Fields.Where(x => x.Value.Visible).Select(x => x.Key).ToArray() });
+        var action = subject is null ? "/admin/directory/create" : self ? "/account/directory/import" : "/admin/directory/import";
+        return $"<section class='card' data-directory='{Esc(config)}'><h3>{Esc(definition.DisplayName)} · {T("Company directory")}</h3>" +
+            $"<div class='field'><label>{T("Search people")}</label><input class='input' data-directory-query value='{Esc(name)}' maxlength='80' autocomplete='off'></div>" +
+            $"<button type='button' class='btn' data-directory-search>{T("Search")}</button> <a class='btn' data-variant='outline' href='/external/{Esc(provider)}/start?return_url=%2Faccount'>{T("Sign in to identity provider")}</a>" +
+            "<p class='hint' data-directory-status role='status'></p><div data-directory-results></div>" +
+            $"<form method='post' action='{action}' data-directory-save hidden><input type='hidden' name='provider' value='{Esc(provider)}'>" +
+            $"<input type='hidden' name='subject' value='{Esc(subject ?? "")}'>" +
+            "<input type='hidden' name='profile_json'><input type='hidden' name='return_url'>" +
+            "<p data-directory-preview></p>" + (self ? "" : $"<label class='check-line'><input type='checkbox' name='use_email' value='1'>{T("Use directory email as account email")}</label>") +
+            $"<button class='btn' type='submit'>{T(subject is null ? "Create selected account" : "Save selected profile")}</button></form></section>";
     }
 
     private static string ProfileEditCard(UserAdminView u, IReadOnlyList<BindingView> bindings)
@@ -492,15 +506,14 @@ public static class DashboardTemplates
     }
 
     // ---- 用户：列表 + 新建；单个用户的全部操作在 UserEditSection ----
-    public static string UsersSection(IReadOnlyList<UserAdminView> users)
+    public static string UsersSection(IReadOnlyList<UserAdminView> users, NasAuth.Config.ExternalProfilesOptions? profiles = null)
     {
         var create = new StringBuilder("<form method='post' action='/admin/users/create'><div class='form-grid'>");
         create.Append($"<div class='field'><label for='new_username'>{T("Username")}</label><input type='text' id='new_username' name='username' required pattern='[a-zA-Z0-9._-]{{1,32}}' autocomplete='off' placeholder='{T("letters, digits, . _ -")}'></div>");
         create.Append($"<div class='field'><label for='new_temp_password'>{T("Password")}</label><input id='new_temp_password' name='temp_password' type='password' minlength='8' autocomplete='new-password' placeholder='{T("≥ 8 chars; only when password sign-in is allowed")}'></div>");
         create.Append($"<div class='field'><label for='new_email'>{T("Email")}</label><input type='email' id='new_email' name='email' autocomplete='off' placeholder='{T("sent to apps as the email claim")}'></div>");
-        create.Append($"<div class='field'><label for='new_invite_email'>{T("Pre-bind sign-in email")}</label><input type='email' id='new_invite_email' name='invite_email' autocomplete='off' placeholder='{T("optional; first Google / Outlook sign-in with it binds here")}'></div>");
         create.Append("</div><div class='form-foot'>");
-        create.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='allow_password_login' value='1' checked>{T("Allow password sign-in")}</label>");
+        create.Append(Hidden("allow_password_login", "1"));
         create.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='must_change_password' value='1'>{T("Must change password on first sign-in")}</label>");
         create.Append($"<span class='grow'></span><button class='btn' type='submit'>{T("Create")}</button>");
         create.Append("</div></form>");
@@ -525,8 +538,15 @@ public static class DashboardTemplates
         }
         sb.Append("</tbody></table></div>");
 
-        return Card(T("Users"), null, sb.ToString()) +
-               Card(T("Create user"), T("Tell the user their password. Turn on \"Must change password on first sign-in\" if they should pick their own."), create.ToString());
+        var external = new StringBuilder();
+        foreach (var (id, provider) in profiles?.Providers ?? new Dictionary<string, NasAuth.Config.ExternalProfileProvider>())
+            if (provider.AllowAdminCreate && provider.BrowserLookupUrl.Length > 0)
+                external.Append(DirectoryWidget(id, provider, null, false, null));
+        if (external.Length == 0)
+            external.Append($"<form method='post' action='/admin/users/create'><input type='hidden' name='invite_by_email' value='1'><div class='field'><label>{T("Email")}</label><input class='input' type='email' name='email' required autocomplete='off'></div><p class='hint'>{T("The first verified external sign-in will bind this account. No password is created.")}</p><button class='btn'>{T("Create external account")}</button></form>");
+        return Card(T("Users"), null, sb.ToString()) + Card(T("Create external account"), null, external.ToString()) +
+            $"<details><summary>{T("Create password account")}</summary>" +
+            Card(T("Create password account"), T("Tell the user their password. Turn on \"Must change password on first sign-in\" if they should pick their own."), create.ToString()) + "</details>";
     }
 
     // ---- 单个用户：资料 / 资源授权 / 外部身份 / 已授权应用 / 会话 / 重置密码 / 删除 ----
@@ -601,7 +621,7 @@ public static class DashboardTemplates
         }
 
         // 预绑定邮箱（§十八）：首次用 Google 登录、且 Google 验证过这个邮箱的人直接绑到本用户，不进待批
-        ids.Append($"<h3 class='subhead'>{T("Pre-bound emails")}</h3>");
+        ids.Append($"<h3 class='subhead'>{T("Pending first bindings")}</h3>");
         if (d.Invites is { Count: > 0 } invites)
         {
             ids.Append($"<div class='table-container'><table class='table'><thead><tr><th>{T("Email")}</th><th>{T("Added")}</th><th></th></tr></thead><tbody>");
@@ -614,8 +634,8 @@ public static class DashboardTemplates
             ids.Append("</tbody></table></div>");
         }
         ids.Append($"<form method='post' action='/admin/users/invites/add' class='form-foot'>{uid}");
-        ids.Append($"<input class='input' type='email' name='email' required autocomplete='off' placeholder='name@example.com' style='max-width:320px'>");
-        ids.Append($"<button class='btn' data-variant='outline' type='submit'>{T("Add pre-bound email")}</button></form>");
+        ids.Append(Hidden("email", u.Email ?? ""));
+        ids.Append($"<button class='btn' data-variant='outline' type='submit'{(string.IsNullOrEmpty(u.Email) ? " disabled" : "")}>{T("Enable first binding for account email")}</button></form>");
         html.Append(Card(T("External identities"),
             T("Pre-bound email: the first time someone signs in with this email, that account is bound to this user directly without going through approvals. Used once, then removed. Requires the provider to vouch for the email: Google must report it as verified; for a personal Microsoft account it must be the sign-in name. Otherwise it still goes to approvals."),
             ids.ToString()));
@@ -946,7 +966,8 @@ public record BindingView(
     string BoundAtDisplay,
     string? AvatarFile = null,
     IReadOnlyDictionary<string, string>? Profile = null,
-    string? ProfileUpdatedAt = null
+    string? ProfileUpdatedAt = null,
+    NasAuth.Config.ExternalProfileProvider? ProfileDefinition = null
 );
 
 public record PendingApprovalView(

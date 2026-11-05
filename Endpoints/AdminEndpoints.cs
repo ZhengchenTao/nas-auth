@@ -55,9 +55,9 @@ public static class AdminEndpoints
         });
 
         // ----- 用户 -----
-        admin.MapGet("/users", (HttpContext ctx, UserRepository users, ExternalIdentityRepository identities) =>
+        admin.MapGet("/users", (HttpContext ctx, UserRepository users, ExternalIdentityRepository identities, ExternalProfilesOptions profiles) =>
             Render(ctx, users, identities, DashboardSpace.Admin, "users", "Users",
-                DashboardTemplates.UsersSection(UserViews(users, AdminId(ctx)))));
+                DashboardTemplates.UsersSection(UserViews(users, AdminId(ctx)), profiles)));
 
         admin.MapPost("/users/create", async (HttpContext ctx, UserRepository users,
             ExternalInviteRepository invites, AuditLogger audit) =>
@@ -69,6 +69,9 @@ public static class AdminEndpoints
             var newEmail = form["email"].ToString();
             var inviteEmail = form["invite_email"].ToString().Trim();
             var allowPassword = form["allow_password_login"].ToString() == "1";
+            if (form["invite_by_email"] == "1") inviteEmail = newEmail.Trim();
+            if (string.IsNullOrEmpty(newUsername) && !allowPassword && !string.IsNullOrEmpty(inviteEmail))
+                newUsername = System.Text.RegularExpressions.Regex.Replace(inviteEmail.Split('@')[0], "[^a-zA-Z0-9._-]", "").ToLowerInvariant();
             // 首次登录强制改密是可选的（默认不强制）：给家人开的账号，管理员定的密码就是正式密码。
             // 不许密码登录的用户没有可改的密码，这个开关对他无意义，一律不置。
             var mustChange = allowPassword && form["must_change_password"].ToString() == "1";
@@ -87,19 +90,19 @@ public static class AdminEndpoints
             if (!IsValidEmail(newEmail) || !IsValidEmail(inviteEmail))
                 return RedirectTo("/admin/users", error: T("Invalid email address"));
 
-            users.Create(
+            try { users.Create(
                 userId: newUsername,
                 username: newUsername,
                 passwordHash: allowPassword ? PasswordHasher.Hash(tempPwd) : PasswordHasher.UnusableHash(),
                 mustChangePassword: mustChange,
                 email: newEmail,
-                allowPasswordLogin: allowPassword);
+                allowPasswordLogin: allowPassword, inviteEmail: inviteEmail, createdBy: adminId); }
+            catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 19)
+            { return RedirectTo("/admin/users", error: T("Username or pending email binding already exists; no account was created")); }
             audit.AccountAction("user-create", true, adminId, $"target={newUsername} password_login={(allowPassword ? 1 : 0)} must_change={(mustChange ? 1 : 0)}");
 
             if (!string.IsNullOrEmpty(inviteEmail))
             {
-                if (!invites.Add(inviteEmail, newUsername, adminId))
-                    return RedirectTo(EditPath(newUsername), error: T("Created user {0}, but {1} is already pre-bound to another user", newUsername, inviteEmail));
                 audit.AccountAction("invite-add", true, adminId, $"target={newUsername} email={UserRepository.NormalizeEmail(inviteEmail)}");
             }
             return RedirectTo(allowPassword ? "/admin/users" : EditPath(newUsername),
@@ -192,7 +195,9 @@ public static class AdminEndpoints
             if (!IsValidEmail(email))
                 return RedirectTo(EditPath(targetId), error: T("Invalid email address"));
 
-            users.UpdateProfile(targetId, email, allowPassword);
+            try { users.UpdateProfile(targetId, email, allowPassword); }
+            catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 19)
+            { return RedirectTo(EditPath(targetId), error: T("Username or pending email binding already exists; no account was created")); }
             if (form.ContainsKey("display_name"))
                 users.UpdateDisplayName(targetId, form["display_name"].ToString());   // §十九 昵称
             audit.AccountAction("user-update", true, AdminId(ctx),

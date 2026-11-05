@@ -134,3 +134,83 @@
     }
   });
 })();
+(function () {
+  'use strict';
+  var zh = /^zh/i.test(document.documentElement.lang || '');
+  function label(cn, en) { return zh ? cn : en; }
+  function init() {
+    document.querySelectorAll('[data-directory]').forEach(function (box) {
+      var cfg = JSON.parse(box.getAttribute('data-directory'));
+      var query = box.querySelector('[data-directory-query]');
+      var status = box.querySelector('[data-directory-status]');
+      var results = box.querySelector('[data-directory-results]');
+      var form = box.querySelector('[data-directory-save]');
+      var auto = cfg.self && new URL(location.href).searchParams.get('profile_refresh') === cfg.provider;
+      var continuation = new URL(location.href).searchParams.get('return_url') || '';
+      var frame, nonce, timer;
+      function finishFailure(message) {
+        status.textContent = message;
+        if (frame) { frame.remove(); frame = null; }
+        clearTimeout(timer);
+        if (auto && continuation) {
+          var dest = new URL(continuation, location.href);
+          if (dest.origin === location.origin) location.assign(dest.href);
+        }
+      }
+      function select(row) {
+        form.elements.subject.value = row[cfg.subjectField];
+        form.elements.profile_json.value = JSON.stringify(row);
+        form.elements.return_url.value = continuation;
+        box.querySelector('[data-directory-preview]').textContent = cfg.visible
+          .filter(function (k) { return row[k]; }).map(function (k) { return cfg.fields[k] + ': ' + row[k]; }).join(' · ');
+        form.hidden = false;
+        if (auto) form.requestSubmit();
+      }
+      window.addEventListener('message', function (event) {
+        if (!frame || event.source !== frame.contentWindow || event.origin !== new URL(cfg.bridge).origin) return;
+        var message = event.data;
+        if (!message || message.request !== nonce) return;
+        if (message.type === 'directory-ready') {
+          frame.contentWindow.postMessage({ type: 'directory-query', request: nonce, keyword: query.value.trim() }, event.origin);
+          return;
+        }
+        if (message.type !== 'directory-result') return;
+        clearTimeout(timer);
+        if (message.status !== 'ok' || !Array.isArray(message.rows) || message.rows.length > 128)
+          return finishFailure(label('公司目录暂不可用，请先登录身份提供方后重试。', 'Directory unavailable. Sign in to your identity provider and retry.'));
+        var rows = message.rows.map(function (row) {
+          var clean = {};
+          Object.keys(cfg.fields).forEach(function (k) {
+            if (typeof row[k] === 'string' && row[k].length <= 256 && !/[\x00-\x1f\x7f]/.test(row[k])) clean[k] = row[k];
+          });
+          return clean;
+        }).filter(function (row) { return row[cfg.subjectField] && (!cfg.subject || row[cfg.subjectField] === cfg.subject); });
+        results.replaceChildren();
+        if (!rows.length || (cfg.subject && rows.length !== 1))
+          return finishFailure(label('没有唯一匹配的用户 ID，请核对搜索条件。', 'No unique matching identity. Check your search.'));
+        status.textContent = label('请选择人员并确认保存；权限单独配置。', 'Select a person and confirm. Permissions are configured separately.');
+        if (cfg.subject) select(rows[0]);
+        else rows.forEach(function (row) {
+          var button = document.createElement('button'); button.type = 'button'; button.className = 'btn';
+          button.textContent = cfg.visible.filter(function (k) { return row[k]; })
+            .map(function (k) { return cfg.fields[k] + ': ' + row[k]; }).join(' · ');
+          button.addEventListener('click', function () { select(row); }); results.append(button);
+        });
+        frame.remove(); frame = null;
+      });
+      function search() {
+        if (query.value.trim().length < 2 || query.value.trim().length > 80) return;
+        clearTimeout(timer); if (frame) frame.remove(); form.hidden = true; results.replaceChildren();
+        nonce = crypto.randomUUID(); frame = document.createElement('iframe');
+        frame.hidden = true; frame.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+        frame.src = cfg.bridge + '#parent=' + encodeURIComponent(location.origin) + '&request=' + encodeURIComponent(nonce);
+        box.append(frame); status.textContent = label('正在查询公司目录…', 'Searching directory…');
+        timer = setTimeout(function () { finishFailure(label('查询超时，请重试。', 'Directory query timed out.')); }, 8000);
+      }
+      box.querySelector('[data-directory-search]').addEventListener('click', search);
+      query.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); search(); } });
+      if (auto) search();
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();

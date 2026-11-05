@@ -10,8 +10,10 @@ namespace NasAuth.Data.Repositories;
 /// </summary>
 public class ExternalIdentityRepository
 {
+    public NasAuth.Config.ExternalProfilesOptions ProfileOptions { get; }
     private readonly AuthDb _db;
-    public ExternalIdentityRepository(AuthDb db) => _db = db;
+    public ExternalIdentityRepository(AuthDb db, NasAuth.Config.ExternalProfilesOptions? profiles = null)
+    { _db = db; ProfileOptions = profiles ?? new(); }
 
     private const string Cols =
         "provider, subject, user_id, email, display_name, status, created_at, approved_at, avatar, profile_json, profile_updated_at";
@@ -19,6 +21,10 @@ public class ExternalIdentityRepository
     public void UpdateProfileSnapshot(string provider, string subject, IReadOnlyDictionary<string, string>? profile)
     {
         if (profile is null || profile.Count == 0) return;
+        if (ProfileOptions.Find(provider) is { } definition)
+            profile = profile.Where(x => definition.Fields.ContainsKey(x.Key)).ToDictionary(x => x.Key, x => x.Value);
+        else return;
+        if (profile.Count == 0) return;
         _ = NasAuth.Services.ExternalProfileData.Encode(profile);
         var row = Get(provider, subject);
         if (row is null || row.status == "rejected") return;
@@ -26,12 +32,14 @@ public class ExternalIdentityRepository
             ?? new Dictionary<string, string>());
         foreach (var field in profile)
             if (!string.IsNullOrWhiteSpace(field.Value)) merged[field.Key] = field.Value;
-        var json = NasAuth.Services.ExternalProfileData.Encode(merged);
+        string? json;
+        try { json = NasAuth.Services.ExternalProfileData.Encode(merged); }
+        catch (InvalidDataException) { return; } // Keep the previous bounded snapshot; login still succeeds.
         using var conn = _db.OpenConnection();
         conn.Execute(@"UPDATE external_identities SET profile_json=@json, profile_updated_at=@now,
             email=COALESCE(@email,email) WHERE provider=@provider AND subject=@subject AND status<>'rejected'",
             new { provider, subject, json, now=DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                email=profile.TryGetValue("email", out var email) && !string.IsNullOrWhiteSpace(email) ? email : null });
+                email=profile.TryGetValue(definition.EmailField, out var email) && !string.IsNullOrWhiteSpace(email) ? email : null });
     }
 
     public ExternalIdentityRow? Get(string provider, string subject)

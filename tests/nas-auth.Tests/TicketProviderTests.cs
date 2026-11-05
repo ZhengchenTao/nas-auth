@@ -148,6 +148,8 @@ public sealed class TicketAuthFactory : WebApplicationFactory<Program>
         builder.UseSetting("ExternalProviders:TicketProviders:0:ValidationToken", "integration-only-token");
         builder.UseSetting("ExternalProviders:TicketProviders:0:ReturnUrlParameter", "callback_url");
         builder.UseSetting("ExternalProviders:TicketProviders:0:StateInReturnedCallback", "true");
+        builder.UseSetting("ExternalProfiles:Providers:badge-login:Fields:department:Label", "Department");
+        builder.UseSetting("ExternalProfiles:Providers:badge-login:Fields:department:BrowserImport", "true");
         builder.UseSetting("ExternalProviders:TicketProviders:0:LoginParameters:realm", "test-realm");
         builder.ConfigureServices(services =>
         {

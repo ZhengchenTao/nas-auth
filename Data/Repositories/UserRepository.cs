@@ -65,10 +65,12 @@ public class UserRepository
     /// <paramref name="allowPasswordLogin"/>：本地密码用户要开；外部登录用户（密码不可用）保持关。
     /// </summary>
     public void Create(string userId, string username, string passwordHash, bool mustChangePassword,
-        string? email = null, bool allowPasswordLogin = false, string? displayName = null)
+        string? email = null, bool allowPasswordLogin = false, string? displayName = null,
+        string? inviteEmail = null, string? createdBy = null)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         using var conn = _db.OpenConnection();
+        using var transaction = conn.BeginTransaction();
         conn.Execute(@"
             INSERT INTO users (user_id, username, password_hash, is_admin, must_change_password,
                                created_at, updated_at, email, allow_password_login, display_name)
@@ -83,7 +85,11 @@ public class UserRepository
                 email = NormalizeEmail(email),
                 allow = allowPasswordLogin ? 1 : 0,
                 display_name = NormalizeDisplayName(displayName),
-            });
+            }, transaction);
+        if (!string.IsNullOrWhiteSpace(inviteEmail))
+            conn.Execute("INSERT INTO external_invites(email,user_id,created_at,created_by) VALUES(@email,@userId,@now,@createdBy)",
+                new { email = NormalizeEmail(inviteEmail), userId, now, createdBy }, transaction);
+        transaction.Commit();
     }
 
     /// <summary>昵称去首尾空白、截到 64 字符；空串视为未设置（null）。</summary>
@@ -130,9 +136,25 @@ public class UserRepository
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         using var conn = _db.OpenConnection();
+        using var transaction = conn.BeginTransaction();
+        var oldEmail = conn.QuerySingleOrDefault<string>("SELECT email FROM users WHERE user_id=@id", new { id = userId }, transaction);
+        var newEmail = NormalizeEmail(email);
+        if (!string.Equals(oldEmail, newEmail, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(oldEmail))
+        {
+            var pending = conn.QuerySingleOrDefault<ExternalInviteRow>("SELECT email,user_id,created_at,created_by FROM external_invites WHERE user_id=@id AND email=@oldEmail",
+                new { id = userId, oldEmail }, transaction);
+            if (pending is not null)
+            {
+                conn.Execute("DELETE FROM external_invites WHERE user_id=@id AND email=@oldEmail", new { id = userId, oldEmail }, transaction);
+                if (newEmail is not null)
+                    conn.Execute("INSERT INTO external_invites(email,user_id,created_at,created_by) VALUES(@newEmail,@id,@now,@by)",
+                        new { newEmail, id = userId, now, by = pending.created_by }, transaction);
+            }
+        }
         conn.Execute(
             "UPDATE users SET email = @email, allow_password_login = @allow, updated_at = @now WHERE user_id = @id",
-            new { email = NormalizeEmail(email), allow = allowPasswordLogin ? 1 : 0, now, id = userId });
+            new { email = newEmail, allow = allowPasswordLogin ? 1 : 0, now, id = userId }, transaction);
+        transaction.Commit();
     }
 
     /// <summary>

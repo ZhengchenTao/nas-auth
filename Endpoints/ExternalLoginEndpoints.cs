@@ -165,6 +165,15 @@ public static class ExternalLoginEndpoints
             if (configuredProvider is NasAuth.Config.ExternalTicketProviderOptions)
                 identities.UpdateProfileSnapshot(provider, subject,
                     ExternalProfileData.Read(auth.Principal.FindFirstValue(ExternalProfileData.ClaimType)));
+            var profileConfig = ctx.RequestServices.GetRequiredService<NasAuth.Config.ExternalProfilesOptions>().Find(provider);
+            if (profileConfig is not null)
+            {
+                var attributes = profileConfig.Fields.Where(f => f.Value.SourceClaim.Length > 0)
+                    .Select(f => (f.Key, Value: auth.Principal.FindFirstValue(f.Value.SourceClaim)))
+                    .Where(f => !string.IsNullOrEmpty(f.Value) && f.Value.Length <= 256 && !f.Value.Any(char.IsControl))
+                    .ToDictionary(f => f.Key, f => f.Value!);
+                identities.UpdateProfileSnapshot(provider, subject, attributes);
+            }
             switch (result.Status)
             {
                 case ExternalSignInStatus.Active:
@@ -173,7 +182,11 @@ public static class ExternalLoginEndpoints
                     await AuthorizationEndpoints.SignInCookie(ctx, result.User!.user_id);
                     audit.ExternalLogin(true, provider, subject, result.User.user_id, ctx.RemoteIp(),
                         result.Status == ExternalSignInStatus.ActiveByInvite ? "invite_redeemed" : null);
-                    return Results.Redirect(DashboardSupport.LandingFor(returnUrl, result.User));
+                    var profileDefinition = ctx.RequestServices.GetRequiredService<NasAuth.Config.ExternalProfilesOptions>().Find(provider);
+                    var destination = DashboardSupport.LandingFor(returnUrl, result.User);
+                    if (profileDefinition is { AutoRefreshAfterLogin: true, AllowSelfRefresh: true } && profileDefinition.BrowserLookupUrl.Length > 0)
+                        return Results.Redirect("/account?profile_refresh=" + Uri.EscapeDataString(provider) + "&return_url=" + Uri.EscapeDataString(destination));
+                    return Results.Redirect(destination);
 
                 case ExternalSignInStatus.PendingNew:
                 case ExternalSignInStatus.PendingExisting:

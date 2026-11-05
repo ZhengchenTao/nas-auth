@@ -32,6 +32,11 @@ on:
         description: '镜像 tag（留空则用 commit short hash）'
         required: false
         default: ''
+      deploy:
+        description: 'Explicitly deploy the built image to the configured runtime'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -124,7 +129,7 @@ jobs:
       # 拿不到 shell。ssh 最后那个参数会被当成 SSH_ORIGINAL_COMMAND 做白名单精确匹配，
       # 不是在目标机上执行的 shell 命令。
       - name: Deploy
-        if: ${{ vars.DEPLOY_SERVICE != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy == true && vars.DEPLOY_SERVICE != '' }}
         run: |
           set -e
           install -m 700 -d ~/.ssh

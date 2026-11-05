@@ -1,5 +1,7 @@
 # nas-auth
 
+Provider-specific optional profile fields, browser directory lookup, external/password account creation and the unified email form are documented in [External profiles](docs/external-profiles.md). Directory protocol implementations and organization-specific configuration remain outside the generic service.
+
 English | [简体中文](README.zh-CN.md)
 
 A small OAuth 2.1 / OpenID Connect server for a home server. I wrote it

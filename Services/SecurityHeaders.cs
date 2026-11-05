@@ -28,6 +28,13 @@ public static class SecurityHeaders
 
         var h = ctx.Response.Headers;
         h.ContentSecurityPolicy = ContentSecurityPolicy;
+        if (ctx.Request.Path.StartsWithSegments("/account") || ctx.Request.Path.StartsWithSegments("/admin"))
+        {
+            var profiles = ctx.RequestServices.GetRequiredService<NasAuth.Config.ExternalProfilesOptions>();
+            var origins = profiles.Providers.Values.Where(p => p.BrowserLookupUrl.Length > 0)
+                .Select(p => new Uri(p.BrowserLookupUrl).GetLeftPart(UriPartial.Authority)).Distinct().ToArray();
+            if (origins.Length > 0) h.ContentSecurityPolicy = ContentSecurityPolicy + "; frame-src " + string.Join(' ', origins);
+        }
         h.XFrameOptions = "DENY";
         h.XContentTypeOptions = "nosniff";
         h["Referrer-Policy"] = "same-origin";

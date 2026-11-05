@@ -29,6 +29,20 @@ public static class I18n
     private static readonly Dictionary<string, string> Zh = new(StringComparer.Ordinal)
     {
         // ---- 通用 ----
+        ["Company directory"] = "人员目录",
+        ["Search people"] = "搜索姓名或域账号",
+        ["Search"] = "搜索",
+        ["Create external account"] = "创建外部身份账号",
+        ["Create password account"] = "创建纯密码账号",
+        ["Create selected account"] = "确认创建所选人员账号",
+        ["Save selected profile"] = "确认保存资料",
+        ["Use directory email as account email"] = "同时采用目录邮箱作为账号邮箱",
+        ["Allow first binding through a verified email"] = "允许通过已验证邮箱首次绑定",
+        ["The first verified external sign-in will bind this account. No password is created."] = "首次使用已验证邮箱进行外部登录时绑定此账号，不创建密码。",
+        ["Sign in to identity provider"] = "登录身份提供方后重试",
+        ["Pending first bindings"] = "待完成的首次绑定",
+        ["Enable first binding for account email"] = "为账号邮箱启用首次绑定",
+        ["Username or pending email binding already exists; no account was created"] = "用户名或邮箱首次绑定记录已存在，未创建账号",
         ["External profile"] = "外部身份资料",
         ["External user ID"] = "外部用户 ID",
         ["Domain account"] = "域账号",
