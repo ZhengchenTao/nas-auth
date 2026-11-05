@@ -32,7 +32,10 @@ public class JwtOptions
     public string LegacyHs256NotAfter { get; set; } = "";
 
     public SigningKeyOptions SigningKey { get; set; } = new();
+    // Legacy days remain the fallback for existing deployments. Minutes take precedence when set.
     public int AccessTokenLifetimeDays { get; set; } = 30;
+    public int? AccessTokenLifetimeMinutes { get; set; }
+    public int EffectiveAccessTokenLifetimeSeconds => checked((int)(AccessTokenLifetimeMinutes is { } minutes ? (long)minutes * 60 : (long)AccessTokenLifetimeDays * 86400));
     public int RefreshTokenLifetimeDays { get; set; } = 90;
     public int AuthCodeLifetimeMinutes { get; set; } = 10;
 
@@ -60,6 +63,11 @@ public class JwtOptions
     /// </summary>
     public void Validate()
     {
+        var seconds = AccessTokenLifetimeMinutes is { } minutes ? (long)minutes * 60 : (long)AccessTokenLifetimeDays * 86400;
+        if (seconds is <= 0 or > int.MaxValue)
+            throw new InvalidOperationException("Access token lifetime must be positive and fit in expires_in seconds.");
+        if (RefreshTokenLifetimeDays <= 0 || AuthCodeLifetimeMinutes <= 0)
+            throw new InvalidOperationException("Refresh token and authorization code lifetimes must be positive.");
         var alg = NormalizedAlgorithm;
         if (alg is not (Rs256 or Hs256))
             throw new InvalidOperationException(

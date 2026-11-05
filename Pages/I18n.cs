@@ -29,6 +29,9 @@ public static class I18n
     private static readonly Dictionary<string, string> Zh = new(StringComparer.Ordinal)
     {
         ["This identity was deleted; confirm restoration of the original person instead of creating a new owner"] = "该身份已删除，请确认恢复原来的人；不能直接将此身份交给新人",
+        ["{0} minutes"] = "{0} 分钟",
+        ["{0} days"] = "{0} 天",
+        ["Current access-token lifetime: {0}. Keep previous keys until all tokens signed with them have expired, including tokens issued under an earlier, longer lifetime."] = "当前访问令牌有效期：{0}。旧密钥需保留到所有使用它签发的令牌过期，包含此前按更长有效期签发的令牌。",
         ["Cancel"] = "取消",
         ["Account status"] = "账号状态",
         ["Active accounts"] = "正常账号",

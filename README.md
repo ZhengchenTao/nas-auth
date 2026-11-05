@@ -188,7 +188,8 @@ Environment variables, with `__` for nesting (`Auth__Issuer` is `Auth:Issuer`).
 | `Auth__Dcr__AllowedRedirectHosts__N` | – | See below. |
 | `Auth__Dcr__AllowedCustomSchemes__N` | – | See below. |
 | `Jwt__AccessTokenAlgorithm` | `RS256` | `RS256` or `HS256`. |
-| `Jwt__AccessTokenLifetimeDays` | `30` | |
+| `Jwt__AccessTokenLifetimeMinutes` | unset | Optional minutes; overrides Days when set. Start with 15 for a new team deployment. |
+| `Jwt__AccessTokenLifetimeDays` | `30` | Legacy fallback when Minutes is unset. |
 | `Jwt__RefreshTokenLifetimeDays` | `90` | |
 | `Jwt__AuthCodeLifetimeMinutes` | `10` | |
 | `Jwt__SigningKey__Current` / `__Previous` | – | HS256 only (at least 32 bytes). See "Legacy HS256". |
@@ -517,7 +518,7 @@ dotnet test tests/nas-auth.Tests
 entry. Open `http://localhost:5000/login` in Chrome or Firefox. To get a token
 for testing an MCP server, run the real flow, for example with MCP Inspector.
 
-The test suite (xUnit, about 620 tests) needs nothing external. It covers the
+The test suite (xUnit) needs nothing external. It covers the
 protocol pieces, accounts and approvals, the page templates, and the full HTTP
 pipeline through `WebApplicationFactory`.
 
@@ -533,19 +534,24 @@ working.
 
 `.gitea/workflows/build-image.yml` builds and pushes
 `<REGISTRY>/<IMAGE_OWNER>/nas-auth` on every push to `main` and can then
-trigger a redeploy over SSH. It reads `vars.REGISTRY`, `vars.IMAGE_OWNER`,
+deploy over SSH only on an explicit manual dispatch with `deploy=true`. Every image build first runs the full test suite. It reads `vars.REGISTRY`, `vars.IMAGE_OWNER`,
 `secrets.AIFACELY_REGISTRY_TOKEN`, and for the deploy step
 `vars.DEPLOY_SERVICE`, `secrets.NAS_CI_SSH_KEY`, `secrets.NAS_SSH_HOST`,
 `secrets.NAS_SSH_KNOWN_HOSTS`. The action URLs and build proxy match my own CI;
 change them in a fork.
 
-## Not planned
+## Scope and maintenance
 
-Long-lived personal access tokens, TOTP, arbitrary OIDC upstreams, hot reload
-of `resources.json`, roles and groups.
+Configurable OIDC/ticket upstreams, external profiles, account disabling and original-identity recovery are implemented. User groups, stronger local authentication and a complete invitation flow remain proposals, not shipped features.
+
+GitHub CI runs the full suite on Linux and Windows and builds the runtime image. Docker builds are independently gated by the full suite. GitHub CI needs no production credentials and never deploys. The instance-specific Gitea workflow still requires appropriate runner/registry configuration.
+
+See [release and recovery operations](docs/operations.md), [security reporting](SECURITY.md), [contributing](CONTRIBUTING.md) and the [changelog](CHANGELOG.md).
 
 Design notes (Chinese): [docs/design/external-auth.md](docs/design/external-auth.md).
 
 ## License
 
 MIT
+
+Reducing token lifetime does not shorten already-issued tokens; retain previous signing keys for the longest outstanding historical lifetime.

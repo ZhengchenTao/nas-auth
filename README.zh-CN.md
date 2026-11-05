@@ -150,7 +150,8 @@ HTTP。adapter 收到 Bearer token 和 JSON `{"ticket":"…","client_ip":"…"}`
 | `Auth__Dcr__AllowedRedirectHosts__N` | – | 见下文。 |
 | `Auth__Dcr__AllowedCustomSchemes__N` | – | 见下文。 |
 | `Jwt__AccessTokenAlgorithm` | `RS256` | `RS256` 或 `HS256`。 |
-| `Jwt__AccessTokenLifetimeDays` | `30` | |
+| `Jwt__AccessTokenLifetimeMinutes` | 未设置 | 可选分钟数，设置后优先于旧 Days 配置；新团队部署建议先使用 15。 |
+| `Jwt__AccessTokenLifetimeDays` | `30` | 兼容已有部署；未设置 Minutes 时使用。 |
 | `Jwt__RefreshTokenLifetimeDays` | `90` | |
 | `Jwt__AuthCodeLifetimeMinutes` | `10` | |
 | `Jwt__SigningKey__Current` / `__Previous` | – | 只有 HS256 用（至少 32 字节），见「遗留的 HS256」。 |
@@ -361,7 +362,7 @@ dotnet test tests/nas-auth.Tests
 
 `EZBK_MCP_TOKEN` 只是因为示例资源里有一个代理条目。用 Chrome 或 Firefox 打开 `http://localhost:5000/login`。要拿 token 测 MCP 服务，就走一遍真实流程，比如用 MCP Inspector。
 
-测试（xUnit，约 620 个）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
+测试（xUnit）不依赖任何外部服务，覆盖协议细节、账号与审批、页面模板，并用 `WebApplicationFactory` 跑完整的 HTTP 管线。
 
 ## 镜像与 CI
 
@@ -371,14 +372,20 @@ docker build -t nas-auth .
 
 镜像里不含配置、数据库和密钥。RSA 私钥在首次启动时生成在 `/app/data` 里，这个卷丢了，已经发出去的 token 就全部失效。
 
-`.gitea/workflows/build-image.yml` 在每次推送到 `main` 时构建并推送 `<REGISTRY>/<IMAGE_OWNER>/nas-auth`，然后可以经 SSH 触发重新部署。用到 `vars.REGISTRY`、`vars.IMAGE_OWNER`、`secrets.AIFACELY_REGISTRY_TOKEN`，部署步骤另外用 `vars.DEPLOY_SERVICE`、`secrets.NAS_CI_SSH_KEY`、`secrets.NAS_SSH_HOST`、`secrets.NAS_SSH_KNOWN_HOSTS`。里面的 action 地址和构建代理是按我自己的 CI 写的，fork 后改成你的。
+`.gitea/workflows/build-image.yml` 在每次推送到 `main` 时构建并推送 `<REGISTRY>/<IMAGE_OWNER>/nas-auth`，镜像构建须先通过完整测试；运行部署仅在手工触发且 deploy=true 时执行。用到 `vars.REGISTRY`、`vars.IMAGE_OWNER`、`secrets.AIFACELY_REGISTRY_TOKEN`，部署步骤另外用 `vars.DEPLOY_SERVICE`、`secrets.NAS_CI_SSH_KEY`、`secrets.NAS_SSH_HOST`、`secrets.NAS_SSH_KNOWN_HOSTS`。里面的 action 地址和构建代理是按我自己的 CI 写的，fork 后改成你的。
 
-## 不打算做
+## 产品范围与维护
 
-长期有效的个人访问令牌、TOTP、任意 OIDC 上游、`resources.json` 热加载、角色和分组。
+已支持可配置 OIDC/Ticket 上游、外部资料和停用/恢复。用户组、增强本地登录和完整邀请仍属待实施规划，不代表已交付。
+
+GitHub CI 在 Linux/Windows 执行全量测试并构建镜像；每次 Docker 构建也必须通过完整测试。GitHub CI 不需要生产凭据，不执行部署。Gitea 的实例工作流仍需按自身 runner/registry 配置。
+
+升级与备份：[发布与恢复](docs/operations.md)；安全报告：[SECURITY.md](SECURITY.md)；贡献：[CONTRIBUTING.md](CONTRIBUTING.md)；变更：[CHANGELOG.md](CHANGELOG.md)。
 
 设计笔记：[docs/design/external-auth.md](docs/design/external-auth.md)。
 
 ## 许可
 
 MIT
+
+缩短令牌有效期不影响已经签发的令牌；旧签名密钥仍需覆盖历史最长有效期。

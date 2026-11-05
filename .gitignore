@@ -35,3 +35,6 @@ coverage/
 .idea/
 *.swp
 .DS_Store
+
+# .NET --artifacts-path output
+artifacts/

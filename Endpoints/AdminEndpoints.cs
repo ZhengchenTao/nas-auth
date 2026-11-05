@@ -562,7 +562,7 @@ public static class AdminEndpoints
                     passwordLoginOverride: passwordLogin.Override,
                     passwordLoginLockoutGuard: passwordLogin.LockoutGuardActive,
                     jwt: new JwtKeyView(jwt.UsesRs256, jwt.HasHs256Keys, jwt.AccessTokenLifetimeDays,
-                        jwt.LegacyHs256NotAfterUtc?.ToString("yyyy-MM-dd HH:mm:ss 'UTC'"))));
+                        jwt.LegacyHs256NotAfterUtc?.ToString("yyyy-MM-dd HH:mm:ss 'UTC'"), jwt.AccessTokenLifetimeMinutes)));
         });
 
         // 密码登录运行时开关（写 settings 表立即生效）

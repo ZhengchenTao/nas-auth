@@ -1,17 +1,18 @@
 **/bin
 **/obj
+**/artifacts
 **/.vs
 **/.vscode
 **/.idea
 .git
 .gitea
+.github
 .gitignore
 .dockerignore
 *.md
 LICENSE
 README*
 docs/
-tests/
 
 # 本地运行数据与密钥：绝不能被 COPY . . 烤进镜像
 # （SQLite、RS256 私钥 PEM、DataProtection 密钥环、.env）

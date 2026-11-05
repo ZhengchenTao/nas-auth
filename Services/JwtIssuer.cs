@@ -46,7 +46,7 @@ public class JwtIssuer
             throw new ArgumentException("auds 至少要有一个 audience", nameof(auds));
 
         var now = DateTimeOffset.UtcNow;
-        var exp = now.AddDays(_jwt.AccessTokenLifetimeDays);
+        var exp = now.AddSeconds(_jwt.EffectiveAccessTokenLifetimeSeconds);
 
         var claims = new List<Claim>
         {
@@ -123,5 +123,5 @@ public class JwtIssuer
     public DateTimeOffset AuthCodeExpiry()
         => DateTimeOffset.UtcNow.AddMinutes(_jwt.AuthCodeLifetimeMinutes);
 
-    public int AccessTokenLifetimeSeconds() => _jwt.AccessTokenLifetimeDays * 86400;
+    public int AccessTokenLifetimeSeconds() => _jwt.EffectiveAccessTokenLifetimeSeconds;
 }

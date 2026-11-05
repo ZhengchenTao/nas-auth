@@ -998,7 +998,8 @@ public static class DashboardTemplates
             // RS256：RSA 钥轮换靠改文件名 + 重启（OidcKeyService），这里只给步骤，不给按钮
             key.Append($"<p class='hint'>{T("Access tokens and id_tokens are signed with the RSA key in <code>oidc_rs256_current.pem</code> (next to auth.db); resource servers verify them via <code>/.well-known/jwks.json</code>.")}</p>");
             key.Append($"<p class='hint' style='margin-top:6px'>{T("To rotate: rename <code>oidc_rs256_current.pem</code> to <code>oidc_rs256_previous.pem</code> (replacing the old one), then restart nas-auth; a new current key is generated on startup. The previous key stays in JWKS, so outstanding tokens keep validating until they expire.")}</p>");
-            key.Append($"<p class='hint' style='margin-top:6px'>{T("Keep the previous key for at least the access-token lifetime ({0} days) before deleting it or rotating again, otherwise outstanding access tokens stop validating.", jwt.AccessTokenLifetimeDays)}</p>");
+            var lifetime = jwt.AccessTokenLifetimeMinutes is { } minutes ? T("{0} minutes", minutes) : T("{0} days", jwt.AccessTokenLifetimeDays);
+            key.Append($"<p class='hint' style='margin-top:6px'>{T("Current access-token lifetime: {0}. Keep previous keys until all tokens signed with them have expired, including tokens issued under an earlier, longer lifetime.", lifetime)}</p>");
             if (jwt.LegacyHs256Keys)
                 key.Append($"<p class='hint' style='margin-top:6px'>{T("Legacy HS256 keys (<code>Jwt__SigningKey__*</code>) are still configured and only used to validate tokens issued before the switch to RS256, and only tokens expiring by <code>Jwt__LegacyHs256NotAfter</code> = {0}. After that they are all rejected; remove the keys.", Esc(jwt.LegacyHs256NotAfter ?? "-"))}</p>");
             html += Card(T("Access token signing key (RS256)"), null, key.ToString());
@@ -1016,7 +1017,7 @@ public static class DashboardTemplates
 }
 
 /// <summary>系统页的签名密钥卡片：RS256 模式换成 RSA 轮换说明，HS256 模式保留原来的生成按钮。</summary>
-public record JwtKeyView(bool Rs256, bool LegacyHs256Keys, int AccessTokenLifetimeDays, string? LegacyHs256NotAfter = null);
+public record JwtKeyView(bool Rs256, bool LegacyHs256Keys, int AccessTokenLifetimeDays, string? LegacyHs256NotAfter = null, int? AccessTokenLifetimeMinutes = null);
 
 public record BindingView(
     string Provider,

@@ -523,6 +523,39 @@ public class ForwardAuthPipelineTests : IClassFixture<NasAuthAppFactory>
         return await browser.GetAsync(start.Headers.Location);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeletedAndRestoredIdentity_DoesNotReviveOldSiteCookieOrPendingTicket(bool pendingTicket)
+    {
+        var id = pendingTicket ? "fa-restored-ticket" : "fa-restored-session";
+        CreateUser(id, "old-password", "docs-site");
+        using var browser = Browser();
+        await SignIn(browser, id, "old-password");
+        Uri? callback = null;
+        if (pendingTicket)
+        {
+            var blocked = await browser.SendAsync(Verify(Docs, "docs-site"));
+            var start = await browser.GetAsync(blocked.Headers.Location);
+            callback = start.Headers.Location!;
+        }
+        else
+            Assert.Equal(HttpStatusCode.Redirect, (await PassGate(browser, Docs, "docs-site")).StatusCode);
+        WithScope(sp =>
+        {
+            var users = sp.GetRequiredService<UserRepository>();
+            users.Delete(id);
+            Assert.True(users.RestoreIdentity("admin", id, true, PasswordHasher.Hash("new-password"), true, null));
+            sp.GetRequiredService<UserResourceRepository>().Upsert(id, "docs-site", ResourceCatalog.ForwardAuthScope);
+            return true;
+        });
+        var old = pendingTicket ? await browser.GetAsync(callback) : await browser.SendAsync(Verify(Docs, "docs-site"));
+        Assert.Equal(pendingTicket ? HttpStatusCode.BadRequest : HttpStatusCode.Redirect, old.StatusCode);
+        await SignIn(browser, id, "new-password");
+        Assert.Equal(HttpStatusCode.Redirect, (await PassGate(browser, Docs, "docs-site")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await browser.SendAsync(Verify(Docs, "docs-site"))).StatusCode);
+    }
+
     // ---------- 主流程 ----------
 
     [Fact]
