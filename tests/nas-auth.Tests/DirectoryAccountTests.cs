@@ -117,6 +117,12 @@ public sealed class DirectoryAccountTests : IClassFixture<TicketAuthFactory>
         var row=scope.ServiceProvider.GetRequiredService<ExternalIdentityRepository>().Get("badge-login","stable-person-123")!;
         Assert.Equal("Example department",ExternalProfileData.Read(row.profile_json)!["department"]);
         Assert.Equal("alice@example.test", scope.ServiceProvider.GetRequiredService<UserRepository>().GetById("alice")!.email);
+        Assert.Equal("alice@example.test", row.email);
+        var users=scope.ServiceProvider.GetRequiredService<UserRepository>();
+        users.UpdateProfile("alice", null, false);
+        var (downstreamEmail,_,_)=scope.ServiceProvider.GetRequiredService<ProfileService>().Resolve(
+            scope.ServiceProvider.GetRequiredService<ExternalIdentityRepository>(),users,"alice");
+        Assert.Equal("alice@example.test",downstreamEmail);
         Assert.Equal(HttpStatusCode.NotFound, (await browser.PostAsync("/auth/admin/directory/create",new FormUrlEncodedContent(form))).StatusCode);
         form["subject"]="someone-else";
         Assert.Equal(HttpStatusCode.NotFound, (await browser.PostAsync("/auth/account/directory/import",new FormUrlEncodedContent(form))).StatusCode);

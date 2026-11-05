@@ -36,10 +36,10 @@ public class ExternalIdentityRepository
         try { json = NasAuth.Services.ExternalProfileData.Encode(merged); }
         catch (InvalidDataException) { return; } // Keep the previous bounded snapshot; login still succeeds.
         using var conn = _db.OpenConnection();
-        conn.Execute(@"UPDATE external_identities SET profile_json=@json, profile_updated_at=@now,
-            email=COALESCE(@email,email) WHERE provider=@provider AND subject=@subject AND status<>'rejected'",
-            new { provider, subject, json, now=DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                email=profile.TryGetValue(definition.EmailField, out var email) && !string.IsNullOrWhiteSpace(email) ? email : null });
+        // Informational imports must never change the trusted email fallback used by downstream OIDC.
+        conn.Execute(@"UPDATE external_identities SET profile_json=@json, profile_updated_at=@now
+            WHERE provider=@provider AND subject=@subject AND status<>'rejected'",
+            new { provider, subject, json, now=DateTimeOffset.UtcNow.ToUnixTimeSeconds() });
     }
 
     public ExternalIdentityRow? Get(string provider, string subject)
