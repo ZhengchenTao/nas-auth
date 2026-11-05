@@ -274,3 +274,8 @@ td.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end
 .account-create-body { padding:24px; border-top:1px solid var(--border); }
 .account-create-body > .hint { margin-bottom:20px; }
 @media(max-width:600px) { .account-create > summary, .account-create-body { padding:20px; } }
+
+.lifecycle-nav { display:flex; flex-wrap:wrap; gap:8px; }
+.lifecycle-delete { display:inline-block; margin-left:8px; }
+.restore-identity { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:24px; }
+.restore-confirmations { display:grid; gap:14px; margin-top:20px; }

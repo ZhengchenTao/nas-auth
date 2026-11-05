@@ -70,6 +70,8 @@ public class AuthDb
         TryAddColumn(conn, "ALTER TABLE external_identities ADD COLUMN avatar TEXT");
         TryAddColumn(conn, "ALTER TABLE external_identities ADD COLUMN profile_json TEXT");
         TryAddColumn(conn, "ALTER TABLE external_identities ADD COLUMN profile_updated_at INTEGER");
+        TryAddColumn(conn, "ALTER TABLE users ADD COLUMN is_disabled INTEGER NOT NULL DEFAULT 0");
+        TryAddColumn(conn, "ALTER TABLE users ADD COLUMN session_epoch TEXT NOT NULL DEFAULT ''");
         BackfillDisplayNamesOnce(conn);
     }
 

@@ -10,7 +10,7 @@ public class UserRepository
     // 显式列序：必须与 UserRow 构造参数顺序一致，Dapper positional record 按列序绑定。
     private const string UserCols =
         "user_id, username, password_hash, created_at, updated_at, is_admin, must_change_password, " +
-        "email, allow_password_login, failed_login_count, locked_until, session_version, display_name, avatar";
+        "email, allow_password_login, failed_login_count, locked_until, session_version, display_name, avatar, is_disabled, session_epoch";
 
     /// <summary>邮箱统一存小写、去空白；空串视为未设置（null）。</summary>
     public static string? NormalizeEmail(string? email)
@@ -23,22 +23,22 @@ public class UserRepository
     {
         using var conn = _db.OpenConnection();
         return conn.QuerySingleOrDefault<UserRow>(
-            $"SELECT {UserCols} FROM users WHERE username = @u", new { u = username });
+            $"SELECT {UserCols} FROM users WHERE username = @u AND is_disabled=0", new { u = username });
     }
 
     public UserRow? GetById(string userId)
     {
         using var conn = _db.OpenConnection();
         return conn.QuerySingleOrDefault<UserRow>(
-            $"SELECT {UserCols} FROM users WHERE user_id = @id", new { id = userId });
+            $"SELECT {UserCols} FROM users WHERE user_id = @id AND is_disabled=0", new { id = userId });
     }
 
     public bool SetAdministrator(string actorId, string targetId, bool enabled, string bootstrapUsername)
     {
         using var conn = _db.OpenConnection();
         return conn.Execute(@"UPDATE users SET is_admin=@role, session_version=session_version+1, updated_at=@now
-            WHERE user_id=@targetId AND is_admin<>@role
-            AND EXISTS(SELECT 1 FROM users actor WHERE actor.user_id=@actorId AND actor.is_admin=1)
+            WHERE user_id=@targetId AND is_disabled=0 AND is_admin<>@role
+            AND EXISTS(SELECT 1 FROM users actor WHERE actor.user_id=@actorId AND actor.is_admin=1 AND actor.is_disabled=0)
             AND (@role=1 OR (user_id<>@actorId AND username<>@bootstrapUsername))",
             new { actorId, targetId, role=enabled ? 1 : 0, bootstrapUsername, now=DateTimeOffset.UtcNow.ToUnixTimeSeconds() }) == 1;
     }
@@ -47,7 +47,7 @@ public class UserRepository
     {
         using var conn = _db.OpenConnection();
         return conn.Query<UserRow>(
-            $"SELECT {UserCols} FROM users ORDER BY is_admin DESC, created_at ASC").AsList();
+            $"SELECT {UserCols} FROM users WHERE is_disabled=0 ORDER BY is_admin DESC, created_at ASC").AsList();
     }
 
     /// <summary>
@@ -273,4 +273,55 @@ public class UserRepository
             "UPDATE users SET password_hash = @hash, must_change_password = @must, updated_at = @now WHERE user_id = @id",
             new { hash = newHash, must = mustChangePassword ? 1 : 0, now, id = userId });
     }
+    public UserRow? GetStoredById(string id)
+    {
+        using var c = _db.OpenConnection();
+        return c.QuerySingleOrDefault<UserRow>($"SELECT {UserCols} FROM users WHERE user_id=@id", new { id });
+    }
+
+    public IReadOnlyList<UserRow> ListDisabled()
+    {
+        using var c = _db.OpenConnection();
+        return c.Query<UserRow>($"SELECT {UserCols} FROM users WHERE is_disabled=1 ORDER BY username").AsList();
+    }
+
+    public IReadOnlyList<string> ListDeletedIds()
+    {
+        using var c = _db.OpenConnection();
+        return c.Query<string>("SELECT user_id FROM deleted_user_ids WHERE NOT EXISTS(SELECT 1 FROM users WHERE users.user_id=deleted_user_ids.user_id COLLATE NOCASE) ORDER BY deleted_at DESC").AsList();
+    }
+
+    public bool Disable(string actorId, string id, string bootstrap)
+    {
+        using var c = _db.OpenConnection(); using var tx = c.BeginTransaction();
+        var changed=c.Execute(@"UPDATE users SET is_disabled=1, is_admin=0, password_hash=@hash, allow_password_login=0,
+            session_version=session_version+1, session_epoch=@epoch, updated_at=@now
+            WHERE user_id=@id AND is_disabled=0 AND user_id<>@actorId AND username<>@bootstrap
+            AND EXISTS(SELECT 1 FROM users a WHERE a.user_id=@actorId AND a.is_admin=1 AND a.is_disabled=0)",
+            new { id,actorId,bootstrap,hash=NasAuth.Services.PasswordHasher.UnusableHash(),epoch=Guid.NewGuid().ToString("N"),now=DateTimeOffset.UtcNow.ToUnixTimeSeconds() },tx);
+        if(changed==0) return false;
+        c.Execute("DELETE FROM refresh_tokens WHERE user_id=@id; DELETE FROM auth_codes WHERE user_id=@id; DELETE FROM external_invites WHERE user_id=@id",new{id},tx);
+        tx.Commit(); return true;
+    }
+
+    public bool RestoreIdentity(string actorId,string id,bool deleted,string hash,bool password,string? email)
+    {
+        using var c=_db.OpenConnection();using var tx=c.BeginTransaction();
+        if(c.ExecuteScalar<long>("SELECT COUNT(*) FROM users WHERE user_id=@actorId AND is_admin=1 AND is_disabled=0",new{actorId},tx)!=1) return false;
+        var args=new{id,hash,allow=password?1:0,email=NormalizeEmail(email),epoch=Guid.NewGuid().ToString("N"),now=DateTimeOffset.UtcNow.ToUnixTimeSeconds()};
+        int n;
+        if(deleted)
+            n=c.Execute(@"INSERT INTO users(user_id,username,password_hash,is_admin,must_change_password,created_at,updated_at,email,allow_password_login,session_epoch)
+                SELECT user_id,user_id,@hash,0,0,@now,@now,@email,@allow,@epoch FROM deleted_user_ids WHERE user_id=@id COLLATE NOCASE
+                AND NOT EXISTS(SELECT 1 FROM users WHERE user_id=@id COLLATE NOCASE OR username=@id COLLATE NOCASE)",args,tx);
+        else
+            n=c.Execute(@"UPDATE users SET is_disabled=0,is_admin=0,password_hash=@hash,allow_password_login=@allow,must_change_password=0,
+                failed_login_count=0,locked_until=NULL,session_version=session_version+1,session_epoch=@epoch,updated_at=@now
+                WHERE user_id=@id AND is_disabled=1",args,tx);
+        if(n!=1) return false;
+        c.Execute("DELETE FROM refresh_tokens WHERE user_id=@id; DELETE FROM auth_codes WHERE user_id=@id; DELETE FROM user_resources WHERE user_id=@id; DELETE FROM external_invites WHERE user_id=@id",new{id},tx);
+        if(deleted) c.Execute("DELETE FROM external_identities WHERE user_id=@id",new{id},tx);
+        tx.Commit();return true;
+    }
+
 }

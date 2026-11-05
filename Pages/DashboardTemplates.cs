@@ -561,9 +561,41 @@ public static class DashboardTemplates
                 external.Append(DirectoryWidget(id, provider, null, false, null));
         if (external.Length == 0)
             external.Append($"<form method='post' action='/admin/users/create'><input type='hidden' name='invite_by_email' value='1'><div class='field'><label>{T("Email")}</label><input class='input' type='email' name='email' required autocomplete='off'></div><p class='hint'>{T("The first verified external sign-in will bind this account. No password is created.")}</p><button class='btn'>{T("Create external account")}</button></form>");
-        return Card(T("Users"), null, sb.ToString()) + (externalSignInEnabled ? Card(T("Create external account"), null, external.ToString()) : "") +
+        return UserLifecycleNavigation("active") + Card(T("Users"), null, sb.ToString()) + (externalSignInEnabled ? Card(T("Create external account"), null, external.ToString()) : "") +
             $"<details class='card account-create'{(externalSignInEnabled ? "" : " open")}><summary><span class='account-create-heading'><span class='account-create-title'>{T("Create password account")}</span><span class='hint'>{T("For accounts that sign in with a username and password")}</span></span><span class='account-create-chevron' aria-hidden='true'></span></summary>" +
             $"<div class='account-create-body'><p class='hint'>{T("Tell the user their password. Turn on \"Must change password on first sign-in\" if they should pick their own.")}</p>" + create.ToString() + "</div></details>";
+    }
+
+    private static string UserLifecycleNavigation(string selected) =>
+        "<nav class='page-actions lifecycle-nav' aria-label='" + T("Account status") + "'>" +
+        string.Join("",new[]{("active","Active accounts"),("disabled","Disabled accounts"),("deleted","Deleted identities")}.Select(x=>
+            $"<a class='btn' data-variant='{(selected==x.Item1?"secondary":"ghost")}'{(selected==x.Item1?" aria-current='page'":"")} href='/admin/users?view={x.Item1}'>{T(x.Item2)}</a>"))+"</nav>";
+
+    public static string InactiveUsersSection(string view,IReadOnlyList<NasAuth.Data.UserRow> disabled,IReadOnlyList<string> deleted)
+    {
+        var sb=new StringBuilder("<div class='table-container'><table class='table'><thead><tr><th>"+T("Username")+"</th><th>"+T("Status")+"</th><th></th></tr></thead><tbody>");
+        var ids=view=="disabled"?disabled.Select(x=>x.user_id):deleted;
+        foreach(var id in ids)
+        {
+            sb.Append($"<tr><td class='mono'>{Esc(id)}</td><td><span class='badge' data-variant='outline'>{T(view=="disabled"?"Disabled":"Deleted identity")}</span></td><td class='fit'><a class='btn' data-variant='outline' data-size='sm' href='/admin/users/restore?user={Uri.EscapeDataString(id)}'>{T("Restore original identity")}</a>");
+            if(view=="disabled") sb.Append($"<form method='post' action='/admin/users/delete' class='lifecycle-delete' {Confirm(T("Permanently delete {0}? The identity remains reserved.",id))}>{Hidden("user_id",id)}<button class='btn' data-variant='ghost' data-size='sm'>{T("Permanently delete")}</button></form>");
+            sb.Append("</td></tr>");
+        }
+        sb.Append("</tbody></table></div>");
+        return UserLifecycleNavigation(view)+Card(T(view=="disabled"?"Disabled accounts":"Deleted identities"),
+            T("Restore only the same person. A restored identity may reconnect to their existing application accounts. Application access must be granted again."),
+            ids.Any()?sb.ToString():Empty(T("No accounts in this state")));
+    }
+
+    public static string RestoreIdentitySection(string id,bool deleted)
+    {
+        var sb=new StringBuilder($"<form method='post' action='/admin/users/restore'>{Hidden("user_id",id)}{Hidden("deleted",deleted?"1":"0")}");
+        sb.Append($"<div class='restore-identity'><span class='hint'>{T("Original account ID")}</span><strong class='mono'>{Esc(id)}</strong></div>");
+        sb.Append($"<div class='form-grid narrow'><div class='field'><label for='restore_password'>{T("New password")}</label><input id='restore_password' name='new_password' type='password' minlength='8' autocomplete='new-password'></div>");
+        if(deleted) sb.Append($"<div class='field'><label for='restore_email'>{T("Email")}</label><input id='restore_email' name='email' type='email' autocomplete='off'></div>");
+        sb.Append($"</div><div class='restore-confirmations'><label class='check-line'><input type='checkbox' name='allow_password_login' value='1'>{T("Enable new password sign-in")}</label><label class='check-line'><input type='checkbox' name='acknowledge' value='1' required>{T("I confirm this restores the same person, not a new owner of this username")}</label></div>");
+        sb.Append($"<div class='form-foot'><a class='btn' data-variant='ghost' href='/admin/users?view={(deleted?"deleted":"disabled")}'>{T("Cancel")}</a><button class='btn'>{T("Restore original identity")}</button></div></form>");
+        return Card(T("Restore original identity"),T("Restoring keeps the original ID and may reconnect existing application accounts. Old passwords, sessions, administrator roles and application grants are not restored. Existing external bindings are kept only for disabled accounts; otherwise bind them again after restoring."),sb.ToString());
     }
 
     // ---- 单个用户：资料 / 资源授权 / 外部身份 / 已授权应用 / 会话 / 重置密码 / 删除 ----
@@ -680,6 +712,10 @@ public static class DashboardTemplates
         html.Append(Card(T("Sign-ins & sessions"),
             T("Signing out ends every nas-auth browser session of this user. Apps they already authorized keep working until revoked above."),
             sess.ToString()));
+
+        if (!u.IsSelf)
+            html.Append(Card(T("Disable account"),T("Stop sign-in and revoke sessions. Keep identity and profile for recovery; restore application access explicitly later."),
+                $"<form method='post' action='/admin/users/disable' {Confirm(T("Disable {0}? They will be signed out.",u.Username))}>{uid}<button class='btn' data-variant='outline'>{T("Disable account")}</button></form>"));
 
         // 重置密码 / 删除：不对自己、不对管理员
         if (!u.IsSelf && !u.IsAdmin)

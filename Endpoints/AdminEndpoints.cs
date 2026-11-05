@@ -56,8 +56,46 @@ public static class AdminEndpoints
 
         // ----- 用户 -----
         admin.MapGet("/users", (HttpContext ctx, UserRepository users, ExternalIdentityRepository identities, ExternalProfilesOptions profiles, ExternalProviderOptions providers) =>
-            Render(ctx, users, identities, DashboardSpace.Admin, "users", "Users",
-                DashboardTemplates.UsersSection(UserViews(users, AdminId(ctx)), profiles, providers.EnabledProviders.Count > 0)));
+        {
+            var view=ctx.Request.Query["view"].ToString();
+            var content=view is "disabled" or "deleted"
+                ? DashboardTemplates.InactiveUsersSection(view, users.ListDisabled(), users.ListDeletedIds())
+                : DashboardTemplates.UsersSection(UserViews(users,AdminId(ctx)),profiles,providers.EnabledProviders.Count>0);
+            return Render(ctx,users,identities,DashboardSpace.Admin,"users","Users",content);
+        });
+
+        admin.MapPost("/users/disable", async (HttpContext ctx,UserRepository users,AuthOptions auth,AuditLogger audit) =>
+        {
+            var form=await ctx.Request.ReadFormAsync();var id=form["user_id"].ToString();
+            var bootstrap=string.IsNullOrWhiteSpace(auth.Admin.Username)?"admin":auth.Admin.Username;
+            var ok=users.Disable(AdminId(ctx),id,bootstrap);
+            audit.AccountAction("user-disable",ok,AdminId(ctx),$"target={id}");
+            return RedirectTo("/admin/users?view=disabled",notice:ok?T("Account disabled; existing sign-in sessions and grants are revoked"):null,
+                error:ok?null:T("Cannot disable this account; self and recovery administrators are protected"));
+        });
+
+        admin.MapGet("/users/restore", (HttpContext ctx,UserRepository users,ExternalIdentityRepository identities) =>
+        {
+            var id=ctx.Request.Query["user"].ToString();var row=users.GetStoredById(id);
+            if(row is not null && row.is_disabled==0 || row is null && !users.IsRetiredId(id)) return Results.NotFound();
+            return Render(ctx,users,identities,DashboardSpace.Admin,"users","Restore original identity",
+                DashboardTemplates.RestoreIdentitySection(id,row is null));
+        });
+
+        admin.MapPost("/users/restore", async (HttpContext ctx,UserRepository users,AuditLogger audit) =>
+        {
+            var form=await ctx.Request.ReadFormAsync();var id=form["user_id"].ToString();
+            var deleted=form["deleted"]=="1";var password=form["allow_password_login"]=="1";
+            var pwd=form["new_password"].ToString();var email=form["email"].ToString();
+            if(form["acknowledge"]!="1" || password && pwd.Length<8 || !IsValidEmail(email))
+                return RedirectTo("/admin/users/restore?user="+Uri.EscapeDataString(id),error:T("Confirm the original identity and provide a valid sign-in configuration"));
+            bool ok;
+            try { ok=users.RestoreIdentity(AdminId(ctx),id,deleted,password?PasswordHasher.Hash(pwd):PasswordHasher.UnusableHash(),password,email); }
+            catch(Microsoft.Data.Sqlite.SqliteException ex) when(ex.SqliteErrorCode==19) { ok=false; }
+            audit.AccountAction("user-restore",ok,AdminId(ctx),$"target={id} mode={(deleted?"deleted":"disabled")}");
+            return RedirectTo(ok?EditPath(id):"/admin/users",notice:ok?T("Original identity restored as a regular user; configure sign-in and application access before use"):null,
+                error:ok?null:T("This identity cannot be restored in its current state"));
+        });
 
         admin.MapPost("/users/create", async (HttpContext ctx, UserRepository users,
             ExternalInviteRepository invites, AuditLogger audit) =>
@@ -86,7 +124,7 @@ public static class AdminEndpoints
             if (users.GetByUsername(newUsername) is not null)
                 return RedirectTo("/admin/users", error: T("Username {0} already exists", newUsername));
             if (users.IsRetiredId(newUsername))
-                return RedirectTo("/admin/users", error: T("User id {0} belonged to a deleted user and can't be reused: apps still map it to that person's accounts", newUsername));
+                return RedirectTo("/admin/users/restore?user="+Uri.EscapeDataString(newUsername), notice:T("This identity was deleted; confirm restoration of the original person instead of creating a new owner"));
             if (!IsValidEmail(newEmail) || !IsValidEmail(inviteEmail))
                 return RedirectTo("/admin/users", error: T("Invalid email address"));
 
@@ -234,7 +272,7 @@ public static class AdminEndpoints
                 return RedirectTo("/admin/users", error: T("Missing parameters"));
             if (targetId == adminId)
                 return RedirectTo("/admin/users", error: T("Cannot delete yourself"));
-            var target = users.GetById(targetId);
+            var target = users.GetStoredById(targetId);
             if (target is null)
                 return RedirectTo("/admin/users", error: T("User does not exist"));
             if (target.is_admin != 0)

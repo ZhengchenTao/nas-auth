@@ -378,12 +378,14 @@ public static class AuthorizationEndpoints
     public static async Task SignInCookie(HttpContext ctx, string userId)
     {
         // 票据带上当前会话版本（§十六 SessionValidator）：版本被 +1 后这张 cookie 即作废
-        var version = ctx.RequestServices.GetRequiredService<UserRepository>().GetById(userId)?.session_version ?? 0;
+        var user = ctx.RequestServices.GetRequiredService<UserRepository>().GetById(userId) ?? throw new InvalidOperationException("Account unavailable");
+        var version = user.session_version;
         var identity = new ClaimsIdentity(new[]
         {
             new Claim(ClaimTypes.NameIdentifier, userId),
             new Claim(ClaimTypes.Name, userId),
             new Claim(SessionValidator.ClaimType, version.ToString()),
+            new Claim(SessionValidator.EpochClaimType, user.session_epoch),
         }, CookieAuthenticationDefaults.AuthenticationScheme);
         // IsPersistent：cookie 带 Expires 落盘，浏览器重启后 SSO 会话仍在
         await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,

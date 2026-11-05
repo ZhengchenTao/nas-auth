@@ -64,7 +64,9 @@ public record UserRow(
     long? locked_until,
     long session_version,
     string? display_name = null,
-    string? avatar = null
+    string? avatar = null,
+    long is_disabled = 0,
+    string session_epoch = ""
 );
 
 // status 语义见 AuthDb 建表注释：pending（user_id 为 NULL）/ active / rejected。

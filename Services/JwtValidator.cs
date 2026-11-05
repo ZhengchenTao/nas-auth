@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using NasAuth.Config;
+using NasAuth.Data.Repositories;
 
 namespace NasAuth.Services;
 
@@ -27,14 +28,16 @@ public class JwtValidator
 
     private readonly JwtOptions _jwt;
     private readonly AuthOptions _auth;
+    private readonly UserRepository? _users;
     private readonly OidcKeyService _oidcKeys;
     private readonly ILogger _logger;
     private int _legacyExpiredLogged; // 过了截止时间后只 warn 一次，避免每个请求刷日志
 
-    public JwtValidator(JwtOptions jwt, AuthOptions auth, OidcKeyService oidcKeys, ILogger<JwtValidator>? logger = null)
+    public JwtValidator(JwtOptions jwt, AuthOptions auth, OidcKeyService oidcKeys, ILogger<JwtValidator>? logger = null, NasAuth.Data.AuthDb? db = null)
     {
         _jwt = jwt;
         _auth = auth;
+        _users = db is null ? null : new UserRepository(db);
         _oidcKeys = oidcKeys;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
     }
@@ -66,6 +69,12 @@ public class JwtValidator
             {
                 validated = null;
                 return null;
+            }
+            if (_users is not null)
+            {
+                var user = _users.GetById(principal.FindFirst("sub")?.Value ?? "");
+                if (user is null || (principal.FindFirst(SessionValidator.EpochClaimType)?.Value ?? "") != user.session_epoch)
+                { validated = null; return null; }
             }
             return principal;
         }

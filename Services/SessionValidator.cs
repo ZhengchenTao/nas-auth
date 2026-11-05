@@ -15,11 +15,12 @@ namespace NasAuth.Services;
 public static class SessionValidator
 {
     public const string ClaimType = "nas_sv";
+    public const string EpochClaimType = "nas_epoch";
 
     /// <summary>票据里的版本与库里一致才算有效。老票据没有这个 claim 按 0 算（升级不掉线）。</summary>
     public static bool IsCurrent(ClaimsPrincipal? principal, UserRow? user)
     {
-        if (user is null) return false;
+        if (user is null || user.is_disabled != 0 || (principal?.FindFirst(EpochClaimType)?.Value ?? "") != user.session_epoch) return false;
         var raw = principal?.FindFirst(ClaimType)?.Value;
         var version = long.TryParse(raw, out var v) ? v : 0;
         return version == user.session_version;

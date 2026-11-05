@@ -245,6 +245,7 @@ public static class TokenEndpoints
             return Results.BadRequest(new { error = "invalid_grant", error_description = "resource is no longer available" });
         }
 
+        if(users.GetById(row.user_id) is null) return Results.BadRequest(new { error = "invalid_grant" });
         var access = issuer.IssueAccessToken(row.user_id, client.client_id, auds, row.resource, row.scope);
         var (refreshPlain, refreshHash) = issuer.IssueRefreshToken();
         refreshTokens.Insert(new RefreshTokenRow(
@@ -348,7 +349,9 @@ public static class TokenEndpoints
         // 多资源：逐个查，撤销其一即 downscope，全撤才 access_denied。
         var rowScopes = row.scope.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         // admin_only：管理员身份被撤掉（或资源后来才标 admin_only）后，refresh 同样挡
-        var isAdmin = users.GetById(row.user_id)?.is_admin > 0;
+        var activeUser = users.GetById(row.user_id);
+        if(activeUser is null) return Task.FromResult(Results.BadRequest(new { error = "invalid_grant" }));
+        var isAdmin = activeUser.is_admin > 0;
         var grantedResources = new List<NasAuth.Config.ResourceConfig>();
         var grantedScopes = new List<string>();
         foreach (var r in resourcesList)

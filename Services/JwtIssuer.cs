@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using NasAuth.Config;
+using NasAuth.Data.Repositories;
 
 namespace NasAuth.Services;
 
@@ -18,16 +19,18 @@ public class JwtIssuer
 {
     private readonly JwtOptions _jwt;
     private readonly AuthOptions _auth;
+    private readonly UserRepository? _users;
     private readonly OidcKeyService _oidcKeys;
 
     /// <summary>RFC 9068 §2.1：JWT access token 的 header typ。</summary>
     public const string AccessTokenType = "at+jwt";
 
-    public JwtIssuer(JwtOptions jwt, AuthOptions auth, OidcKeyService oidcKeys)
+    public JwtIssuer(JwtOptions jwt, AuthOptions auth, OidcKeyService oidcKeys, NasAuth.Data.AuthDb? db = null)
     {
         jwt.Validate(); // 算法值 / HS256 密钥 fast fail
         _jwt = jwt;
         _auth = auth;
+        _users = db is null ? null : new UserRepository(db);
         _oidcKeys = oidcKeys;
     }
 
@@ -55,6 +58,8 @@ public class JwtIssuer
             // RFC 9068 §2.2 必填：每个 token 唯一的 jti（16 字节随机，base64url）。两种算法都带，HS256 多一个 claim 无副作用
             new("jti", NewJti()),
         };
+        var epoch = _users?.GetById(userId)?.session_epoch;
+        if (!string.IsNullOrEmpty(epoch)) claims.Add(new Claim(SessionValidator.EpochClaimType, epoch));
         // 多个 aud claim → JwtPayload 聚合成数组；单个 → 字符串。
         // 不走 JwtSecurityToken(audience:) 构造参数，避免与这里的 aud claim 重复。
         foreach (var a in auds) claims.Add(new Claim("aud", a));
