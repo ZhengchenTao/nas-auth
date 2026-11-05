@@ -353,7 +353,7 @@ public static class DashboardTemplates
             $"<form method='post' action='{action}' data-directory-save hidden><input type='hidden' name='provider' value='{Esc(provider)}'>" +
             $"<input type='hidden' name='subject' value='{Esc(subject ?? "")}'>" +
             "<input type='hidden' name='profile_json'><input type='hidden' name='return_url'>" +
-            "<p data-directory-preview></p>" + (self ? "" : $"<label class='check-line'><input type='checkbox' name='use_email' value='1'>{T("Use directory email as account email")}</label>") +
+            "<p data-directory-preview></p>" + (self || subject is null ? "" : $"<label class='check-line'><input type='checkbox' name='use_email' value='1'>{T("Use directory email as account email")}</label>") +
             $"<button class='btn' type='submit'>{T(subject is null ? "Create selected account" : "Save selected profile")}</button></form></section>";
     }
 

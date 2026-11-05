@@ -26,7 +26,7 @@ public static class ExternalProfileEndpoints
                 audit.AccountAction("directory-create", true, ctx.User.Identity.Name!, $"target={user} provider={provider}");
                 return Results.Redirect("/admin/users/edit?user=" + Uri.EscapeDataString(user));
             }
-            catch (InvalidDataException error) { return Results.BadRequest(new { error = error.Message }); }
+            catch (InvalidDataException error) { return RedirectTo("/admin/users", error: NasAuth.Pages.I18n.T(error.Message)); }
         });
         admin.MapPost("/import", (Func<HttpContext, Task<IResult>>)(ctx => Import(ctx, self: false)));
         app.MapGroup("/account/directory").RequireAuthorization().RequireCsrfToken()

@@ -129,7 +129,7 @@ jobs:
       # 拿不到 shell。ssh 最后那个参数会被当成 SSH_ORIGINAL_COMMAND 做白名单精确匹配，
       # 不是在目标机上执行的 shell 命令。
       - name: Deploy
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy == true && vars.DEPLOY_SERVICE != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.deploy == true || inputs.deploy == 'true') && vars.DEPLOY_SERVICE != '' }}
         run: |
           set -e
           install -m 700 -d ~/.ssh

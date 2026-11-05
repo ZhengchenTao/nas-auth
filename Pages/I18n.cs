@@ -29,6 +29,7 @@ public static class I18n
     private static readonly Dictionary<string, string> Zh = new(StringComparer.Ordinal)
     {
         // ---- 通用 ----
+        ["This username or external identity already exists. Use the existing account approval flow."] = "该用户名或外部身份已存在，请在现有账号或审批流程中处理。未创建新账号。",
         ["Company directory"] = "人员目录",
         ["Search people"] = "搜索姓名或域账号",
         ["Search"] = "搜索",
