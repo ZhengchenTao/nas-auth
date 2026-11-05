@@ -217,7 +217,9 @@ td.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end
 .identity-facts dt { color:var(--muted-foreground); font-size:.75rem; margin-bottom:5px; }
 .identity-facts dd { margin:0; font-size:.875rem; font-weight:500; overflow-wrap:anywhere; }
 .identity-details { margin-top:20px; font-size:.8125rem; }
-.identity-details summary { width:max-content; cursor:pointer; color:var(--muted-foreground); }
+.identity-details summary { display:inline-flex; align-items:center; gap:7px; width:max-content; cursor:pointer; color:var(--muted-foreground); }
+.identity-details summary::after { content:''; width:5px; height:5px; border-right:1px solid currentColor; border-bottom:1px solid currentColor; transform:rotate(45deg); }
+.identity-details[open] summary::after { transform:rotate(225deg); }
 .identity-details[open] summary { margin-bottom:12px; }
 .identity-details .kv { font-size:.8125rem; gap:8px 20px; }
 .identity-details .kv dd { overflow-wrap:anywhere; min-width:0; }
