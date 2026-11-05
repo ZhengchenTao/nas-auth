@@ -29,6 +29,7 @@ public static class I18n
     private static readonly Dictionary<string, string> Zh = new(StringComparer.Ordinal)
     {
         ["This identity was deleted; confirm restoration of the original person instead of creating a new owner"] = "该身份已删除，请确认恢复原来的人；不能直接将此身份交给新人",
+        ["Cancel"] = "取消",
         ["Account status"] = "账号状态",
         ["Active accounts"] = "正常账号",
         ["Disabled accounts"] = "已停用",
