@@ -72,6 +72,22 @@ public sealed class DirectoryAccountTests : IClassFixture<TicketAuthFactory>
     }
 
     [Fact]
+    public void OptionalProfileErrorsDoNotBreakIdentityAndObsoleteFieldsArePrunedOnRefresh()
+    {
+        using var scope=_app.Services.CreateScope();
+        var repo=scope.ServiceProvider.GetRequiredService<ExternalIdentityRepository>();
+        repo.UpdateProfileSnapshot("badge-login","stable-person-123",new Dictionary<string,string>{["department"]=new string('x',257)});
+        Assert.Equal("alice",repo.Get("badge-login","stable-person-123")!.user_id);
+        repo.UpdateProfileSnapshot("badge-login","stable-person-123",new Dictionary<string,string>{["department"]="Current"});
+        var definition=scope.ServiceProvider.GetRequiredService<ExternalProfilesOptions>().Find("badge-login")!;
+        definition.Fields["obsolete"]=new() {Label="Old"};
+        repo.UpdateProfileSnapshot("badge-login","stable-person-123",new Dictionary<string,string>{["obsolete"]="Old"});
+        definition.Fields.Remove("obsolete");
+        repo.UpdateProfileSnapshot("badge-login","stable-person-123",new Dictionary<string,string>{["department"]="Refreshed"});
+        Assert.DoesNotContain("obsolete",ExternalProfileData.Read(repo.Get("badge-login","stable-person-123")!.profile_json)!.Keys);
+    }
+
+    [Fact]
     public void EmailInvitationConflictRollsBackAccountCreation()
     {
         using var scope = _app.Services.CreateScope(); var users = scope.ServiceProvider.GetRequiredService<UserRepository>();

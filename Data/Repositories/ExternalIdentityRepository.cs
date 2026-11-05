@@ -25,11 +25,12 @@ public class ExternalIdentityRepository
             profile = profile.Where(x => definition.Fields.ContainsKey(x.Key)).ToDictionary(x => x.Key, x => x.Value);
         else return;
         if (profile.Count == 0) return;
-        _ = NasAuth.Services.ExternalProfileData.Encode(profile);
+        try { _ = NasAuth.Services.ExternalProfileData.Encode(profile); }
+        catch (InvalidDataException) { return; }
         var row = Get(provider, subject);
         if (row is null || row.status == "rejected") return;
-        var merged = new Dictionary<string, string>(NasAuth.Services.ExternalProfileData.Read(row.profile_json)
-            ?? new Dictionary<string, string>());
+        var merged = (NasAuth.Services.ExternalProfileData.Read(row.profile_json) ?? new Dictionary<string, string>())
+            .Where(x => definition.Fields.ContainsKey(x.Key)).ToDictionary(x => x.Key, x => x.Value);
         foreach (var field in profile)
             if (!string.IsNullOrWhiteSpace(field.Value)) merged[field.Key] = field.Value;
         string? json;
