@@ -41,7 +41,7 @@ public sealed class DirectoryAccountTests : IClassFixture<TicketAuthFactory>
         Assert.DoesNotContain("data-directory=",html);
         Assert.DoesNotContain("invite_by_email",html);
         Assert.Contains("name='temp_password'",html);
-        Assert.Contains("<details open>",html);
+        Assert.Contains("<details class='card account-create' open>",html);
     }
 
     [Fact]

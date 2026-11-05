@@ -255,3 +255,19 @@ td.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end
   .identity-bottom { align-items:flex-start; }
   .identity-update { text-align:left; }
 }
+
+/* User management: aligned role controls and an integrated creation disclosure. */
+.admin-role-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; }
+.admin-role-status { display:flex; align-items:center; gap:10px; }
+.admin-role-row > form, .admin-role-row > p { margin:0; }
+.account-create.card { display:block; padding:0; gap:0; }
+.account-create > summary { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:24px; cursor:pointer; list-style:none; }
+.account-create > summary::-webkit-details-marker { display:none; }
+.account-create > summary:focus-visible { outline:2px solid var(--ring); outline-offset:-4px; border-radius:inherit; }
+.account-create-heading { display:grid; gap:6px; min-width:0; }
+.account-create-title { font-size:1rem; font-weight:600; line-height:1.5; }
+.account-create-chevron { width:8px; height:8px; margin:0 4px; border-right:1.5px solid var(--muted-foreground); border-bottom:1.5px solid var(--muted-foreground); transform:rotate(45deg); flex-shrink:0; }
+.account-create[open] .account-create-chevron { transform:rotate(225deg); }
+.account-create-body { padding:24px; border-top:1px solid var(--border); }
+.account-create-body > .hint { margin-bottom:20px; }
+@media(max-width:600px) { .account-create > summary, .account-create-body { padding:20px; } }

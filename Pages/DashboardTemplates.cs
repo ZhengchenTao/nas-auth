@@ -562,8 +562,8 @@ public static class DashboardTemplates
         if (external.Length == 0)
             external.Append($"<form method='post' action='/admin/users/create'><input type='hidden' name='invite_by_email' value='1'><div class='field'><label>{T("Email")}</label><input class='input' type='email' name='email' required autocomplete='off'></div><p class='hint'>{T("The first verified external sign-in will bind this account. No password is created.")}</p><button class='btn'>{T("Create external account")}</button></form>");
         return Card(T("Users"), null, sb.ToString()) + (externalSignInEnabled ? Card(T("Create external account"), null, external.ToString()) : "") +
-            $"<details{(externalSignInEnabled ? "" : " open")}><summary>{T("Create password account")}</summary>" +
-            Card(T("Create password account"), T("Tell the user their password. Turn on \"Must change password on first sign-in\" if they should pick their own."), create.ToString()) + "</details>";
+            $"<details class='card account-create'{(externalSignInEnabled ? "" : " open")}><summary><span class='account-create-heading'><span class='account-create-title'>{T("Create password account")}</span><span class='hint'>{T("For accounts that sign in with a username and password")}</span></span><span class='account-create-chevron' aria-hidden='true'></span></summary>" +
+            $"<div class='account-create-body'><p class='hint'>{T("Tell the user their password. Turn on \"Must change password on first sign-in\" if they should pick their own.")}</p>" + create.ToString() + "</div></details>";
     }
 
     // ---- 单个用户：资料 / 资源授权 / 外部身份 / 已授权应用 / 会话 / 重置密码 / 删除 ----
@@ -598,11 +598,12 @@ public static class DashboardTemplates
             T("Some connected apps use email to match existing accounts. Use a consistent email where required. Enable password sign-in only when this account needs it."),
             profile.ToString()));
 
-        var role = new StringBuilder($"<p>{RoleBadge(u)}</p>");
+        var role = new StringBuilder($"<div class='admin-role-row'><div class='admin-role-status'><span class='hint'>{T("Role")}</span>{RoleBadge(u)}</div>");
         if (!u.IsSelf)
             role.Append($"<form method='post' action='/admin/users/administrator' {Confirm(T("Change administrator role for {0}?", u.Username))}>{uid}{Hidden("is_admin", u.IsAdmin ? "0" : "1")}<button class='btn' data-variant='outline' type='submit'>{T(u.IsAdmin ? "Remove administrator" : "Make administrator")}</button></form>");
         else
             role.Append($"<p class='hint'>{T("You cannot remove your own administrator role")}</p>");
+        role.Append("</div>");
         html.Append(Card(T("Administrator access"), T("Administrators can manage users, identity providers and application access. Application permissions remain separate."), role.ToString()));
         html.Append(ExternalProfilesSection(d.Bindings));
         // 资源授权（checkbox）

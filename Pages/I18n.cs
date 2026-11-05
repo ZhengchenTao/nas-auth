@@ -28,6 +28,7 @@ public static class I18n
 
     private static readonly Dictionary<string, string> Zh = new(StringComparer.Ordinal)
     {
+        ["For accounts that sign in with a username and password"] = "适用于使用用户名和密码登录的独立账号",
         ["Search by part of a name or account"] = "输入部分姓名或域账号，支持模糊搜索",
         ["Administrator access"] = "管理员权限",
         ["Administrators can manage users, identity providers and application access. Application permissions remain separate."] = "管理员可以管理用户、身份提供方和应用准入。各应用内权限仍单独配置。",
