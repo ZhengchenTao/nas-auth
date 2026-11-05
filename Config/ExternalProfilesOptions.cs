@@ -49,5 +49,7 @@ public sealed class ExternalProfileField
     public string Type { get; set; } = "text";
     public bool Visible { get; set; } = true;
     public bool BrowserImport { get; set; }
+    public int Order { get; set; }
+    public bool Detail { get; set; }
     public string SourceClaim { get; set; } = "";
 }

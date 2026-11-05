@@ -321,17 +321,30 @@ public static class DashboardTemplates
         var html = new StringBuilder();
         foreach (var binding in bindings.Where(x => x.ProfileDefinition is not null))
         {
-            var rows = new StringBuilder("<dl class='kv'>");
-            foreach (var definition in binding.ProfileDefinition!.Fields.Where(x => x.Value.Visible))
+            var provider = binding.ProfileDefinition!;
+            var name = binding.Profile?.GetValueOrDefault(provider.NameField) ?? binding.DisplayName ?? provider.DisplayName;
+            var facts = new StringBuilder();
+            var details = new StringBuilder();
+            foreach (var definition in provider.Fields.Where(x => x.Value.Visible).OrderBy(x => x.Value.Order).ThenBy(x => x.Key))
             {
                 var value = binding.Profile?.GetValueOrDefault(definition.Key);
-                rows.Append($"<dt>{Esc(definition.Value.Label)}</dt><dd>{Esc(value ?? "—")}</dd>");
+                if (string.IsNullOrWhiteSpace(value) || definition.Key == provider.NameField) continue;
+                if (definition.Value.Detail)
+                    details.Append($"<dt>{Esc(definition.Value.Label)}</dt><dd>{Esc(value)}</dd>");
+                else
+                    facts.Append($"<div><dt>{Esc(definition.Value.Label)}</dt><dd>{Esc(value)}</dd></div>");
             }
-            rows.Append($"<dt>{T("Updated at")}</dt><dd>{Esc(binding.ProfileUpdatedAt ?? "-")}</dd></dl>");
-            html.Append(Card(T("External profile") + " · " + Esc(binding.Provider),
-                T("Informational profile from your identity provider. Does not change account matching or permissions."), rows.ToString()));
-            if (binding.ProfileDefinition.BrowserLookupUrl.Length > 0 && (!self || binding.ProfileDefinition.AllowSelfRefresh))
-                html.Append(DirectoryWidget(binding.Provider, binding.ProfileDefinition, binding.Subject, self, binding.Profile));
+            html.Append("<div class='card external-identity'><div class='identity-heading'><div class='identity-person'>");
+            html.Append(Avatar(binding.AvatarFile, name, "avatar-sm"));
+            html.Append($"<div><p class='identity-provider'>{Esc(provider.DisplayName)}</p><h2>{Esc(name)}</h2></div></div><span class='identity-linked'>{T("Identity linked")}</span></div>");
+            if (facts.Length > 0) html.Append($"<dl class='identity-facts'>{facts}</dl>");
+            if (details.Length > 0) html.Append($"<details class='identity-details'><summary>{T("Identity details")}</summary><dl class='kv'>{details}</dl></details>");
+            html.Append($"<div class='identity-bottom'><span class='identity-updated'>{T("Updated at")} · {Esc(binding.ProfileUpdatedAt ?? "—")}</span>");
+            var canRefresh = provider.BrowserLookupUrl.Length > 0 && (!self || provider.AllowSelfRefresh);
+            if (self && canRefresh) html.Append(DirectoryWidget(binding.Provider, provider, binding.Subject, self, binding.Profile));
+            html.Append("</div>");
+            if (!self && canRefresh) html.Append("<div class='identity-admin-update'>" + DirectoryWidget(binding.Provider, provider, binding.Subject, self, binding.Profile) + "</div>");
+            html.Append("</div>");
         }
         return html.ToString();
     }
@@ -340,21 +353,24 @@ public static class DashboardTemplates
         string? subject, bool self, IReadOnlyDictionary<string, string>? profile)
     {
         var name = profile?.GetValueOrDefault(definition.NameField) ?? "";
+        if (string.IsNullOrWhiteSpace(name)) name = profile?.GetValueOrDefault(definition.UsernameField) ?? subject ?? "";
         var config = System.Text.Json.JsonSerializer.Serialize(new { provider, bridge = definition.BrowserLookupUrl,
             subject, self, name, localNetwork = definition.BrowserLookupNeedsLocalNetwork,
             subjectField = definition.SubjectField, nameField = definition.NameField,
             fields = definition.Fields.ToDictionary(x => x.Key, x => x.Value.Label),
             visible = definition.Fields.Where(x => x.Value.Visible).Select(x => x.Key).ToArray() });
         var action = subject is null ? "/admin/directory/create" : self ? "/account/directory/import" : "/admin/directory/import";
-        return $"<section class='card' data-directory='{Esc(config)}'><h3>{Esc(definition.DisplayName)} · {T("Company directory")}</h3>" +
-            $"<div class='field'><label>{T("Search people")}</label><input class='input' data-directory-query value='{Esc(name)}' maxlength='80' autocomplete='off'></div>" +
-            $"<button type='button' class='btn' data-directory-search>{T("Search")}</button> <a class='btn' data-variant='outline' href='/external/{Esc(provider)}/start?return_url=%2Faccount'>{T("Sign in to identity provider")}</a>" +
-            "<p class='hint' data-directory-status role='status'></p><div data-directory-results></div>" +
+        var query = self
+            ? $"<input type='hidden' data-directory-query value='{Esc(name)}'><div class='directory-actions'><button type='button' class='btn' data-variant='outline' data-size='sm' data-directory-search>{T("Refresh profile")}</button>"
+            : $"<div class='directory-search-row'><div class='field'><label>{T("Search people")}</label><input class='input' data-directory-query value='{Esc(name)}' maxlength='80' autocomplete='off'></div><button type='button' class='btn' data-directory-search>{T("Search")}</button></div><div class='directory-actions'>";
+        return $"<div class='directory-widget{(self ? " identity-update" : "")}' data-directory='{Esc(config)}'>" + query +
+            $"<a class='directory-login' data-directory-login{(self ? " hidden" : "")} href='/external/{Esc(provider)}/start?return_url=%2Faccount'>{T("Sign in to identity provider")}</a></div>" +
+            "<p class='hint directory-status' data-directory-status role='status'></p><div class='directory-results' data-directory-results></div>" +
             $"<form method='post' action='{action}' data-directory-save hidden><input type='hidden' name='provider' value='{Esc(provider)}'>" +
             $"<input type='hidden' name='subject' value='{Esc(subject ?? "")}'>" +
             "<input type='hidden' name='profile_json'><input type='hidden' name='return_url'>" +
             "<p data-directory-preview></p>" + (self || subject is null ? "" : $"<label class='check-line'><input type='checkbox' name='use_email' value='1'>{T("Use directory email as account email")}</label>") +
-            $"<button class='btn' type='submit'>{T(subject is null ? "Create selected account" : "Save selected profile")}</button></form></section>";
+            $"<button class='btn' type='submit'>{T(subject is null ? "Create selected account" : "Save selected profile")}</button></form></div>";
     }
 
     private static string ProfileEditCard(UserAdminView u, IReadOnlyList<BindingView> bindings)

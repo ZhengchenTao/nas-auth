@@ -150,6 +150,7 @@
       var frame, nonce, timer;
       function finishFailure(message) {
         status.textContent = message;
+        var login = box.querySelector("[data-directory-login]"); if (login) login.hidden = false;
         if (frame) { frame.remove(); frame = null; }
         clearTimeout(timer);
         if (auto && continuation) {
@@ -164,7 +165,7 @@
         box.querySelector('[data-directory-preview]').textContent = cfg.visible
           .filter(function (k) { return row[k]; }).map(function (k) { return cfg.fields[k] + ': ' + row[k]; }).join(' · ');
         form.hidden = false;
-        if (auto) form.requestSubmit();
+        if (auto || cfg.self) form.requestSubmit();
       }
       window.addEventListener('message', function (event) {
         if (!frame || event.source !== frame.contentWindow || event.origin !== new URL(cfg.bridge).origin) return;

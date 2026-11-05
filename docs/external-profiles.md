@@ -33,7 +33,7 @@ Configure `ExternalProfiles:Providers:<provider-id>`. Its ID must match the conf
 }
 ```
 
-`Visible` defaults to true; hidden fields can still be imported if explicitly allowed. `BrowserImport` defaults to false. Optional `SourceClaim` maps a claim from the authenticated identity to a stored field on sign-in. A personal deployment can configure only name/email or omit this section entirely. Attributes are bounded, rendered as escaped text, and shown only to the owner and administrators. They do not enter downstream tokens automatically or assert `email_verified`.
+`Order` controls field placement; `Detail=true` folds technical attributes into identity details. Empty values are omitted, and the configured name field becomes the card heading. `Visible` defaults to true; hidden fields can still be imported if explicitly allowed. `BrowserImport` defaults to false. Optional `SourceClaim` maps a claim from the authenticated identity to a stored field on sign-in. A personal deployment can configure only name/email or omit this section entirely. Attributes are bounded, rendered as escaped text, and shown only to the owner and administrators. They do not enter downstream tokens automatically or assert `email_verified`.
 
 ## Two browser workflows
 
