@@ -147,6 +147,7 @@ public sealed class TicketAuthFactory : WebApplicationFactory<Program>
         builder.UseSetting("ExternalProviders:TicketProviders:0:ValidationUrl", "https://adapter.example.test/validate");
         builder.UseSetting("ExternalProviders:TicketProviders:0:ValidationToken", "integration-only-token");
         builder.UseSetting("ExternalProviders:TicketProviders:0:ReturnUrlParameter", "callback_url");
+        builder.UseSetting("ExternalProviders:TicketProviders:0:StateInReturnedCallback", "true");
         builder.UseSetting("ExternalProviders:TicketProviders:0:LoginParameters:realm", "test-realm");
         builder.ConfigureServices(services =>
         {
@@ -288,6 +289,50 @@ public sealed class TicketProviderPipelineTests : IClassFixture<TicketAuthFactor
             : Array.Empty<string>();
         Assert.DoesNotContain(responseCookies, value =>
             value.StartsWith("__Host-nas-auth-session=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task EchoedCallbackPreservesProtectedStateAndCorrelation()
+    {
+        using var browser = _app.Browser();
+        var flow = await Start(browser);
+        var landing = new Uri(flow.Callback).GetLeftPart(UriPartial.Path);
+        var response = await browser.GetAsync(QueryHelpers.AddQueryString(landing,
+            new Dictionary<string, string?> { ["callback_url"] = flow.Callback, ["ticket"] = "nested-valid" }));
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal(1, _app.Probe.RequestCountFor("nested-valid"));
+    }
+
+    [Theory]
+    [InlineData("https://other.example.test/auth/signin/badge-login", "")]
+    [InlineData("https://auth.example.test/auth/signin/other", "")]
+    [InlineData("https://auth.example.test/auth/signin/badge-login", "&state=duplicate")]
+    [InlineData("https://auth.example.test/auth/signin/badge-login", "&extra=unexpected")]
+    [InlineData("https://auth.example.test/auth/signin/badge-login", "#fragment")]
+    public async Task EchoedCallbackRejectsAmbiguousOrDifferentTargetsBeforeAdapter(string target, string suffix)
+    {
+        using var browser = _app.Browser();
+        var flow = await Start(browser);
+        var landing = new Uri(flow.Callback).GetLeftPart(UriPartial.Path);
+        var nested = target + new Uri(flow.Callback).Query + suffix;
+        var response = await browser.GetAsync(QueryHelpers.AddQueryString(landing,
+            new Dictionary<string, string?> { ["callback_url"] = nested, ["ticket"] = "nested-rejected" }));
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.Equal(0, _app.Probe.RequestCountFor("nested-rejected"));
+    }
+
+    [Fact]
+    public async Task EchoedCallbackCannotBypassCorrelationOrExplicitInvalidState()
+    {
+        using var browser = _app.Browser();
+        var flow = await Start(browser);
+        var landing = new Uri(flow.Callback).GetLeftPart(UriPartial.Path);
+        var url = QueryHelpers.AddQueryString(landing,
+            new Dictionary<string, string?> { ["callback_url"] = flow.Callback, ["ticket"] = "nested-no-correlation" });
+        using var stranger = _app.Browser();
+        Assert.Equal(HttpStatusCode.BadGateway, (await stranger.GetAsync(url)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadGateway, (await browser.GetAsync(url + "&state=invalid")).StatusCode);
+        Assert.Equal(0, _app.Probe.RequestCountFor("nested-no-correlation"));
     }
 
     private static async Task<(string LoginUrl, string Callback)> Start(HttpClient browser)

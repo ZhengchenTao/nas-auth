@@ -234,6 +234,7 @@ foreach (var provider in externalProviders.ConfiguredTicketProviders.Where(p => 
                 ? $"/signin/{provider.Id}"
                 : provider.CallbackPath;
             options.LoginCallbackParameter = provider.ReturnUrlParameter;
+            options.StateInReturnedCallback = provider.StateInReturnedCallback;
             options.StateParameter = provider.StateParameter;
             options.TicketParameter = provider.TicketParameter;
             options.LoginParameters = provider.LoginParameters;

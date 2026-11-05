@@ -138,6 +138,9 @@ ExternalProviders__TicketProviders__0__DisplayName=Badge login
 ExternalProviders__TicketProviders__0__Enabled=true
 ExternalProviders__TicketProviders__0__LoginUrl=https://login.example.test/start
 ExternalProviders__TicketProviders__0__ValidationUrl=https://adapter.example.test/validate
+# Optional: accept protected state inside an echoed callback URL query value.
+# Default false; requires the exact configured callback target and correlation cookie.
+ExternalProviders__TicketProviders__0__StateInReturnedCallback=false
 # Inject ExternalProviders__TicketProviders__0__ValidationToken from the deployment secret store.
 ```
 

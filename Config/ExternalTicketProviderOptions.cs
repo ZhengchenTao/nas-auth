@@ -29,6 +29,7 @@ public sealed class ExternalTicketProviderOptions : IExternalClaimMapping
     public string ValidationToken { get; set; } = "";
     public string CallbackPath { get; set; } = "";
     public string ReturnUrlParameter { get; set; } = "return_url";
+    public bool StateInReturnedCallback { get; set; }
     public string StateParameter { get; set; } = "state";
     public string TicketParameter { get; set; } = "ticket";
     public Dictionary<string, string> LoginParameters { get; set; } = new(StringComparer.Ordinal);

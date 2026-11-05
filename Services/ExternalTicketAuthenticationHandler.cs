@@ -81,6 +81,23 @@ public sealed class ExternalTicketAuthenticationHandler : RemoteAuthenticationHa
     protected override async Task<HandleRequestResult> HandleRemoteAuthenticateAsync()
     {
         var stateValues = Request.Query[Options.StateParameter];
+        // Some ticket providers echo the complete callback URL as a query value
+        // instead of merging its query into the registered landing URL. This is
+        // explicitly opt-in; the nested URL is never fetched or used to redirect.
+        if (!Request.Query.ContainsKey(Options.StateParameter) && Options.StateInReturnedCallback)
+        {
+            var callbacks = Request.Query[Options.LoginCallbackParameter];
+            var expected = Options.CallbackBaseUrl.TrimEnd('/') + Options.CallbackPath;
+            if (callbacks.Count == 1 && callbacks[0] is { Length: > 0 and <= 16384 } nested &&
+                Uri.TryCreate(nested, UriKind.Absolute, out var uri) &&
+                string.IsNullOrEmpty(uri.UserInfo) && string.IsNullOrEmpty(uri.Fragment) &&
+                string.Equals(uri.GetLeftPart(UriPartial.Path), expected, StringComparison.Ordinal))
+            {
+                var query = QueryHelpers.ParseQuery(uri.Query);
+                if (query.Count == 1 && query.TryGetValue(Options.StateParameter, out var nestedState))
+                    stateValues = nestedState;
+            }
+        }
         if (stateValues.Count != 1 || string.IsNullOrEmpty(stateValues[0]) || stateValues[0]!.Length > MaxStateLength)
             return HandleRequestResult.Fail("Missing or invalid remote sign-in state.");
 
@@ -191,6 +208,7 @@ public sealed class ExternalTicketAuthenticationOptions : RemoteAuthenticationOp
     public string ValidationUrl { get; set; } = "";
     public string ValidationToken { get; set; } = "";
     public string LoginCallbackParameter { get; set; } = "return_url";
+    public bool StateInReturnedCallback { get; set; }
     public string StateParameter { get; set; } = "state";
     public string TicketParameter { get; set; } = "ticket";
     public Dictionary<string, string> LoginParameters { get; set; } = new(StringComparer.Ordinal);
