@@ -512,8 +512,8 @@ public static class DashboardTemplates
         tiles.Append(Tile(T("Active grants"), s.ActiveGrants.ToString(), T("user × app × resource"), "/admin/apps"));
         tiles.Append(Tile(T("Clients"), (s.PresetClients + s.DcrClients).ToString(), T("{0} preset · {1} DCR", s.PresetClients, s.DcrClients), "/admin/apps"));
         tiles.Append(Tile(T("Sign-ins (24h)"), s.Logins24h.ToString(),
-            s.FailedLogins24h > 0 ? T("{0} failed", s.FailedLogins24h) : T("No failures"),
-            "/admin/audit?type=login", s.FailedLogins24h > 0 ? " attention" : ""));
+            s.FailedLogins24h > 0 ? $"<span class='stat-failure'>{T("{0} failed", s.FailedLogins24h)}</span>" : T("No failures"),
+            "/admin/audit?type=login"));
         tiles.Append("</div>");
 
         var html = tiles.ToString();
@@ -906,9 +906,9 @@ public static class DashboardTemplates
             .Append(Opt("forward_auth", T("Site access")));
         form.Append("</select></div>");
         form.Append($"<div class='field'><label for='user'>{T("User")}</label><input type='text' id='user' name='user' value='{Esc(f.User)}' placeholder='user_id'></div>");
-        form.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' name='failed' value='1'{(f.FailedOnly ? " checked" : "")}>{T("Failures only")}</label>");
+        form.Append($"<div class='filter-actions'><label class='label filter-failures'><input class='input' type='checkbox' name='failed' value='1'{(f.FailedOnly ? " checked" : "")}>{T("Failures only")}</label>");
         form.Append($"<button class='btn' type='submit'>{T("Filter")}</button>");
-        form.Append($"<a class='btn' data-variant='ghost' href='/admin/audit'>{T("Reset")}</a>");
+        form.Append($"<a class='btn' data-variant='ghost' href='/admin/audit'>{T("Reset")}</a></div>");
         form.Append("</form>");
 
         return Card(T("Filter"), T("Kept for 90 days; shows the latest 300 matches. High-volume proxy forwarding is only in the container log."), form.ToString()) +

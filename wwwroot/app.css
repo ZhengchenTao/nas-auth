@@ -155,10 +155,13 @@ img.sb-avatar { object-fit: cover; }
 .stat-value { font-size: 1.75rem; font-weight: 600; line-height: 1.2; margin: 4px 0 2px; }
 .stat-sub { color: var(--muted-foreground); font-size: .75rem; }
 .card.stat.attention .stat-value { color: var(--destructive); }
+.stat-sub .stat-failure { color: var(--destructive); }
 
 /* 审计筛选条 */
 .filter-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .filter-bar .field { width: auto; min-width: 180px; }
+.filter-actions { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
+.filter-actions .filter-failures { display:inline-flex; align-items:center; gap:8px; margin:0; min-height:36px; white-space:nowrap; }
 
 /* consent 页：授权后去向 + DCR 未核实提示（防 consent 钓鱼） */
 .consent-target { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: .875rem; line-height: 1.5; overflow-wrap: anywhere; }
