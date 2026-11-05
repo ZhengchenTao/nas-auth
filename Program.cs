@@ -58,6 +58,16 @@ builder.Services.AddSingleton<AuditRepository>(); // AuditLogger 是单例，它
 
 // ---------- 服务 ----------
 builder.Services.AddSingleton<ResourceCatalog>();
+builder.Services.AddSingleton(sp =>
+{
+    var options = builder.Configuration.GetSection("Provisioning").Get<ProvisioningOptions>() ?? new();
+    options.Validate(sp.GetRequiredService<ResourceCatalog>());
+    return options;
+});
+builder.Services.AddSingleton<ProvisioningService>();
+builder.Services.AddHttpClient("account-provisioning", client => client.Timeout = TimeSpan.FromSeconds(15))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
+builder.Services.AddHostedService<ProvisioningWorker>();
 builder.Services.AddSingleton<JwtIssuer>();
 builder.Services.AddSingleton<OidcKeyService>();
 builder.Services.AddSingleton<JwtValidator>();

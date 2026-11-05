@@ -24,7 +24,7 @@ public sealed class DirectoryAccountService(AuthDb db, ExternalProfilesOptions p
         return accepted;
     }
 
-    public string Create(string provider, string subject, Dictionary<string, string> fields, string actor)
+    public string Create(string provider, string subject, Dictionary<string, string> fields, string actor, IReadOnlyDictionary<string,string>? applicationGrants = null)
     {
         var definition = profiles.Find(provider)!;
         if (fields.GetValueOrDefault(definition.SubjectField) != subject) throw new InvalidDataException("Directory identity mismatch.");
@@ -47,6 +47,8 @@ public sealed class DirectoryAccountService(AuthDb db, ExternalProfilesOptions p
         connection.Execute(@"INSERT INTO external_identities(provider,subject,user_id,email,display_name,status,created_at,approved_at,profile_json,profile_updated_at)
             VALUES(@provider,@subject,@username,@email,@name,'active',@now,@now,@json,@now)",
             new { provider, subject, username, email, name, now, json = ExternalProfileData.Encode(fields) }, transaction);
+        foreach (var (aud, scopes) in applicationGrants ?? new Dictionary<string,string>())
+            connection.Execute("INSERT INTO user_resources(user_id,aud,scopes) VALUES(@username,@aud,@scopes)", new { username, aud, scopes }, transaction);
         transaction.Commit();
         return username;
     }

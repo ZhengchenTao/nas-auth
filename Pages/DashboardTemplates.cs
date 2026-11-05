@@ -350,7 +350,7 @@ public static class DashboardTemplates
     }
 
     private static string DirectoryWidget(string provider, NasAuth.Config.ExternalProfileProvider definition,
-        string? subject, bool self, IReadOnlyDictionary<string, string>? profile)
+        string? subject, bool self, IReadOnlyDictionary<string, string>? profile, NasAuth.Config.ProvisioningOptions? provisioning = null)
     {
         var name = profile?.GetValueOrDefault(definition.NameField) ?? "";
         if (string.IsNullOrWhiteSpace(name)) name = profile?.GetValueOrDefault(definition.UsernameField) ?? subject ?? "";
@@ -370,6 +370,7 @@ public static class DashboardTemplates
             $"<input type='hidden' name='subject' value='{Esc(subject ?? "")}'>" +
             "<input type='hidden' name='profile_json'><input type='hidden' name='return_url'>" +
             "<p data-directory-preview></p>" + (self || subject is null ? "" : $"<label class='check-line'><input type='checkbox' name='use_email' value='1'>{T("Use directory email as account email")}</label>") +
+            (subject is null ? ApplicationChoices(provisioning) : "") +
             $"<button class='btn' type='submit'>{T(subject is null ? "Create selected account" : "Save selected profile")}</button></form></div>";
     }
 
@@ -523,13 +524,13 @@ public static class DashboardTemplates
     }
 
     // ---- 用户：列表 + 新建；单个用户的全部操作在 UserEditSection ----
-    public static string UsersSection(IReadOnlyList<UserAdminView> users, NasAuth.Config.ExternalProfilesOptions? profiles = null, bool externalSignInEnabled = true)
+    public static string UsersSection(IReadOnlyList<UserAdminView> users, NasAuth.Config.ExternalProfilesOptions? profiles = null, bool externalSignInEnabled = true, NasAuth.Config.ProvisioningOptions? provisioning = null)
     {
         var create = new StringBuilder("<form method='post' action='/admin/users/create'><div class='form-grid'>");
         create.Append($"<div class='field'><label for='new_username'>{T("Username")}</label><input type='text' id='new_username' name='username' required pattern='[a-zA-Z0-9._-]{{1,32}}' autocomplete='off' placeholder='{T("letters, digits, . _ -")}'></div>");
         create.Append($"<div class='field'><label for='new_temp_password'>{T("Password")}</label><input id='new_temp_password' name='temp_password' type='password' minlength='8' autocomplete='new-password' placeholder='{T("≥ 8 chars; only when password sign-in is allowed")}'></div>");
         create.Append($"<div class='field'><label for='new_email'>{T("Email")}</label><input type='email' id='new_email' name='email' autocomplete='off' placeholder='{T("sent to apps as the email claim")}'></div>");
-        create.Append("</div><div class='form-foot'>");
+        create.Append("</div>" + ApplicationChoices(provisioning) + "<div class='form-foot'>");
         create.Append(Hidden("allow_password_login", "1"));
         create.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='must_change_password' value='1'>{T("Must change password on first sign-in")}</label>");
         create.Append($"<span class='grow'></span><button class='btn' type='submit'>{T("Create")}</button>");
@@ -558,12 +559,47 @@ public static class DashboardTemplates
         var external = new StringBuilder();
         foreach (var (id, provider) in profiles?.Providers ?? new Dictionary<string, NasAuth.Config.ExternalProfileProvider>())
             if (provider.AllowAdminCreate && provider.BrowserLookupUrl.Length > 0)
-                external.Append(DirectoryWidget(id, provider, null, false, null));
+                external.Append(DirectoryWidget(id, provider, null, false, null, provisioning));
         if (external.Length == 0)
-            external.Append($"<form method='post' action='/admin/users/create'><input type='hidden' name='invite_by_email' value='1'><div class='field'><label>{T("Email")}</label><input class='input' type='email' name='email' required autocomplete='off'></div><p class='hint'>{T("The first verified external sign-in will bind this account. No password is created.")}</p><button class='btn'>{T("Create external account")}</button></form>");
+            external.Append($"<form method='post' action='/admin/users/create'><input type='hidden' name='invite_by_email' value='1'><div class='field'><label>{T("Email")}</label><input class='input' type='email' name='email' required autocomplete='off'></div><p class='hint'>{T("The first verified external sign-in will bind this account. No password is created.")}</p>" + ApplicationChoices(provisioning) + $"<button class='btn'>{T("Create external account")}</button></form>");
         return UserLifecycleNavigation("active") + Card(T("Users"), null, sb.ToString()) + (externalSignInEnabled ? Card(T("Create external account"), null, external.ToString()) : "") +
             $"<details class='card account-create'{(externalSignInEnabled ? "" : " open")}><summary><span class='account-create-heading'><span class='account-create-title'>{T("Create password account")}</span><span class='hint'>{T("For accounts that sign in with a username and password")}</span></span><span class='account-create-chevron' aria-hidden='true'></span></summary>" +
             $"<div class='account-create-body'><p class='hint'>{T("Tell the user their password. Turn on \"Must change password on first sign-in\" if they should pick their own.")}</p>" + create.ToString() + "</div></details>";
+    }
+
+    private static string ApplicationChoices(NasAuth.Config.ProvisioningOptions? options) => options is null || options.Applications.Count == 0 ? "" :
+        "<fieldset class='application-choices'><legend>" + T("Application access") + "</legend><div class='application-choice-grid'>" +
+        string.Join("", options.Applications.Select(x => $"<label class='application-option'><input type='checkbox' name='application' value='{Esc(x.Key)}'>{Esc(x.Value.Name)}</label>")) +
+        "</div><p class='hint'>" + T("Selected apps receive an account automatically. Configure roles and data permissions inside each app.") + "</p></fieldset>";
+
+    public static string ProvisioningSection(string userId, NasAuth.Config.ProvisioningOptions options, IReadOnlyList<NasAuth.Services.ProvisioningStatus> statuses,
+        IReadOnlyList<UserResourceEditView>? resources=null,bool isAdmin=false)
+    {
+        if (options.Applications.Count == 0) return "";
+        var body = new StringBuilder("<div class='table-container'><table class='table'><thead><tr><th>" + T("Application") + "</th><th>" + T("Access") + "</th><th>" + T("Account sync") + "</th></tr></thead><tbody>");
+        foreach (var (id, app) in options.Applications)
+        {
+            var row = statuses.SingleOrDefault(x => x.application_id == id);
+            var granted=resources is null ? row is {enabled:1} : app.RequiredResources.All(x=>resources.Any(r=>r.Aud==x.Key && (!r.AdminOnly || isAdmin) && x.Value.All(r.GrantedScopes.Contains)));
+            var state = row is null ? T("Not synchronized") : T(row.state == "synced" ? "Synchronized" : row.state == "failed" ? "Retry scheduled" : "Pending synchronization");
+            var stale=row is not null && granted!=(row.enabled==1);
+            if(stale)state=T("Pending synchronization");
+            body.Append($"<tr><td>{Esc(app.Name)}</td><td>{T(granted ? "Granted" : "Not granted")}</td><td>{state}");
+            if (!stale && row?.error_code is { } code)
+            {
+                body.Append($"<span class='sub mono'>{Esc(code)}</span>");
+                if(code.EndsWith(":manual_resume_required",StringComparison.Ordinal))
+                    body.Append("<span class='sub'>"+T("This app retains a local account hold. An app administrator must resume the account, then retry synchronization.")+"</span>");
+                else if(code.EndsWith(":email_required",StringComparison.Ordinal))
+                    body.Append("<span class='sub'>"+T("Set a valid account email, then retry synchronization.")+"</span>");
+                else if(code.EndsWith(":identity_conflict",StringComparison.Ordinal))
+                    body.Append("<span class='sub'>"+T("An existing account conflicts with this identity. Review the binding in the app; accounts are never merged by email.")+"</span>");
+            }
+            body.Append("</td></tr>");
+        }
+        body.Append("</tbody></table></div><p class='hint'>" + T("Account synchronization runs in the background. Manage roles and data permissions in the app.") + "</p>");
+        body.Append($"<form method='post' action='/admin/users/provisioning/retry'>{Hidden("user_id", userId)}<button class='btn' data-variant='outline'>{T("Synchronize / retry")}</button></form>");
+        return Card(T("Application accounts"), T("Account creation and access changes are delivered in the background; failures are retried automatically."), body.ToString());
     }
 
     private static string UserLifecycleNavigation(string selected) =>
@@ -599,7 +635,8 @@ public static class DashboardTemplates
     }
 
     // ---- 单个用户：资料 / 资源授权 / 外部身份 / 已授权应用 / 会话 / 重置密码 / 删除 ----
-    public static string UserEditSection(UserDetailView d)
+    public static string UserEditSection(UserDetailView d,NasAuth.Config.ProvisioningOptions? provisioning=null,
+        IReadOnlyList<NasAuth.Services.ProvisioningStatus>? provisioningStatuses=null)
     {
         var u = d.User;
         var uid = Hidden("user_id", u.UserId);
@@ -639,6 +676,19 @@ public static class DashboardTemplates
         html.Append(Card(T("Administrator access"), T("Administrators can manage users, identity providers and application access. Application permissions remain separate."), role.ToString()));
         html.Append(ExternalProfilesSection(d.Bindings));
         // 资源授权（checkbox）
+        if(provisioning is {Applications.Count: >0})
+        {
+            var apps=new StringBuilder($"<form method='post' action='/admin/users/applications'>{uid}<div class='application-choice-grid'>");
+            foreach(var(id,app) in provisioning.Applications)
+            {
+                var allowed=app.RequiredResources.All(x=>d.Resources.Any(r=>r.Aud==x.Key && (!r.AdminOnly || u.IsAdmin) && x.Value.All(r.GrantedScopes.Contains)));
+                apps.Append($"<label class='application-option'><input type='checkbox' name='application' value='{Esc(id)}'{(allowed?" checked":"")}>{Esc(app.Name)} <span class='hint'>{T("Direct assignment")}</span></label>");
+            }
+            apps.Append($"</div><div class='form-foot'><button class='btn'>{T("Save grants")}</button></div></form>");
+            html.Append(Card(T("Application access"),T("Selected apps receive an account automatically. Configure roles and data permissions inside each app."),apps.ToString()));
+            if(provisioningStatuses is not null)
+                html.Append(ProvisioningSection(u.UserId,provisioning,provisioningStatuses,d.Resources,u.IsAdmin));
+        }
         var res = new StringBuilder($"<form method='post' action='/admin/users/resources'>{uid}<div class='res-grid'>");
         foreach (var r in d.Resources)
         {
@@ -654,9 +704,11 @@ public static class DashboardTemplates
             res.Append("</fieldset>");
         }
         res.Append($"</div><div class='form-foot'><button class='btn' type='submit'>{T("Save grants")}</button></div></form>");
-        html.Append(Card(T("Resource grants"),
+        var resourceCard=Card(T("Resource grants"),
             T("Per-resource maximum scopes for this user. Unchecking every scope of a resource removes the grant entirely; /authorize and token refresh then deny that resource for this user. Resources marked \"admins only\" use the administrator's own credentials upstream and can only be granted to admins."),
-            res.ToString()));
+            res.ToString());
+        html.Append(provisioning is {Applications.Count: >0} ?
+            $"<details class='advanced-resources'><summary>{T("Advanced resource grants")}</summary>{resourceCard}</details>" : resourceCard);
 
         // 外部身份（管理员可解绑）
         var ids = new StringBuilder();

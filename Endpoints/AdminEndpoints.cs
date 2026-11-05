@@ -60,7 +60,8 @@ public static class AdminEndpoints
             var view=ctx.Request.Query["view"].ToString();
             var content=view is "disabled" or "deleted"
                 ? DashboardTemplates.InactiveUsersSection(view, users.ListDisabled(), users.ListDeletedIds())
-                : DashboardTemplates.UsersSection(UserViews(users,AdminId(ctx)),profiles,providers.EnabledProviders.Count>0);
+                : DashboardTemplates.UsersSection(UserViews(users,AdminId(ctx)),profiles,providers.EnabledProviders.Count>0,
+                    ctx.RequestServices.GetRequiredService<ProvisioningOptions>());
             return Render(ctx,users,identities,DashboardSpace.Admin,"users","Users",content);
         });
 
@@ -98,7 +99,7 @@ public static class AdminEndpoints
         });
 
         admin.MapPost("/users/create", async (HttpContext ctx, UserRepository users,
-            ExternalInviteRepository invites, AuditLogger audit) =>
+            ExternalInviteRepository invites, AuditLogger audit, ProvisioningService provisioning) =>
         {
             var adminId = AdminId(ctx);
             var form = await ctx.Request.ReadFormAsync();
@@ -134,7 +135,8 @@ public static class AdminEndpoints
                 passwordHash: allowPassword ? PasswordHasher.Hash(tempPwd) : PasswordHasher.UnusableHash(),
                 mustChangePassword: mustChange,
                 email: newEmail,
-                allowPasswordLogin: allowPassword, inviteEmail: inviteEmail, createdBy: adminId); }
+                allowPasswordLogin: allowPassword, inviteEmail: inviteEmail, createdBy: adminId,
+                applicationGrants: provisioning.SelectedGrants(form["application"].Select(x => x ?? ""))); }
             catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 19)
             { return RedirectTo("/admin/users", error: T("Username or pending email binding already exists; no account was created")); }
             audit.AccountAction("user-create", true, adminId, $"target={newUsername} password_login={(allowPassword ? 1 : 0)} must_change={(mustChange ? 1 : 0)}");
@@ -216,7 +218,27 @@ public static class AdminEndpoints
                 Invites: invites.ListByUser(targetId)
                     .Select(i => new InviteView(i.email, TimeDisplay(i.created_at))).ToList());
             return Render(ctx, users, identities, DashboardSpace.Admin, "users", T("User · {0}", target.username),
-                DashboardTemplates.UserEditSection(detail));
+                DashboardTemplates.UserEditSection(detail,ctx.RequestServices.GetRequiredService<ProvisioningOptions>(),
+                    ctx.RequestServices.GetRequiredService<ProvisioningService>().List(targetId)));
+        });
+
+        admin.MapPost("/users/provisioning/retry", async (HttpContext ctx, ProvisioningService provisioning, UserRepository users, AuditLogger audit) =>
+        {
+            var form = await ctx.Request.ReadFormAsync();
+            var target = form["user_id"].ToString();
+            if (users.GetStoredById(target) is null) return Results.NotFound();
+            provisioning.Reconcile(target);
+            provisioning.Retry(target);
+            audit.AccountAction("provisioning-reconcile", true, AdminId(ctx), $"target={target}");
+            return RedirectTo(EditPath(target), notice: T("Account synchronization queued"));
+        });
+
+        admin.MapPost("/users/applications",async(HttpContext ctx,ProvisioningService provisioning,AuditLogger audit)=>
+        {
+            var form=await ctx.Request.ReadFormAsync();var target=form["user_id"].ToString();
+            if(!provisioning.SetApplications(target,form["application"].Select(x=>x??"")))return Results.NotFound();
+            audit.AccountAction("user-applications-update",true,AdminId(ctx),$"target={target}");
+            return RedirectTo(EditPath(target),notice:T("Grants saved"));
         });
 
         // §十四：编辑邮箱 / 允许密码登录（管理员可改任何人，包括自己 —— 关掉自己的密码登录是推荐做法，
@@ -324,6 +346,7 @@ public static class AdminEndpoints
 
             // 每个 aud 一组 checkbox（name=scope:<aud>）。勾了的 scope 取与 catalog 的交集写入；
             // 全不勾 → 删行（该资源对该用户整体撤销）。admin_only 资源对非管理员一律按「全不勾」处理。
+            var replacement = new Dictionary<string,string>();
             foreach (var resource in catalog.All)
             {
                 var requested = form[$"scope:{resource.Aud}"]
@@ -331,11 +354,9 @@ public static class AdminEndpoints
                     .Where(v => resource.Scopes.Contains(v) && resource.AllowsUser(target.is_admin != 0))
                     .Distinct()
                     .ToList();
-                if (requested.Count == 0)
-                    userResources.Delete(targetId, resource.Aud);
-                else
-                    userResources.Upsert(targetId, resource.Aud, string.Join(' ', requested));
+                if (requested.Count > 0) replacement[resource.Aud] = string.Join(' ', requested);
             }
+            userResources.Replace(targetId, replacement);
 
             audit.AccountAction("user-resources-update", true, AdminId(ctx), $"target={targetId}");
             return RedirectTo(EditPath(targetId), notice: T("Grants saved"));

@@ -101,6 +101,16 @@ img.sb-avatar { object-fit: cover; }
 .card.danger { border-color: color-mix(in oklab, var(--destructive) 45%, var(--border)); }
 .res-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
 .res-grid > .group-box { margin: 0; }
+.application-choices { margin:20px 0 0; padding:0; border:0; min-width:0; }
+.application-choices > legend { padding:0; margin-bottom:10px; font-weight:500; }
+.application-choices > .hint { margin:10px 0 0; }
+.application-choice-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
+.application-option { display:flex; align-items:center; gap:10px; padding:12px; border:1px solid var(--border); border-radius:10px; cursor:pointer; }
+.application-option:has(input:checked) { background:var(--muted); border-color:var(--foreground); }
+.application-option input { margin:0; accent-color:var(--primary); flex-shrink:0; }
+.application-option > .hint { margin-left:auto; font-size:.8rem; }
+.advanced-resources { margin-bottom:20px; }
+.advanced-resources > summary { padding:12px 0; color:var(--muted-foreground); cursor:pointer; }
 .app-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
 .app-tabs a { padding: 10px 16px; text-decoration: none; color: var(--muted-foreground); border-bottom: 2px solid transparent; }
 .app-tabs a[aria-current] { color: var(--foreground); border-color: var(--foreground); font-weight: 600; }

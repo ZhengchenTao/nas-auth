@@ -1,5 +1,7 @@
 # nas-auth
 
+可选的[应用账号预开通](docs/account-provisioning.md)支持首次登录前建号、可靠投递、失败重试和同步状态。默认关闭，应用内角色与数据权限仍由各应用管理。
+
 [English](README.md) | 简体中文
 
 一个给家用服务器用的小型 OAuth 2.1 / OpenID Connect 服务。起因是想让 Claude、ChatGPT 这些客户端通过正规的 OAuth 流程访问我自己写的几个 MCP 服务，而一家人用 Keycloak 实在太重。后来 Gitea、Immich、Grafana 这些自建应用的登录也交给了它。

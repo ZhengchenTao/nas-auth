@@ -15,14 +15,14 @@ public static class ExternalProfileEndpoints
             var (_, user) = WhoAmI(ctx, ctx.RequestServices.GetRequiredService<UserRepository>());
             return IsAdmin(user) ? await next(context) : Results.NotFound();
         }).RequireCsrfToken();
-        admin.MapPost("/create", async (HttpContext ctx, DirectoryAccountService directory, AuditLogger audit) =>
+        admin.MapPost("/create", async (HttpContext ctx, DirectoryAccountService directory, ProvisioningService provisioning, AuditLogger audit) =>
         {
             var form = await ctx.Request.ReadFormAsync();
             var provider = form["provider"].ToString(); var subject = form["subject"].ToString();
             try
             {
                 var fields = directory.Validate(provider, subject, form["profile_json"]);
-                var user = directory.Create(provider, subject, fields, ctx.User.Identity!.Name!);
+                var user = directory.Create(provider, subject, fields, ctx.User.Identity!.Name!, provisioning.SelectedGrants(form["application"].Select(x => x ?? "")));
                 audit.AccountAction("directory-create", true, ctx.User.Identity.Name!, $"target={user} provider={provider}");
                 return Results.Redirect("/admin/users/edit?user=" + Uri.EscapeDataString(user));
             }

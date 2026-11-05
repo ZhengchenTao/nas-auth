@@ -52,6 +52,17 @@ public class UserResourceRepository
             new { user_id = userId, aud, scopes });
     }
 
+    /// <summary>Replace a whole editor submission atomically, including provisioning invalidations.</summary>
+    public void Replace(string userId, IReadOnlyDictionary<string, string> grants)
+    {
+        using var conn = _db.OpenConnection();
+        using var tx = conn.BeginTransaction();
+        conn.Execute("DELETE FROM user_resources WHERE user_id=@userId", new { userId }, tx);
+        foreach (var (aud, scopes) in grants)
+            conn.Execute("INSERT INTO user_resources(user_id,aud,scopes) VALUES(@userId,@aud,@scopes)", new { userId, aud, scopes }, tx);
+        tx.Commit();
+    }
+
     /// <summary>撤销某用户对某 aud 的授权。</summary>
     public void Delete(string userId, string aud)
     {

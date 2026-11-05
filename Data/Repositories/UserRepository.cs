@@ -76,7 +76,7 @@ public class UserRepository
     /// </summary>
     public void Create(string userId, string username, string passwordHash, bool mustChangePassword,
         string? email = null, bool allowPasswordLogin = false, string? displayName = null,
-        string? inviteEmail = null, string? createdBy = null)
+        string? inviteEmail = null, string? createdBy = null, IReadOnlyDictionary<string,string>? applicationGrants = null)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         using var conn = _db.OpenConnection();
@@ -99,6 +99,8 @@ public class UserRepository
         if (!string.IsNullOrWhiteSpace(inviteEmail))
             conn.Execute("INSERT INTO external_invites(email,user_id,created_at,created_by) VALUES(@email,@userId,@now,@createdBy)",
                 new { email = NormalizeEmail(inviteEmail), userId, now, createdBy }, transaction);
+        foreach (var (aud, scopes) in applicationGrants ?? new Dictionary<string,string>())
+            conn.Execute("INSERT INTO user_resources(user_id,aud,scopes) VALUES(@userId,@aud,@scopes)", new { userId, aud, scopes }, transaction);
         transaction.Commit();
     }
 

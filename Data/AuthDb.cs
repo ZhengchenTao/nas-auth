@@ -72,6 +72,11 @@ public class AuthDb
         TryAddColumn(conn, "ALTER TABLE external_identities ADD COLUMN profile_updated_at INTEGER");
         TryAddColumn(conn, "ALTER TABLE users ADD COLUMN is_disabled INTEGER NOT NULL DEFAULT 0");
         TryAddColumn(conn, "ALTER TABLE users ADD COLUMN session_epoch TEXT NOT NULL DEFAULT ''");
+        using (var provisioning = conn.CreateCommand())
+        {
+            provisioning.CommandText = ProvisioningSchema;
+            provisioning.ExecuteNonQuery();
+        }
         BackfillDisplayNamesOnce(conn);
     }
 
@@ -130,6 +135,40 @@ public class AuthDb
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
             Directory.CreateDirectory(dir);
     }
+
+    private const string ProvisioningSchema = @"
+CREATE TABLE IF NOT EXISTS provisioning_changes (
+    revision INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS provisioning_accounts (
+    application_id TEXT NOT NULL, user_id TEXT NOT NULL, revision INTEGER NOT NULL,
+    enabled INTEGER NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0,
+    error_code TEXT, delivered_at INTEGER, PRIMARY KEY(application_id,user_id)
+);
+CREATE TRIGGER IF NOT EXISTS provisioning_user_insert AFTER INSERT ON users
+WHEN (SELECT value FROM settings WHERE key='provisioning_enabled')='1'
+BEGIN INSERT INTO provisioning_changes(user_id) VALUES(NEW.user_id); END;
+CREATE TRIGGER IF NOT EXISTS provisioning_user_update AFTER UPDATE OF username,display_name,email,is_disabled,is_admin ON users
+WHEN (SELECT value FROM settings WHERE key='provisioning_enabled')='1'
+BEGIN INSERT INTO provisioning_changes(user_id) VALUES(NEW.user_id); END;
+CREATE TRIGGER IF NOT EXISTS provisioning_user_delete AFTER DELETE ON users
+WHEN (SELECT value FROM settings WHERE key='provisioning_enabled')='1'
+BEGIN INSERT INTO provisioning_changes(user_id) VALUES(OLD.user_id); END;
+CREATE TRIGGER IF NOT EXISTS provisioning_grant_insert AFTER INSERT ON user_resources
+WHEN (SELECT value FROM settings WHERE key='provisioning_enabled')='1'
+BEGIN INSERT INTO provisioning_changes(user_id) VALUES(NEW.user_id); END;
+CREATE TRIGGER IF NOT EXISTS provisioning_grant_update AFTER UPDATE ON user_resources
+WHEN (SELECT value FROM settings WHERE key='provisioning_enabled')='1'
+BEGIN INSERT INTO provisioning_changes(user_id) VALUES(NEW.user_id); END;
+CREATE TRIGGER IF NOT EXISTS provisioning_grant_delete AFTER DELETE ON user_resources
+WHEN (SELECT value FROM settings WHERE key='provisioning_enabled')='1'
+BEGIN INSERT INTO provisioning_changes(user_id) VALUES(OLD.user_id); END;
+-- Bootstrap seeds are not reviewed administrator grants. The worker enables
+-- change capture only after startup initialization has finished.
+INSERT INTO settings(key,value,updated_at) VALUES('provisioning_enabled','0',0)
+ON CONFLICT(key) DO UPDATE SET value='0';
+";
 
     private const string SchemaSql = @"
 CREATE TABLE IF NOT EXISTS clients (

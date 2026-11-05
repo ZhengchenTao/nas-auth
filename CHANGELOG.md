@@ -4,6 +4,12 @@ Changes below describe source behavior. They are not a claim that every deployme
 
 ## Unreleased
 
+### Account provisioning
+
+- Add optional, configured application account delivery with transactional SQLite change tracking, durable desired state, bounded retry backoff, sanitized audit results and administrator reconciliation.
+- Select applications while creating directory, invitation or password accounts. Existing users can manage application access with one checkbox per configured app; advanced resource grants remain available.
+- Keep stable issuer/subject identities and downstream business roles separate. The [receiver contract](docs/account-provisioning.md) requires revision ordering, revocation tombstones, safe first-sign-in races and preservation of local account holds.
+
 ### Security
 
 - Bind forward-auth tickets and site sessions to the account session epoch as well as its version. Hard deletion, original-identity restoration and reauthorization must not revive an old site cookie or pending ticket. Existing cookies without an epoch remain valid only for accounts whose epoch is still empty.

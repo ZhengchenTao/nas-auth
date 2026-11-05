@@ -7,6 +7,7 @@
     <RootNamespace>NasAuth</RootNamespace>
     <AssemblyName>nas-auth</AssemblyName>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/artifacts/**;**/obj/**;**/bin/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
