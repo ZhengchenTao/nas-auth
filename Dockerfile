@@ -20,7 +20,7 @@ COPY . .
 # Every image build is gated by the full test suite. Tests stay in the builder;
 # runtime receives only /out. An SDK/test failure prevents publish and push.
 RUN --mount=type=cache,target=/root/.nuget/packages,sharing=locked \
-    dotnet test tests/nas-auth.Tests/nas-auth.Tests.csproj --configuration Release --nologo
+    dotnet test tests/nas-auth.Tests/nas-auth.Tests.csproj --configuration Release --runtime linux-x64 --nologo
 
 RUN --mount=type=cache,target=/root/.nuget/packages,sharing=locked \
     dotnet publish nas-auth.csproj \
