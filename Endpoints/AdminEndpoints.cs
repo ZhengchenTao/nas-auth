@@ -205,6 +205,20 @@ public static class AdminEndpoints
             return RedirectTo(EditPath(targetId), notice: T("Saved {0}", targetId));
         });
 
+        admin.MapPost("/users/administrator", async (HttpContext ctx, UserRepository users, AuthOptions auth, AuditLogger audit) =>
+        {
+            var form = await ctx.Request.ReadFormAsync();
+            var targetId = form["user_id"].ToString();
+            var value = form["is_admin"].ToString();
+            if (value is not ("0" or "1")) return Results.BadRequest();
+            var enabled = value == "1";
+            var bootstrap = string.IsNullOrWhiteSpace(auth.Admin.Username) ? "admin" : auth.Admin.Username;
+            var changed = users.SetAdministrator(AdminId(ctx), targetId, enabled, bootstrap);
+            audit.AccountAction("user-administrator", changed, AdminId(ctx), $"target={targetId} is_admin={value}");
+            return RedirectTo(EditPath(targetId), notice: changed ? T("Administrator role updated; the user must sign in again") : null,
+                error: changed ? null : T("Role unchanged; you cannot remove your own or the configured recovery administrator role"));
+        });
+
         admin.MapPost("/users/delete", async (HttpContext ctx,
             UserRepository users,
             ExternalIdentityRepository identities,

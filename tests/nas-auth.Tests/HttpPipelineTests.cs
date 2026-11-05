@@ -151,6 +151,37 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         }
     }
 
+    [Fact]
+    public async Task AdministratorRole_RequiresAdminAndCsrf_ProtectsRecovery_EndsOldSessions()
+    {
+        using var scope = _app.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserRepository>();
+        const string id = "role-managed-user";
+        users.Create(id, id, PasswordHasher.UnusableHash(), false);
+        using var admin = _app.Client();
+        await Login(admin, "/admin/users");
+        Assert.Contains("/admin/users/administrator", await admin.GetStringAsync("/admin/users/edit?user=" + id));
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsync("/admin/users/administrator", Form(("user_id", id), ("is_admin", "1")))).StatusCode);
+        async Task Change(string target, string role) => Assert.Equal(HttpStatusCode.Redirect,
+            (await SendCsrf(admin, Post("/admin/users/administrator", Form(("user_id", target), ("is_admin", role)), secFetchSite: "same-origin"))).StatusCode);
+        await Change(id, "1");
+        Assert.Equal(1, users.GetById(id)!.is_admin);
+        Assert.Equal(1, users.GetById(id)!.session_version);
+        Assert.False(users.SetAdministrator(id, "admin", false, "admin"));
+        Assert.False(users.SetAdministrator(id, id, false, "admin"));
+        Assert.Equal(1, users.GetById("admin")!.is_admin);
+        await Change(id, "0");
+        Assert.Equal(0, users.GetById(id)!.is_admin);
+        Assert.Equal(2, users.GetById(id)!.session_version);
+        Assert.False(users.SetAdministrator(id, id, true, "admin"));
+        using var ordinary = _app.Client();
+        users.ResetPassword(id, PasswordHasher.Hash("role-test-password"), false);
+        users.UpdateProfile(id, null, true);
+        await ordinary.PostAsync("/login", Form(("username", id), ("password", "role-test-password"), ("return_url", "/account")));
+        Assert.Equal(HttpStatusCode.NotFound, (await ordinary.PostAsync("/admin/users/administrator", Form(("user_id", id), ("is_admin", "1")))).StatusCode);
+        users.Delete(id, retireId: false);
+    }
+
     private static FormUrlEncodedContent Form(params (string K, string V)[] kv) =>
         new(kv.Select(p => new KeyValuePair<string, string>(p.K, p.V)));
 

@@ -59,3 +59,9 @@ The account editor uses its account email to enable a pending first binding, wit
 ## Releases
 
 Pushing source to `main` builds/publishes an image. Deployment requires an explicit manual workflow dispatch with `deploy=true`; source integration does not implicitly restart a configured runtime. Validate the default configuration and each configured deployment separately.
+
+## Administrator roles
+
+The user editor has a separate administrator-access card. Existing administrators can grant or remove this role with CSRF-protected, audited requests. A role change invalidates existing browser sessions. Self-demotion and demotion of the configured recovery administrator are rejected, including direct requests. Ordinary users cannot change roles. Application access and application-specific roles remain separate.
+
+Directory search accepts partial names or accounts (2–80 characters); matching is provided by the configured directory. Results show the configured name, account, email and non-detail visible fields. Internal identity keys remain binding inputs rather than result-list labels.

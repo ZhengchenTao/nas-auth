@@ -234,8 +234,18 @@ td.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end
 .directory-login { font-size:.8125rem; color:var(--muted-foreground); text-decoration:underline; text-underline-offset:3px; }
 .directory-status:empty, .directory-results:empty { display:none; }
 .directory-status { margin:10px 0 0; font-size:.8125rem; }
-.directory-results { display:grid; gap:8px; margin-top:14px; }
-.directory-results > .btn { justify-content:flex-start; height:auto; min-height:40px; padding:12px 14px; white-space:normal; text-align:left; line-height:1.5; }
+.directory-results { display:grid; gap:0; margin-top:14px; border:1px solid var(--border); border-radius:10px; overflow:hidden; max-height:440px; overflow-y:auto; }
+.directory-person { display:grid; grid-template-columns:minmax(100px,1fr) minmax(0,1.6fr) auto; gap:3px 20px; align-items:center; width:100%; padding:14px 16px; background:transparent; color:inherit; border:0; border-bottom:1px solid var(--border); text-align:left; cursor:pointer; }
+.directory-person:last-child { border-bottom:0; }
+.directory-person:hover { background:var(--muted); }
+.directory-person:focus-visible { outline:2px solid var(--ring); outline-offset:-3px; }
+.directory-person[aria-pressed="true"] { background:var(--muted); box-shadow:inset 3px 0 0 var(--foreground); }
+.directory-person-name { font-size:.875rem; font-weight:600; overflow-wrap:anywhere; }
+.directory-person-info { grid-column:1; font-size:.75rem; color:var(--muted-foreground); overflow-wrap:anywhere; }
+.directory-person-email { grid-column:2; grid-row:1 / 3; font-size:.8125rem; color:var(--muted-foreground); overflow-wrap:anywhere; }
+.directory-person-choice { grid-column:3; grid-row:1 / 3; font-size:.75rem; color:var(--muted-foreground); }
+.directory-person[aria-pressed="true"] .directory-person-choice { font-weight:600; color:var(--foreground); }
+@media(max-width:600px) { .directory-person { grid-template-columns:minmax(0,1fr) auto; gap:4px 12px; } .directory-person-email { grid-column:1; grid-row:3; } .directory-person-choice { grid-column:2; grid-row:1 / 4; } }
 .directory-widget [data-directory-save] { margin-top:14px; }
 .directory-widget [data-directory-preview] { margin:0 0 12px; font-size:.875rem; line-height:1.7; }
 .directory-widget [hidden] { display:none !important; }

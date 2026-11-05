@@ -28,6 +28,16 @@ public static class I18n
 
     private static readonly Dictionary<string, string> Zh = new(StringComparer.Ordinal)
     {
+        ["Search by part of a name or account"] = "输入部分姓名或域账号，支持模糊搜索",
+        ["Administrator access"] = "管理员权限",
+        ["Administrators can manage users, identity providers and application access. Application permissions remain separate."] = "管理员可以管理用户、身份提供方和应用准入。各应用内权限仍单独配置。",
+        ["You cannot remove your own administrator role"] = "不能移除自己的管理员权限",
+        ["Make administrator"] = "设为管理员",
+        ["Remove administrator"] = "移除管理员权限",
+        ["Change administrator role for {0}?"] = "确认修改 {0} 的管理员权限？",
+        ["Administrator role updated; the user must sign in again"] = "管理员权限已更新，该用户需要重新登录",
+        ["Role unchanged; you cannot remove your own or the configured recovery administrator role"] = "权限未变更；不能移除自己或配置中恢复账号的管理员权限",
+
         // ---- 通用 ----
         ["Identity linked"] = "已关联",
         ["Identity details"] = "身份详情",
@@ -245,8 +255,7 @@ public static class I18n
         ["locked until {0}"] = "锁定至 {0}",
         ["Too many failed attempts. This account is temporarily locked; try again in {0} minutes."] =
             "失败次数过多，账号已临时锁定，请 {0} 分钟后再试。",
-        ["Email is what apps (e.g. Immich) use to match this person to their own account — set it to the email of their account in that app. Accounts that sign in with Google / Microsoft should usually have password sign-in turned off."] =
-            "邮箱用于让各应用（如 Immich）把这个人对应到应用里的账号 —— 填他在那个应用里的账号邮箱。用 Google / 微软登录的账号一般应关闭密码登录。",
+        ["Some connected apps use email to match existing accounts. Use a consistent email where required. Enable password sign-in only when this account needs it."] = "部分应用会通过邮箱关联已有账号，请按应用要求保持邮箱一致。仅在需要时启用密码登录。",
         ["Username {0} already exists"] = "用户名 {0} 已存在",
         ["Created user {0}; must change password on first sign-in"] =
             "已创建用户 {0}；首次登录需修改密码",
@@ -280,7 +289,7 @@ public static class I18n
         ["Image is larger than 2 MB"] = "图片超过 2 MB",
         ["Only PNG, JPEG or WebP images are accepted"] = "只支持 PNG、JPEG、WebP 图片",
         ["Nothing to copy from that account yet; sign in with it once first"] = "那个账号还没有可用的头像 / 名字，先用它登录一次",
-        ["Your nickname and avatar are what apps (Gitea, Immich, Open WebUI…) show. Your username can't be changed: apps use it to recognise you. Grafana and Open WebUI pick up changes the next time you sign in to them; Gitea updates the avatar on next sign-in; Immich and ezBookkeeping only take them when the account is first created."] = "昵称和头像就是各应用（Gitea、Immich、Open WebUI…）里显示的。用户名不能改：各应用靠它认你。改了之后，Grafana、Open WebUI 下次登录时更新；Gitea 下次登录时更新头像；Immich、ezBookkeeping 只在首次建号时取一次。",
+        ["Connected apps can use your nickname and avatar. Each app determines when changes appear. Your username identifies your account and cannot be changed after creation."] = "昵称和头像可提供给已接入的应用，具体显示及更新时间由应用决定。用户名用于识别账号，创建后不可修改。",
         ["≥ 8 chars; only when password sign-in is allowed"] = "≥ 8 位；仅允许密码登录时需要",
         ["Pre-bind sign-in email"] = "预绑定登录邮箱",
         ["optional; first Google / Outlook sign-in with it binds here"] = "可选；首次用它登录 Google / 微软即绑定到此用户",

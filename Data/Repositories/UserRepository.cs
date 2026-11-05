@@ -33,6 +33,16 @@ public class UserRepository
             $"SELECT {UserCols} FROM users WHERE user_id = @id", new { id = userId });
     }
 
+    public bool SetAdministrator(string actorId, string targetId, bool enabled, string bootstrapUsername)
+    {
+        using var conn = _db.OpenConnection();
+        return conn.Execute(@"UPDATE users SET is_admin=@role, session_version=session_version+1, updated_at=@now
+            WHERE user_id=@targetId AND is_admin<>@role
+            AND EXISTS(SELECT 1 FROM users actor WHERE actor.user_id=@actorId AND actor.is_admin=1)
+            AND (@role=1 OR (user_id<>@actorId AND username<>@bootstrapUsername))",
+            new { actorId, targetId, role=enabled ? 1 : 0, bootstrapUsername, now=DateTimeOffset.UtcNow.ToUnixTimeSeconds() }) == 1;
+    }
+
     public IReadOnlyList<UserRow> ListAll()
     {
         using var conn = _db.OpenConnection();

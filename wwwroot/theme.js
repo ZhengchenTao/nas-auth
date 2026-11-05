@@ -158,12 +158,15 @@
           if (dest.origin === location.origin) location.assign(dest.href);
         }
       }
+      function summary(row) {
+        return [row[cfg.nameField] || row[cfg.usernameField], row[cfg.emailField]].filter(Boolean).join(' · ');
+      }
       function select(row) {
         form.elements.subject.value = row[cfg.subjectField];
         form.elements.profile_json.value = JSON.stringify(row);
         form.elements.return_url.value = continuation;
-        box.querySelector('[data-directory-preview]').textContent = cfg.visible
-          .filter(function (k) { return row[k]; }).map(function (k) { return cfg.fields[k] + ': ' + row[k]; }).join(' · ');
+        box.querySelector('[data-directory-preview]').textContent = label('已选择：', 'Selected: ') + summary(row);
+        results.querySelectorAll('.directory-person').forEach(function (item) { item.setAttribute('aria-pressed', String(item.dataset.subject === row[cfg.subjectField])); });
         form.hidden = false;
         if (auto || cfg.self) form.requestSubmit();
       }
@@ -189,18 +192,25 @@
         results.replaceChildren();
         if (!rows.length || (cfg.subject && rows.length !== 1))
           return finishFailure(label('没有唯一匹配的用户 ID，请核对搜索条件。', 'No unique matching identity. Check your search.'));
-        status.textContent = label('请选择人员并确认保存；权限单独配置。', 'Select a person and confirm. Permissions are configured separately.');
+        status.textContent = cfg.subject ? '' : label('找到 ' + rows.length + ' 位人员，请选择后确认创建。', rows.length + ' people found. Select a person to continue.');
         if (cfg.subject) select(rows[0]);
         else rows.forEach(function (row) {
-          var button = document.createElement('button'); button.type = 'button'; button.className = 'btn';
-          button.textContent = cfg.visible.filter(function (k) { return row[k]; })
-            .map(function (k) { return cfg.fields[k] + ': ' + row[k]; }).join(' · ');
+          var button = document.createElement('button'); button.type = 'button'; button.className = 'directory-person';
+          button.dataset.subject = row[cfg.subjectField]; button.setAttribute('aria-pressed', 'false');
+          var title = document.createElement('strong'); title.className = 'directory-person-name';
+          title.textContent = row[cfg.nameField] || row[cfg.usernameField] || row[cfg.subjectField];
+          var info = document.createElement('span'); info.className = 'directory-person-info';
+          info.textContent = cfg.visible.filter(function (k) { return k !== cfg.nameField && k !== cfg.subjectField && k !== cfg.emailField && row[k]; })
+            .map(function (k) { return row[k]; }).join(' · ');
+          var email = document.createElement('span'); email.className = 'directory-person-email'; email.textContent = row[cfg.emailField] || '';
+          var choice = document.createElement('span'); choice.className = 'directory-person-choice'; choice.textContent = label('选择', 'Select');
+          button.append(title, info, email, choice);
           button.addEventListener('click', function () { select(row); }); results.append(button);
         });
         frame.remove(); frame = null;
       });
       function search() {
-        if (query.value.trim().length < 2 || query.value.trim().length > 80) return;
+        if (query.value.trim().length < 2 || query.value.trim().length > 80) { status.textContent = label('请输入 2–80 个字符，支持姓名或账号模糊搜索。', 'Enter 2–80 characters from a name or account.'); return; }
         clearTimeout(timer); if (frame) frame.remove(); form.hidden = true; results.replaceChildren();
         nonce = crypto.randomUUID(); frame = document.createElement('iframe');
         frame.hidden = true; frame.setAttribute('sandbox', 'allow-scripts allow-same-origin');

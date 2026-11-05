@@ -356,15 +356,15 @@ public static class DashboardTemplates
         if (string.IsNullOrWhiteSpace(name)) name = profile?.GetValueOrDefault(definition.UsernameField) ?? subject ?? "";
         var config = System.Text.Json.JsonSerializer.Serialize(new { provider, bridge = definition.BrowserLookupUrl,
             subject, self, name, localNetwork = definition.BrowserLookupNeedsLocalNetwork,
-            subjectField = definition.SubjectField, nameField = definition.NameField,
+            subjectField = definition.SubjectField, nameField = definition.NameField, usernameField = definition.UsernameField, emailField = definition.EmailField,
             fields = definition.Fields.ToDictionary(x => x.Key, x => x.Value.Label),
-            visible = definition.Fields.Where(x => x.Value.Visible).Select(x => x.Key).ToArray() });
+            visible = definition.Fields.Where(x => x.Value.Visible && !x.Value.Detail).OrderBy(x => x.Value.Order).ThenBy(x => x.Key).Select(x => x.Key).ToArray() });
         var action = subject is null ? "/admin/directory/create" : self ? "/account/directory/import" : "/admin/directory/import";
         var query = self
             ? $"<input type='hidden' data-directory-query value='{Esc(name)}'><div class='directory-actions'><button type='button' class='btn' data-variant='outline' data-size='sm' data-directory-search>{T("Refresh profile")}</button>"
-            : $"<div class='directory-search-row'><div class='field'><label>{T("Search people")}</label><input class='input' data-directory-query value='{Esc(name)}' maxlength='80' autocomplete='off'></div><button type='button' class='btn' data-directory-search>{T("Search")}</button></div><div class='directory-actions'>";
+            : $"<div class='directory-search-row'><div class='field'><label>{T("Search people")}</label><input class='input' data-directory-query value='{Esc(name)}' maxlength='80' autocomplete='off' placeholder='{T("Search by part of a name or account")}'></div><button type='button' class='btn' data-directory-search>{T("Search")}</button></div><div class='directory-actions'>";
         return $"<div class='directory-widget{(self ? " identity-update" : "")}' data-directory='{Esc(config)}'>" + query +
-            $"<a class='directory-login' data-directory-login{(self ? " hidden" : "")} href='/external/{Esc(provider)}/start?return_url=%2Faccount'>{T("Sign in to identity provider")}</a></div>" +
+            $"<a class='directory-login' data-directory-login hidden href='/external/{Esc(provider)}/start?return_url=%2Faccount'>{T("Sign in to identity provider")}</a></div>" +
             "<p class='hint directory-status' data-directory-status role='status'></p><div class='directory-results' data-directory-results></div>" +
             $"<form method='post' action='{action}' data-directory-save hidden><input type='hidden' name='provider' value='{Esc(provider)}'>" +
             $"<input type='hidden' name='subject' value='{Esc(subject ?? "")}'>" +
@@ -405,7 +405,7 @@ public static class DashboardTemplates
             sb.Append("</tbody></table></div>");
         }
         return Card(T("Nickname & avatar"),
-            T("Your nickname and avatar are what apps (Gitea, Immich, Open WebUI…) show. Your username can't be changed: apps use it to recognise you. Grafana and Open WebUI pick up changes the next time you sign in to them; Gitea updates the avatar on next sign-in; Immich and ezBookkeeping only take them when the account is first created."),
+            T("Connected apps can use your nickname and avatar. Each app determines when changes appear. Your username identifies your account and cannot be changed after creation."),
             sb.ToString());
     }
 
@@ -534,7 +534,7 @@ public static class DashboardTemplates
         create.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='must_change_password' value='1'>{T("Must change password on first sign-in")}</label>");
         create.Append($"<span class='grow'></span><button class='btn' type='submit'>{T("Create")}</button>");
         create.Append("</div></form>");
-        create.Append($"<p class='hint' style='margin-top:12px'>{T("Email is what apps (e.g. Immich) use to match this person to their own account — set it to the email of their account in that app. Accounts that sign in with Google / Microsoft should usually have password sign-in turned off.")}</p>");
+        create.Append($"<p class='hint' style='margin-top:12px'>{T("Some connected apps use email to match existing accounts. Use a consistent email where required. Enable password sign-in only when this account needs it.")}</p>");
 
         var sb = new StringBuilder();
         sb.Append($"<div class='table-container'><table class='table'><thead><tr><th>{T("Username")}</th><th>{T("Role")}</th><th>{T("Status")}</th><th>{T("Password sign-in")}</th><th>{T("Created")}</th><th></th></tr></thead><tbody>");
@@ -595,9 +595,15 @@ public static class DashboardTemplates
         profile.Append($"<button class='btn' type='submit'>{T("Save")}</button>");
         profile.Append("</div></form>");
         html.Append(Card(T("Profile"),
-            T("Email is what apps (e.g. Immich) use to match this person to their own account — set it to the email of their account in that app. Accounts that sign in with Google / Microsoft should usually have password sign-in turned off."),
+            T("Some connected apps use email to match existing accounts. Use a consistent email where required. Enable password sign-in only when this account needs it."),
             profile.ToString()));
 
+        var role = new StringBuilder($"<p>{RoleBadge(u)}</p>");
+        if (!u.IsSelf)
+            role.Append($"<form method='post' action='/admin/users/administrator' {Confirm(T("Change administrator role for {0}?", u.Username))}>{uid}{Hidden("is_admin", u.IsAdmin ? "0" : "1")}<button class='btn' data-variant='outline' type='submit'>{T(u.IsAdmin ? "Remove administrator" : "Make administrator")}</button></form>");
+        else
+            role.Append($"<p class='hint'>{T("You cannot remove your own administrator role")}</p>");
+        html.Append(Card(T("Administrator access"), T("Administrators can manage users, identity providers and application access. Application permissions remain separate."), role.ToString()));
         html.Append(ExternalProfilesSection(d.Bindings));
         // 资源授权（checkbox）
         var res = new StringBuilder($"<form method='post' action='/admin/users/resources'>{uid}<div class='res-grid'>");
