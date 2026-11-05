@@ -1,5 +1,6 @@
 using System.Text;
 using NasAuth.Config;
+using NasAuth.Data;
 using static NasAuth.Pages.I18n;
 using static NasAuth.Pages.Ui;
 
@@ -524,7 +525,7 @@ public static class DashboardTemplates
     }
 
     // ---- 用户：列表 + 新建；单个用户的全部操作在 UserEditSection ----
-    public static string UsersSection(IReadOnlyList<UserAdminView> users, NasAuth.Config.ExternalProfilesOptions? profiles = null, bool externalSignInEnabled = true, NasAuth.Config.ProvisioningOptions? provisioning = null)
+    public static string UsersSection(IReadOnlyList<UserAdminView> users, NasAuth.Config.ExternalProfilesOptions? profiles = null, bool externalSignInEnabled = true, NasAuth.Config.ProvisioningOptions? provisioning = null, UserDirectoryPage? directory = null)
     {
         var create = new StringBuilder("<form method='post' action='/admin/users/create'><div class='form-grid'>");
         create.Append($"<div class='field'><label for='new_username'>{T("Username")}</label><input type='text' id='new_username' name='username' required pattern='[a-zA-Z0-9._-]{{1,32}}' autocomplete='off' placeholder='{T("letters, digits, . _ -")}'></div>");
@@ -537,8 +538,8 @@ public static class DashboardTemplates
         create.Append("</div></form>");
         create.Append($"<p class='hint' style='margin-top:12px'>{T("Some connected apps use email to match existing accounts. Use a consistent email where required. Enable password sign-in only when this account needs it.")}</p>");
 
-        var sb = new StringBuilder();
-        sb.Append($"<div class='table-container'><table class='table'><thead><tr><th>{T("Username")}</th><th>{T("Role")}</th><th>{T("Status")}</th><th>{T("Password sign-in")}</th><th>{T("Created")}</th><th></th></tr></thead><tbody>");
+        var sb = new StringBuilder(UserDirectoryControls(directory));
+        sb.Append($"<div class='table-container'><table class='table user-directory-table'><thead><tr><th>{T("Username")}</th><th>{T("Role")}</th><th>{T("Status")}</th><th>{T("Password sign-in")}</th><th>{T("Created")}</th><th></th></tr></thead><tbody>");
         foreach (var u in users)
         {
             sb.Append("<tr>");
@@ -554,7 +555,8 @@ public static class DashboardTemplates
             sb.Append($"<td class='fit'><a class='btn' data-variant='outline' data-size='sm' href='{Esc(EditHref(u.UserId))}'>{T("Manage")}</a></td>");
             sb.Append("</tr>");
         }
-        sb.Append("</tbody></table></div>");
+        if (users.Count == 0) sb.Append("<tr><td colspan='6'>" + Empty(T("No matching accounts")) + "</td></tr>");
+        sb.Append("</tbody></table></div>" + UserDirectoryFooter(directory));
 
         var external = new StringBuilder();
         foreach (var (id, provider) in profiles?.Providers ?? new Dictionary<string, NasAuth.Config.ExternalProfileProvider>())
@@ -562,7 +564,7 @@ public static class DashboardTemplates
                 external.Append(DirectoryWidget(id, provider, null, false, null, provisioning));
         if (external.Length == 0)
             external.Append($"<form method='post' action='/admin/users/create'><input type='hidden' name='invite_by_email' value='1'><div class='field'><label>{T("Email")}</label><input class='input' type='email' name='email' required autocomplete='off'></div><p class='hint'>{T("The first verified external sign-in will bind this account. No password is created.")}</p>" + ApplicationChoices(provisioning) + $"<button class='btn'>{T("Create external account")}</button></form>");
-        return UserLifecycleNavigation("active") + Card(T("Users"), null, sb.ToString()) + (externalSignInEnabled ? Card(T("Create external account"), null, external.ToString()) : "") +
+        return UserLifecycleNavigation("active", directory) + Card(T("Users"), null, sb.ToString()) + (externalSignInEnabled ? Card(T("Create external account"), null, external.ToString()) : "") +
             $"<details class='card account-create'{(externalSignInEnabled ? "" : " open")}><summary><span class='account-create-heading'><span class='account-create-title'>{T("Create password account")}</span><span class='hint'>{T("For accounts that sign in with a username and password")}</span></span><span class='account-create-chevron' aria-hidden='true'></span></summary>" +
             $"<div class='account-create-body'><p class='hint'>{T("Tell the user their password. Turn on \"Must change password on first sign-in\" if they should pick their own.")}</p>" + create.ToString() + "</div></details>";
     }
@@ -602,25 +604,65 @@ public static class DashboardTemplates
         return Card(T("Application accounts"), T("Account creation and access changes are delivered in the background; failures are retried automatically."), body.ToString());
     }
 
-    private static string UserLifecycleNavigation(string selected) =>
+    private static string UserLifecycleNavigation(string selected, UserDirectoryPage? directory = null) =>
         "<nav class='page-actions lifecycle-nav' aria-label='" + T("Account status") + "'>" +
         string.Join("",new[]{("active","Active accounts"),("disabled","Disabled accounts"),("deleted","Deleted identities")}.Select(x=>
-            $"<a class='btn' data-variant='{(selected==x.Item1?"secondary":"ghost")}'{(selected==x.Item1?" aria-current='page'":"")} href='/admin/users?view={x.Item1}'>{T(x.Item2)}</a>"))+"</nav>";
+            $"<a class='btn' data-variant='{(selected==x.Item1?"secondary":"ghost")}'{(selected==x.Item1?" aria-current='page'":"")} href='{Esc(DirectoryHref(directory?.Filter ?? UserDirectoryFilter.Normalize(), view:x.Item1))}'>{T(x.Item2)}" +
+            (directory is null ? "" : $"<span class='user-state-count'>{(x.Item1=="active"?directory.ActiveCount:x.Item1=="disabled"?directory.DisabledCount:directory.DeletedCount)}</span>") + "</a>"))+"</nav>";
 
-    public static string InactiveUsersSection(string view,IReadOnlyList<NasAuth.Data.UserRow> disabled,IReadOnlyList<string> deleted)
+    private static string DirectoryHref(UserDirectoryFilter filter, int page = 1, string? view = null)
     {
-        var sb=new StringBuilder("<div class='table-container'><table class='table'><thead><tr><th>"+T("Username")+"</th><th>"+T("Status")+"</th><th></th></tr></thead><tbody>");
+        var f = UserDirectoryFilter.Normalize(filter.Query, view ?? filter.View, filter.Role, page, filter.PageSize);
+        return "/admin/users?view=" + f.View + "&q=" + Uri.EscapeDataString(f.Query) + "&role=" + f.Role + "&size=" + f.PageSize + "&page=" + f.Page;
+    }
+
+    private static string UserDirectoryControls(UserDirectoryPage? directory)
+    {
+        if (directory is null) return "";
+        var f = directory.Filter;
+        string Option(string value, string label, string selected) => $"<option value='{value}'{(value==selected?" selected":"")}>{label}</option>";
+        var body = new StringBuilder("<form method='get' action='/admin/users' class='user-filter' role='search'>" + Hidden("view", f.View));
+        body.Append($"<div class='field user-filter-query'><label for='user_search'>{T("Find accounts")}</label><input id='user_search' type='search' name='q' maxlength='128' value='{Esc(f.Query)}' placeholder='{T(f.View=="deleted"?"Search by original account ID":"Name, username or email")}'></div>");
+        if (f.View == "active")
+            body.Append($"<div class='field'><label for='user_role'>{T("Role")}</label><select id='user_role' name='role'>" + Option("all",T("All roles"),f.Role) + Option("admin",T("Administrators"),f.Role) + Option("member",T("User"),f.Role) + "</select></div>");
+        body.Append($"<div class='field'><label for='user_size'>{T("Rows per page")}</label><select id='user_size' name='size'>" + string.Join("",new[]{25,50,100}.Select(n=>Option(n.ToString(),n.ToString(),f.PageSize.ToString()))) + "</select></div>");
+        body.Append($"<div class='user-filter-actions'><button class='btn' type='submit'>{T("Search")}</button>");
+        if (f.Query.Length > 0 || f.Role != "all") body.Append($"<a class='btn' data-variant='ghost' href='{Esc(DirectoryHref(f with {Query="",Role="all"}))}'>{T("Clear filters")}</a>");
+        return body.Append("</div></form>").ToString();
+    }
+
+    private static string UserDirectoryFooter(UserDirectoryPage? directory)
+    {
+        if (directory is null) return "";
+        var f = directory.Filter;
+        var body = new StringBuilder("<div class='user-list-footer'><p class='hint' role='status'>" + T("Showing {0}–{1} of {2}",directory.First,directory.Last,directory.Total) + "</p>");
+        if (directory.PageCount > 1)
+        {
+            body.Append($"<nav class='user-pagination' aria-label='{T("User list pages")}'>");
+            if (f.Page > 1) body.Append($"<a class='btn' data-variant='outline' data-size='sm' rel='prev' href='{Esc(DirectoryHref(f,f.Page-1))}'>{T("Previous page")}</a>");
+            body.Append($"<span class='hint'>{T("Page {0} of {1}",f.Page,directory.PageCount)}</span>");
+            if (f.Page < directory.PageCount) body.Append($"<a class='btn' data-variant='outline' data-size='sm' rel='next' href='{Esc(DirectoryHref(f,f.Page+1))}'>{T("Next page")}</a>");
+            body.Append("</nav>");
+        }
+        return body.Append("</div>").ToString();
+    }
+
+    public static string InactiveUsersSection(string view,IReadOnlyList<NasAuth.Data.UserRow> disabled,IReadOnlyList<string> deleted, UserDirectoryPage? directory = null)
+    {
+        var sb=new StringBuilder("<div class='table-container'><table class='table user-directory-table inactive'><thead><tr><th>"+T("Username")+"</th><th>"+T("Status")+"</th><th></th></tr></thead><tbody>");
         var ids=view=="disabled"?disabled.Select(x=>x.user_id):deleted;
         foreach(var id in ids)
         {
-            sb.Append($"<tr><td class='mono'>{Esc(id)}</td><td><span class='badge' data-variant='outline'>{T(view=="disabled"?"Disabled":"Deleted identity")}</span></td><td class='fit'><a class='btn' data-variant='outline' data-size='sm' href='/admin/users/restore?user={Uri.EscapeDataString(id)}'>{T("Restore original identity")}</a>");
+            var row = view == "disabled" ? disabled.First(x=>x.user_id==id) : null;
+            var profile = row is null ? $"<span class='mono'>{Esc(id)}</span>" : $"<strong>{Esc(row.display_name ?? row.username)}</strong><span class='sub'>{Esc(row.username)} · {Esc(row.email ?? "—")}</span>";
+            sb.Append($"<tr><td>{profile}</td><td><span class='badge' data-variant='outline'>{T(view=="disabled"?"Disabled":"Deleted identity")}</span></td><td class='fit'><a class='btn' data-variant='outline' data-size='sm' href='/admin/users/restore?user={Uri.EscapeDataString(id)}'>{T("Restore original identity")}</a>");
             if(view=="disabled") sb.Append($"<form method='post' action='/admin/users/delete' class='lifecycle-delete' {Confirm(T("Permanently delete {0}? The identity remains reserved.",id))}>{Hidden("user_id",id)}<button class='btn' data-variant='ghost' data-size='sm'>{T("Permanently delete")}</button></form>");
             sb.Append("</td></tr>");
         }
         sb.Append("</tbody></table></div>");
-        return UserLifecycleNavigation(view)+Card(T(view=="disabled"?"Disabled accounts":"Deleted identities"),
+        return UserLifecycleNavigation(view, directory)+Card(T(view=="disabled"?"Disabled accounts":"Deleted identities"),
             T("Restore only the same person. A restored identity may reconnect to their existing application accounts. Application access must be granted again."),
-            ids.Any()?sb.ToString():Empty(T("No accounts in this state")));
+            UserDirectoryControls(directory) + (ids.Any()?sb.ToString():Empty(T(directory is null?"No accounts in this state":"No matching accounts"))) + UserDirectoryFooter(directory));
     }
 
     public static string RestoreIdentitySection(string id,bool deleted)

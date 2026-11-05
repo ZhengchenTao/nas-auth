@@ -57,11 +57,14 @@ public static class AdminEndpoints
         // ----- 用户 -----
         admin.MapGet("/users", (HttpContext ctx, UserRepository users, ExternalIdentityRepository identities, ExternalProfilesOptions profiles, ExternalProviderOptions providers) =>
         {
-            var view=ctx.Request.Query["view"].ToString();
-            var content=view is "disabled" or "deleted"
-                ? DashboardTemplates.InactiveUsersSection(view, users.ListDisabled(), users.ListDeletedIds())
-                : DashboardTemplates.UsersSection(UserViews(users,AdminId(ctx)),profiles,providers.EnabledProviders.Count>0,
-                    ctx.RequestServices.GetRequiredService<ProvisioningOptions>());
+            var query = ctx.Request.Query;
+            int.TryParse(query["page"], out var page);
+            int.TryParse(query["size"], out var size);
+            var directory = users.Search(NasAuth.Data.UserDirectoryFilter.Normalize(query["q"], query["view"], query["role"], page, size));
+            var content = directory.Filter.View is "disabled" or "deleted"
+                ? DashboardTemplates.InactiveUsersSection(directory.Filter.View, directory.Users, directory.DeletedIds, directory)
+                : DashboardTemplates.UsersSection(directory.Users.Select(u => UserView(u,AdminId(ctx))).ToList(),profiles,providers.EnabledProviders.Count>0,
+                    ctx.RequestServices.GetRequiredService<ProvisioningOptions>(), directory);
             return Render(ctx,users,identities,DashboardSpace.Admin,"users","Users",content);
         });
 

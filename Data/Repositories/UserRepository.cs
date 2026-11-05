@@ -50,6 +50,38 @@ public class UserRepository
             $"SELECT {UserCols} FROM users WHERE is_disabled=0 ORDER BY is_admin DESC, created_at ASC").AsList();
     }
 
+    /// <summary>Bounded, literal substring search. Counts and rows share one SQLite read snapshot.</summary>
+    public UserDirectoryPage Search(UserDirectoryFilter requested)
+    {
+        var filter = UserDirectoryFilter.Normalize(requested.Query, requested.View, requested.Role, requested.Page, requested.PageSize);
+        using var conn = _db.OpenConnection();
+        using var tx = conn.BeginTransaction(deferred: true);
+        const string retired = "FROM deleted_user_ids d WHERE NOT EXISTS(SELECT 1 FROM users u WHERE u.user_id=d.user_id COLLATE NOCASE)";
+        var active = conn.ExecuteScalar<long>("SELECT COUNT(*) FROM users WHERE is_disabled=0", transaction: tx);
+        var disabled = conn.ExecuteScalar<long>("SELECT COUNT(*) FROM users WHERE is_disabled=1", transaction: tx);
+        var deleted = conn.ExecuteScalar<long>("SELECT COUNT(*) " + retired, transaction: tx);
+        // instr keeps %, _ and quotes literal rather than treating user input as LIKE patterns or SQL.
+        var where = filter.View == "deleted"
+            ? retired + " AND instr(lower(d.user_id),lower(@query))>0"
+            : "FROM users WHERE is_disabled=@disabled AND " +
+              "(@role='all' OR (@role='admin' AND is_admin=1) OR (@role='member' AND is_admin=0)) AND " +
+              "(instr(lower(user_id),lower(@query))>0 OR instr(lower(username),lower(@query))>0 OR " +
+              "instr(lower(COALESCE(display_name,'')),lower(@query))>0 OR instr(lower(COALESCE(email,'')),lower(@query))>0)";
+        var args = new { query = filter.Query, role = filter.Role, disabled = filter.View == "disabled" ? 1 : 0 };
+        var total = conn.ExecuteScalar<long>("SELECT COUNT(*) " + where, args, tx);
+        var pages = Math.Max(1, (total + filter.PageSize - 1) / filter.PageSize);
+        filter = filter with { Page = (int)Math.Min(filter.Page, pages) };
+        var paging = new { args.query, args.role, args.disabled, limit = filter.PageSize, offset = (long)(filter.Page - 1) * filter.PageSize };
+        IReadOnlyList<UserRow> rows = Array.Empty<UserRow>();
+        IReadOnlyList<string> ids = Array.Empty<string>();
+        if (filter.View == "deleted")
+            ids = conn.Query<string>("SELECT d.user_id " + where + " ORDER BY d.deleted_at DESC,d.user_id LIMIT @limit OFFSET @offset", paging, tx).AsList();
+        else
+            rows = conn.Query<UserRow>($"SELECT {UserCols} " + where + " ORDER BY is_admin DESC,created_at ASC,user_id LIMIT @limit OFFSET @offset", paging, tx).AsList();
+        tx.Commit();
+        return new(filter, rows, ids, total, active, disabled, deleted);
+    }
+
     /// <summary>
     /// 启动期 admin bootstrap 用。INSERT 时设 is_admin，ON CONFLICT 时强制重置 is_admin
     /// 并清掉 must_change_password —— 配置里的密码视为权威。

@@ -1,5 +1,7 @@
 # nas-auth
 
+Find existing accounts with name/email search, role and lifecycle filters, and bounded pagination. See [user management](docs/user-management.md).
+
 Optional [application account provisioning](docs/account-provisioning.md) creates accounts before first sign-in, with durable delivery, retry and per-user status. Application roles remain managed by each app.
 
 Provider-specific optional profile fields, browser directory lookup, external/password account creation and the unified email form are documented in [External profiles](docs/external-profiles.md). Directory protocol implementations and organization-specific configuration remain outside the generic service.

@@ -286,6 +286,17 @@ td.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end
 @media(max-width:600px) { .account-create > summary, .account-create-body { padding:20px; } }
 
 .lifecycle-nav { display:flex; flex-wrap:wrap; gap:8px; }
+.user-state-count { font-variant-numeric:tabular-nums; font-size:.75rem; color:var(--muted-foreground); padding:1px 6px; border-radius:5px; background:var(--muted); }
+.user-filter { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; margin-bottom:20px; }
+.user-filter .field { width:auto; min-width:120px; }
+.user-filter .user-filter-query { flex:1 1 260px; min-width:180px; }
+.user-filter-actions { display:flex; align-items:center; gap:8px; }
+.user-list-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding-top:16px; margin-top:8px; border-top:1px solid var(--border); }
+.user-pagination { display:flex; align-items:center; gap:12px; }
+.user-directory-table { min-width:760px; }
+.user-directory-table.inactive { min-width:600px; }
+.user-directory-table th:first-child { min-width:240px; }
+@media(max-width:600px) { .user-filter .user-filter-query { flex-basis:100%; } .user-filter .field { flex:1; } .user-list-footer { align-items:flex-start; flex-direction:column; } .user-pagination { flex-wrap:wrap; } }
 .lifecycle-delete { display:inline-block; margin-left:8px; }
 .restore-identity { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:24px; }
 .restore-confirmations { display:grid; gap:14px; margin-top:20px; }

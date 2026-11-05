@@ -28,6 +28,19 @@ public static class I18n
 
     private static readonly Dictionary<string, string> Zh = new(StringComparer.Ordinal)
     {
+        ["Find accounts"] = "查找账号",
+        ["Previous page"] = "上一页",
+        ["Next page"] = "下一页",
+        ["Administrators"] = "管理员",
+        ["Name, username or email"] = "姓名、用户名或邮箱，支持模糊搜索",
+        ["Search by original account ID"] = "搜索原账号 ID",
+        ["All roles"] = "全部角色",
+        ["Rows per page"] = "每页条数",
+        ["Clear filters"] = "清除筛选",
+        ["No matching accounts"] = "没有符合条件的账号",
+        ["Showing {0}–{1} of {2}"] = "第 {0}–{1} 条，共 {2} 条",
+        ["User list pages"] = "用户列表分页",
+        ["Page {0} of {1}"] = "第 {0} / {1} 页",
         ["Application access"] = "应用准入",
         ["Granted"] = "已授权",
         ["Pending synchronization"] = "等待同步",
