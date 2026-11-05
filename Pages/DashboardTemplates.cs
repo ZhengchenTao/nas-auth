@@ -341,7 +341,8 @@ public static class DashboardTemplates
     {
         var name = profile?.GetValueOrDefault(definition.NameField) ?? "";
         var config = System.Text.Json.JsonSerializer.Serialize(new { provider, bridge = definition.BrowserLookupUrl,
-            subject, self, name, subjectField = definition.SubjectField, nameField = definition.NameField,
+            subject, self, name, localNetwork = definition.BrowserLookupNeedsLocalNetwork,
+            subjectField = definition.SubjectField, nameField = definition.NameField,
             fields = definition.Fields.ToDictionary(x => x.Key, x => x.Value.Label),
             visible = definition.Fields.Where(x => x.Value.Visible).Select(x => x.Key).ToArray() });
         var action = subject is null ? "/admin/directory/create" : self ? "/account/directory/import" : "/admin/directory/import";

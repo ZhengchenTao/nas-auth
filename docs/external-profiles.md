@@ -50,6 +50,8 @@ The parent creates a sandboxed iframe with a UUID `request` and exact parent ori
 
 ## A single account email
 
+When a public auth site queries an intranet directory, newer browsers may require Local Network Access permission. Set `BrowserLookupNeedsLocalNetwork=true` only for providers that need it. This delegates the ability to request that permission to the exact helper origin; it does not grant browser permission or enable loopback access. The user must allow the site prompt. Keep browser protections enabled and do not extract directory cookies.
+
 The default external-account form asks for one email and creates a one-time verified-email invitation. The separate password-account form asks for username/password/email. Directory-enabled deployments show personnel search instead of the email invitation form. Existing user IDs never change.
 
 The account editor uses its account email to enable a pending first binding, without a second email input. Historical pending aliases remain visible/removable. Updating the primary email moves its matching unconsumed invitation atomically, preserves unrelated legacy aliases, and rolls back on conflicts. It does not change existing external identity bindings. Account creation and its invitation are also atomic.

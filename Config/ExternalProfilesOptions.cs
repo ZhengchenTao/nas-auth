@@ -40,6 +40,7 @@ public sealed class ExternalProfileProvider
     public bool AllowAdminCreate { get; set; }
     public bool AllowSelfRefresh { get; set; }
     public bool AutoRefreshAfterLogin { get; set; }
+    public bool BrowserLookupNeedsLocalNetwork { get; set; }
 }
 
 public sealed class ExternalProfileField

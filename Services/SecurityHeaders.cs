@@ -34,6 +34,10 @@ public static class SecurityHeaders
             var origins = profiles.Providers.Values.Where(p => p.BrowserLookupUrl.Length > 0)
                 .Select(p => new Uri(p.BrowserLookupUrl).GetLeftPart(UriPartial.Authority)).Distinct().ToArray();
             if (origins.Length > 0) h.ContentSecurityPolicy = ContentSecurityPolicy + "; frame-src " + string.Join(' ', origins);
+            var localOrigins = profiles.Providers.Values.Where(p => p.BrowserLookupNeedsLocalNetwork && p.BrowserLookupUrl.Length > 0)
+                .Select(p => "\"" + new Uri(p.BrowserLookupUrl).GetLeftPart(UriPartial.Authority) + "\"").Distinct().ToArray();
+            if (localOrigins.Length > 0)
+                h["Permissions-Policy"] = "local-network=(self " + string.Join(' ', localOrigins) + "), local-network-access=(self " + string.Join(' ', localOrigins) + ")";
         }
         h.XFrameOptions = "DENY";
         h.XContentTypeOptions = "nosniff";

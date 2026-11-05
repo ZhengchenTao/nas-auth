@@ -20,6 +20,7 @@ public sealed class DirectoryAccountTests : IClassFixture<TicketAuthFactory>
         {
             DisplayName = "Staff directory", BrowserLookupUrl = "https://directory.example.test/lookup.html",
             SubjectField = "user_id", UsernameField = "username", NameField = "name", AllowAdminCreate = true, AllowSelfRefresh = true,
+            BrowserLookupNeedsLocalNetwork = true,
             Fields = new() {
                 ["user_id"] = new() { Label = "Identity", BrowserImport = true },
                 ["username"] = new() { Label = "Username", BrowserImport = true },
@@ -110,6 +111,10 @@ public sealed class DirectoryAccountTests : IClassFixture<TicketAuthFactory>
         Dictionary<string,string> form = new() { ["provider"]="badge-login", ["subject"]="stable-person-123", ["profile_json"]=JsonSerializer.Serialize(fields) };
         Assert.Equal(HttpStatusCode.Forbidden, (await browser.PostAsync("/auth/account/directory/import",new FormUrlEncodedContent(form))).StatusCode);
         var token = await HttpPipelineTests.CsrfToken(browser, "/auth/account");
+        var headers = (await browser.GetAsync("/auth/account")).Headers;
+        var policy = headers.GetValues("Permissions-Policy").Single();
+        Assert.Contains("https://directory.example.test", policy);
+        Assert.DoesNotContain("*", policy);
         form[AntiforgeryGuard.FormFieldName] = token;
         form["use_email"] = "1"; // A forged self-import must never change the primary downstream email.
         Assert.Equal(HttpStatusCode.Redirect, (await browser.PostAsync("/auth/account/directory/import",new FormUrlEncodedContent(form))).StatusCode);

@@ -203,6 +203,7 @@
         clearTimeout(timer); if (frame) frame.remove(); form.hidden = true; results.replaceChildren();
         nonce = crypto.randomUUID(); frame = document.createElement('iframe');
         frame.hidden = true; frame.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+        if (cfg.localNetwork) frame.setAttribute('allow', 'local-network; local-network-access');
         frame.src = cfg.bridge + '#parent=' + encodeURIComponent(location.origin) + '&request=' + encodeURIComponent(nonce);
         box.append(frame); status.textContent = label('正在查询公司目录…', 'Searching directory…');
         timer = setTimeout(function () { finishFailure(label('查询超时，请重试。', 'Directory query timed out.')); }, 8000);
