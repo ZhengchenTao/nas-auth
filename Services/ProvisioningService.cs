@@ -4,6 +4,7 @@ using System.Text.Json;
 using Dapper;
 using NasAuth.Config;
 using NasAuth.Data;
+using NasAuth.Data.Repositories;
 
 namespace NasAuth.Services;
 
@@ -77,10 +78,14 @@ public sealed class ProvisioningService(AuthDb db, AuthOptions auth, Provisionin
         {
             var user = c.QuerySingleOrDefault<AccountProfile>(
                 "SELECT username,display_name,email,is_admin,is_disabled FROM users WHERE user_id=@userId", new { userId }, tx);
-            var grants = c.Query<(string aud, string scopes)>("SELECT aud,scopes FROM user_resources WHERE user_id=@userId", new { userId }, tx)
+            var grants = UserResourceRepository.Effective(c, userId, tx)
                 .ToDictionary(x => x.aud, x => x.scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal));
+            var affectedApps = c.Query<string?>("""
+                SELECT DISTINCT application_id FROM provisioning_changes WHERE user_id=@userId AND revision<=@revision
+                """, new { userId, revision }, tx).ToHashSet();
             foreach (var (id, app) in options.Applications)
             {
+                if (!affectedApps.Contains(null) && !affectedApps.Contains(id)) continue;
                 var previous = c.QuerySingleOrDefault<Snapshot>("SELECT payload,revision FROM provisioning_accounts WHERE application_id=@id AND user_id=@userId", new { id, userId }, tx);
                 var enabled = user is { is_disabled: 0 } && app.RequiredResources.All(x =>
                     catalog.All.Single(r => r.Aud == x.Key).AllowsUser(user.is_admin != 0) &&

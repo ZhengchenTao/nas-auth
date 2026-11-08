@@ -14,9 +14,9 @@ public class UserResourceRepository
     public UserResourceRow? Get(string userId, string aud)
     {
         using var conn = _db.OpenConnection();
-        return conn.QuerySingleOrDefault<UserResourceRow>(
-            "SELECT user_id, aud, scopes FROM user_resources WHERE user_id = @id AND aud = @aud",
-            new { id = userId, aud });
+        return Merge(conn.Query<UserResourceRow>(
+            "SELECT user_id, aud, scopes FROM resource_grant_sources WHERE user_id=@id AND aud=@aud",
+            new { id = userId, aud })).SingleOrDefault();
     }
 
     public IReadOnlyList<UserResourceRow> ListByUser(string userId)
@@ -27,18 +27,39 @@ public class UserResourceRepository
             new { id = userId }).AsList();
     }
 
+    public IReadOnlyList<UserResourceRow> ListEffectiveByUser(string userId)
+    {
+        using var conn = _db.OpenConnection();
+        return Effective(conn, userId, null);
+    }
+
+    internal static IReadOnlyList<UserResourceRow> Effective(Microsoft.Data.Sqlite.SqliteConnection conn,
+        string userId, System.Data.IDbTransaction? transaction, string? excludeGroup = null) =>
+        Merge(conn.Query<UserResourceRow>("""
+            SELECT user_id,aud,scopes FROM resource_grant_sources
+            WHERE user_id=@userId AND (group_id IS NULL OR @excludeGroup IS NULL OR group_id<>@excludeGroup)
+            """, new { userId, excludeGroup }, transaction));
+
+    internal static IReadOnlyList<UserResourceRow> Merge(IEnumerable<UserResourceRow> rows) => rows
+        .GroupBy(r => (r.user_id, r.aud))
+        .OrderBy(g => g.Key.aud, StringComparer.Ordinal)
+        .Select(g => new UserResourceRow(g.Key.user_id, g.Key.aud, string.Join(' ', g
+            .SelectMany(r => r.scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))))
+        .ToList();
+
     /// <summary>每个资源被授予了几个用户（应用与资源页用）。</summary>
     public IReadOnlyDictionary<string, int> CountByAud()
     {
         using var conn = _db.OpenConnection();
-        return conn.Query<(string aud, long n)>("SELECT aud, COUNT(*) FROM user_resources GROUP BY aud")
+        return conn.Query<(string aud, long n)>("SELECT aud, COUNT(DISTINCT user_id) FROM resource_grant_sources GROUP BY aud")
             .ToDictionary(r => r.aud, r => (int)r.n);
     }
 
     public IReadOnlyDictionary<string, IReadOnlyList<string>> UserIdsByAud()
     {
         using var conn = _db.OpenConnection();
-        return conn.Query<(string aud, string user_id)>("SELECT aud, user_id FROM user_resources ORDER BY user_id")
+        return conn.Query<(string aud, string user_id)>("SELECT DISTINCT aud, user_id FROM resource_grant_sources ORDER BY user_id")
             .GroupBy(r => r.aud).ToDictionary(g => g.Key,
                 g => (IReadOnlyList<string>)g.Select(r => r.user_id).ToList());
     }

@@ -77,6 +77,7 @@ public class AuthDb
             provisioning.CommandText = ProvisioningSchema;
             provisioning.ExecuteNonQuery();
         }
+        TryAddColumn(conn, "ALTER TABLE provisioning_changes ADD COLUMN application_id TEXT");
         BackfillDisplayNamesOnce(conn);
     }
 
@@ -278,6 +279,25 @@ CREATE TABLE IF NOT EXISTS user_resources (
     scopes TEXT NOT NULL,
     PRIMARY KEY (user_id, aud)
 );
+
+CREATE TABLE IF NOT EXISTS access_groups (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE
+);
+CREATE TABLE IF NOT EXISTS access_group_members (
+    group_id TEXT NOT NULL REFERENCES access_groups(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    PRIMARY KEY(group_id,user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_access_group_members_user ON access_group_members(user_id);
+CREATE TABLE IF NOT EXISTS access_group_resources (
+    group_id TEXT NOT NULL REFERENCES access_groups(id) ON DELETE CASCADE,
+    aud TEXT NOT NULL, scopes TEXT NOT NULL, PRIMARY KEY(group_id,aud)
+);
+CREATE VIEW IF NOT EXISTS resource_grant_sources AS
+    SELECT user_id,aud,scopes,NULL AS group_id FROM user_resources
+    UNION ALL
+    SELECT m.user_id,r.aud,r.scopes,m.group_id
+    FROM access_group_members m JOIN access_group_resources r ON r.group_id=m.group_id;
 
 -- 预绑定邮箱（external-auth.md §十八）：管理员给某个用户登记一个邮箱，日后首次用 Google 登录、
 -- 且 Google 声明该邮箱已验证（email_verified）的外部身份，直接绑到这个用户、不进待批。用一次即删。

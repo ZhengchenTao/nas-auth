@@ -118,7 +118,7 @@ public static class AccountEndpoints
             var (userId, me) = WhoAmI(ctx, users);
             if (me is null) return Results.Redirect("/login");
 
-            var apps = userResources.ListByUser(userId)
+            var apps = userResources.ListEffectiveByUser(userId)
                 .Select(r => new ProfileAppView(
                     catalog.FindByAud(r.aud)?.DisplayName ?? r.aud, r.aud,
                     r.scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries)))

@@ -182,6 +182,35 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         users.Delete(id, retireId: false);
     }
 
+    [Fact]
+    public async Task AccessGroupRoutesRequireAdministratorAndAntiforgery()
+    {
+        using var admin = _app.Client();
+        await Login(admin, "/admin/groups");
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsync("/admin/groups/new", Form(("name", "Household")))).StatusCode);
+        var created = await SendCsrf(admin, Post("/admin/groups/new", Form(("name", "Household")), secFetchSite: "same-origin"));
+        Assert.Equal(HttpStatusCode.Redirect, created.StatusCode);
+        var path = created.Headers.Location!.OriginalString.Split('?')[0];
+        Assert.StartsWith("/admin/groups/", path);
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsync(path + "/delete", Form())).StatusCode);
+
+        using var scope = _app.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserRepository>();
+        const string id = "group-route-user";
+        users.Create(id, id, PasswordHasher.Hash("group-route-password"), false, allowPasswordLogin: true);
+        try
+        {
+            using var ordinary = _app.Client();
+            await ordinary.PostAsync("/login", Form(("username", id), ("password", "group-route-password"), ("return_url", "/account")));
+            Assert.Equal(HttpStatusCode.NotFound, (await ordinary.GetAsync(path)).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await ordinary.PostAsync(path + "/members", Form(("user_id", id), ("action", "add")))).StatusCode);
+        }
+        finally
+        {
+            users.Delete(id, retireId: false);
+        }
+    }
+
     private static FormUrlEncodedContent Form(params (string K, string V)[] kv) =>
         new(kv.Select(p => new KeyValuePair<string, string>(p.K, p.V)));
 

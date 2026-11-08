@@ -51,7 +51,7 @@ public class UserRepository
     }
 
     /// <summary>Bounded, literal substring search. Counts and rows share one SQLite read snapshot.</summary>
-    public UserDirectoryPage Search(UserDirectoryFilter requested)
+    public UserDirectoryPage Search(UserDirectoryFilter requested, string? excludeGroup = null)
     {
         var filter = UserDirectoryFilter.Normalize(requested.Query, requested.View, requested.Role, requested.Page, requested.PageSize);
         using var conn = _db.OpenConnection();
@@ -67,11 +67,13 @@ public class UserRepository
               "(@role='all' OR (@role='admin' AND is_admin=1) OR (@role='member' AND is_admin=0)) AND " +
               "(instr(lower(user_id),lower(@query))>0 OR instr(lower(username),lower(@query))>0 OR " +
               "instr(lower(COALESCE(display_name,'')),lower(@query))>0 OR instr(lower(COALESCE(email,'')),lower(@query))>0)";
-        var args = new { query = filter.Query, role = filter.Role, disabled = filter.View == "disabled" ? 1 : 0 };
+        if (filter.View != "deleted" && excludeGroup is not null)
+            where += " AND NOT EXISTS(SELECT 1 FROM access_group_members m WHERE m.group_id=@excludeGroup AND m.user_id=users.user_id)";
+        var args = new { query = filter.Query, role = filter.Role, disabled = filter.View == "disabled" ? 1 : 0, excludeGroup };
         var total = conn.ExecuteScalar<long>("SELECT COUNT(*) " + where, args, tx);
         var pages = Math.Max(1, (total + filter.PageSize - 1) / filter.PageSize);
         filter = filter with { Page = (int)Math.Min(filter.Page, pages) };
-        var paging = new { args.query, args.role, args.disabled, limit = filter.PageSize, offset = (long)(filter.Page - 1) * filter.PageSize };
+        var paging = new { args.query, args.role, args.disabled, args.excludeGroup, limit = filter.PageSize, offset = (long)(filter.Page - 1) * filter.PageSize };
         IReadOnlyList<UserRow> rows = Array.Empty<UserRow>();
         IReadOnlyList<string> ids = Array.Empty<string>();
         if (filter.View == "deleted")
@@ -334,6 +336,7 @@ public class UserRepository
             AND EXISTS(SELECT 1 FROM users a WHERE a.user_id=@actorId AND a.is_admin=1 AND a.is_disabled=0)",
             new { id,actorId,bootstrap,hash=NasAuth.Services.PasswordHasher.UnusableHash(),epoch=Guid.NewGuid().ToString("N"),now=DateTimeOffset.UtcNow.ToUnixTimeSeconds() },tx);
         if(changed==0) return false;
+        c.Execute("DELETE FROM access_group_members WHERE user_id=@id",new{id},tx);
         c.Execute("DELETE FROM refresh_tokens WHERE user_id=@id; DELETE FROM auth_codes WHERE user_id=@id; DELETE FROM external_invites WHERE user_id=@id",new{id},tx);
         tx.Commit(); return true;
     }

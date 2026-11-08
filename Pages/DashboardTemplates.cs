@@ -15,7 +15,7 @@ public enum DashboardSpace { Personal, Admin }
 /// 菜单可见性在服务端渲染时决定：非 admin 的 HTML 里不出现管理后台入口；
 /// /admin 路由本身另有 is_admin 实时查库 + 404 门禁（AdminEndpoints 组级过滤器）。
 /// </summary>
-public static class DashboardTemplates
+public static partial class DashboardTemplates
 {
     // (key, label, href)
     private static readonly (string Key, string Label, string Href)[] PersonalMenu =
@@ -29,6 +29,7 @@ public static class DashboardTemplates
     {
         ("overview", "Overview", "/admin"),
         ("users", "Users", "/admin/users"),
+        ("groups", "Groups", "/admin/groups"),
         ("approvals", "Approvals", "/admin/approvals"),
         ("apps", "Apps & resources", "/admin/apps"),
         ("audit", "Audit log", "/admin/audit"),
@@ -728,8 +729,14 @@ public static class DashboardTemplates
             }
             apps.Append($"</div><div class='form-foot'><button class='btn'>{T("Save grants")}</button></div></form>");
             html.Append(Card(T("Application access"),T("Selected apps receive an account automatically. Configure roles and data permissions inside each app."),apps.ToString()));
-            if(provisioningStatuses is not null)
-                html.Append(ProvisioningSection(u.UserId,provisioning,provisioningStatuses,d.Resources,u.IsAdmin));
+            if (provisioningStatuses is not null)
+            {
+                var effective = d.Resources.Select(r => r with
+                {
+                    GrantedScopes = EffectiveScopes(d, r)
+                }).ToList();
+                html.Append(ProvisioningSection(u.UserId,provisioning,provisioningStatuses,effective,u.IsAdmin));
+            }
         }
         var res = new StringBuilder($"<form method='post' action='/admin/users/resources'>{uid}<div class='res-grid'>");
         foreach (var r in d.Resources)
@@ -747,10 +754,11 @@ public static class DashboardTemplates
         }
         res.Append($"</div><div class='form-foot'><button class='btn' type='submit'>{T("Save grants")}</button></div></form>");
         var resourceCard=Card(T("Resource grants"),
-            T("Per-resource maximum scopes for this user. Unchecking every scope of a resource removes the grant entirely; /authorize and token refresh then deny that resource for this user. Resources marked \"admins only\" use the administrator's own credentials upstream and can only be granted to admins."),
+            T("Edit this user's direct grants. Access from their groups still applies. Resources marked \"admins only\" can only be granted to administrators."),
             res.ToString());
         html.Append(provisioning is {Applications.Count: >0} ?
             $"<details class='advanced-resources'><summary>{T("Advanced resource grants")}</summary>{resourceCard}</details>" : resourceCard);
+        if (d.GrantSources is not null) html.Append(UserGrantSourcesSection(d));
 
         // 外部身份（管理员可解绑）
         var ids = new StringBuilder();
@@ -1171,7 +1179,9 @@ public record UserDetailView(
     IReadOnlyList<BindingView> Bindings,
     IReadOnlyList<AccountAuthorizationView> Grants,
     IReadOnlyList<AuditView> RecentLogins,
-    IReadOnlyList<InviteView>? Invites = null
+    IReadOnlyList<InviteView>? Invites = null,
+    IReadOnlyList<NasAuth.Services.AccessGroup>? Groups = null,
+    IReadOnlyList<NasAuth.Services.GroupGrantSource>? GrantSources = null
 );
 
 public record InviteView(string Email, string CreatedAtDisplay);

@@ -10,6 +10,10 @@ Changes below describe source behavior. They are not a claim that every deployme
 - Add bounded server-side pagination (25/50/100 rows), stable ordering, filter-preserving navigation and clear empty states. Disabled profiles remain searchable; deleted records search only the reserved ID.
 - These changes require no schema migration or organization-specific settings. See [user management](docs/user-management.md).
 
+### User groups
+
+- Manage flat user groups and grant application access to all members. Preview changes before saving and inspect direct and group grant sources on each user. Configured account provisioning follows effective access.
+
 ### Account provisioning
 
 - Add optional, configured application account delivery with transactional SQLite change tracking, durable desired state, bounded retry backoff, sanitized audit results and administrator reconciliation.
@@ -28,7 +32,7 @@ Changes below describe source behavior. They are not a claim that every deployme
 
 ### Existing capabilities documented
 
-- Configurable OIDC/ticket upstreams, per-provider profiles, explicit identity approval/binding, administrator role management, disabling and original-identity recovery are implemented. Groups, stronger local sign-in and complete expiring invitations are not yet implemented.
+- Configurable OIDC/ticket upstreams, per-provider profiles, explicit identity approval/binding, administrator role management, disabling and original-identity recovery are implemented. Stronger local sign-in and complete expiring invitations are not yet implemented.
 - Publish security reporting, contribution and [upgrade/backup/recovery guidance](docs/operations.md).
 
 ### Upgrade boundary

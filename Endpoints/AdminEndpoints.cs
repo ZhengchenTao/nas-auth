@@ -29,6 +29,7 @@ public static class AdminEndpoints
             })
             // 写请求要带 antiforgery token（§二十三）；排在管理员门禁之后，非管理员照旧 404
             .RequireCsrfToken();
+        admin.MapAccessGroupEndpoints();
 
         static string AdminId(HttpContext ctx) => ctx.User.Identity?.Name ?? "";
         static string EditPath(string userId) => "/admin/users/edit?user=" + Uri.EscapeDataString(userId);
@@ -194,7 +195,8 @@ public static class AdminEndpoints
             ClientRepository clients,
             ResourceCatalog catalog,
             AuditRepository audit,
-            ExternalInviteRepository invites) =>
+            ExternalInviteRepository invites,
+            AccessGroupService groups) =>
         {
             var targetId = ctx.Request.Query["user"].ToString();
             var target = users.GetById(targetId);
@@ -219,7 +221,9 @@ public static class AdminEndpoints
                 Grants: GrantViews(targetId, refreshTokens, clients, catalog),
                 RecentLogins: RecentLogins(targetId, audit, 5),
                 Invites: invites.ListByUser(targetId)
-                    .Select(i => new InviteView(i.email, TimeDisplay(i.created_at))).ToList());
+                    .Select(i => new InviteView(i.email, TimeDisplay(i.created_at))).ToList(),
+                Groups: groups.Memberships(targetId),
+                GrantSources: groups.Sources(targetId));
             return Render(ctx, users, identities, DashboardSpace.Admin, "users", T("User · {0}", target.username),
                 DashboardTemplates.UserEditSection(detail,ctx.RequestServices.GetRequiredService<ProvisioningOptions>(),
                     ctx.RequestServices.GetRequiredService<ProvisioningService>().List(targetId)));
