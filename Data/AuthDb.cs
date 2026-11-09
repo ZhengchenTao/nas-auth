@@ -78,6 +78,7 @@ public class AuthDb
             provisioning.ExecuteNonQuery();
         }
         TryAddColumn(conn, "ALTER TABLE provisioning_changes ADD COLUMN application_id TEXT");
+        TryAddColumn(conn, "ALTER TABLE deleted_user_ids ADD COLUMN username TEXT COLLATE NOCASE");
         BackfillDisplayNamesOnce(conn);
     }
 
@@ -310,7 +311,7 @@ CREATE TABLE IF NOT EXISTS external_invites (
 CREATE INDEX IF NOT EXISTS idx_external_invites_user ON external_invites(user_id);
 
 -- 删过的 user_id（§十八）：user_id 就是下发给各应用的 sub / preferred_username，应用按它认账号；
--- 删人后再建同名用户，新人会直接进旧人在各应用里的账号。所以删除即登记，之后新建 / 审批一律拒绝复用（大小写不敏感）。
+-- 删人后永久保留原身份。确认复用登录名时，另发新的 user_id。
 CREATE TABLE IF NOT EXISTS deleted_user_ids (
     user_id TEXT NOT NULL PRIMARY KEY COLLATE NOCASE,
     deleted_at INTEGER NOT NULL

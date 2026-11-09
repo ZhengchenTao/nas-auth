@@ -44,3 +44,12 @@ Adding or removing a member applies the group's current grants immediately in Au
 用户可以加入多个组。有效准入合并个人授权及所在各组的授权。移除一项授权后，其他来源仍然有效。用户详情的「授权来源」会列出个人和各组授予的权限。仅管理员可用的资源不参与组授权。
 
 加入或移除成员时，Auth 立即重新计算准入，已配置的账号下发异步处理。停用账号会移除组成员关系。组清空成员后可删除。
+
+
+## Reuse a sign-in name
+
+In the password account form, open **Reuse a deleted username** and confirm that any matching application bindings have been checked. A different person receives a fresh subject and starts with no application grants. Auth keeps the retired subject for original-person recovery. Applications that match by email or a separate identity field still require a binding check. If the name is already in use, the earlier identity cannot be restored under that name.
+
+## 复用登录名
+
+在密码账号表单展开「复用已删除的用户名」，确认已检查可能匹配的应用账号。新人使用新的身份标识，创建后单独配置应用准入。Auth 保留旧标识供原人恢复。按邮箱或其他字段匹配的应用仍需核对绑定。用户名已被占用时，旧身份不能以该用户名恢复。

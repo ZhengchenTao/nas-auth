@@ -65,7 +65,7 @@ public static class AdminEndpoints
             var content = directory.Filter.View is "disabled" or "deleted"
                 ? DashboardTemplates.InactiveUsersSection(directory.Filter.View, directory.Users, directory.DeletedIds, directory)
                 : DashboardTemplates.UsersSection(directory.Users.Select(u => UserView(u,AdminId(ctx))).ToList(),profiles,providers.EnabledProviders.Count>0,
-                    ctx.RequestServices.GetRequiredService<ProvisioningOptions>(), directory);
+                    ctx.RequestServices.GetRequiredService<ResourceCatalog>(), directory);
             return Render(ctx,users,identities,DashboardSpace.Admin,"users","Users",content);
         });
 
@@ -128,28 +128,35 @@ public static class AdminEndpoints
                 return RedirectTo("/admin/users", error: T("Password must be at least 8 characters"));
             if (users.GetByUsername(newUsername) is not null)
                 return RedirectTo("/admin/users", error: T("Username {0} already exists", newUsername));
-            if (users.IsRetiredId(newUsername))
-                return RedirectTo("/admin/users/restore?user="+Uri.EscapeDataString(newUsername), notice:T("This identity was deleted; confirm restoration of the original person instead of creating a new owner"));
+            var retiredId = users.RetiredIdentityForUsername(newUsername);
+            var reuseName = retiredId is not null && form["reuse_username"] == "1";
+            if (retiredId is not null && !reuseName)
+                return RedirectTo("/admin/users/restore?user="+Uri.EscapeDataString(retiredId), notice:T("This identity was deleted; confirm restoration of the original person instead of creating a new owner"));
+            var newUserId = reuseName ? "u-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(15)).ToLowerInvariant() : newUsername;
             if (!IsValidEmail(newEmail) || !IsValidEmail(inviteEmail))
                 return RedirectTo("/admin/users", error: T("Invalid email address"));
+            if (reuseName && !allowPassword)
+                return RedirectTo("/admin/users", error: T("Use the password account form to reuse a deleted username."));
 
             try { users.Create(
-                userId: newUsername,
+                userId: newUserId,
                 username: newUsername,
                 passwordHash: allowPassword ? PasswordHasher.Hash(tempPwd) : PasswordHasher.UnusableHash(),
                 mustChangePassword: mustChange,
                 email: newEmail,
                 allowPasswordLogin: allowPassword, inviteEmail: inviteEmail, createdBy: adminId,
-                applicationGrants: provisioning.SelectedGrants(form["application"].Select(x => x ?? ""))); }
+                applicationGrants: reuseName ? null : provisioning.FormGrants(form), checkIdentityReservation: true); }
+            catch (UserIdentityConflictException)
+            { return RedirectTo("/admin/users", error: T("Username {0} already exists", newUsername)); }
             catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 19)
             { return RedirectTo("/admin/users", error: T("Username or pending email binding already exists; no account was created")); }
-            audit.AccountAction("user-create", true, adminId, $"target={newUsername} password_login={(allowPassword ? 1 : 0)} must_change={(mustChange ? 1 : 0)}");
+            audit.AccountAction(reuseName ? "user-create-reused-name" : "user-create", true, adminId, $"target={newUserId} password_login={(allowPassword ? 1 : 0)} must_change={(mustChange ? 1 : 0)}");
 
             if (!string.IsNullOrEmpty(inviteEmail))
             {
                 audit.AccountAction("invite-add", true, adminId, $"target={newUsername} email={UserRepository.NormalizeEmail(inviteEmail)}");
             }
-            return RedirectTo(allowPassword ? "/admin/users" : EditPath(newUsername),
+            return RedirectTo(allowPassword && !reuseName ? "/admin/users" : EditPath(newUserId),
                 notice: !allowPassword
                     ? T("Created user {0} (external sign-in only)", newUsername)
                     : mustChange
@@ -211,7 +218,7 @@ public static class AdminEndpoints
                     DisplayName: r.DisplayName,
                     AllScopes: r.Scopes,
                     GrantedScopes: granted.TryGetValue(r.Aud, out var s) ? s : Array.Empty<string>(),
-                    AdminOnly: r.AdminOnly))
+                    AdminOnly: r.AdminOnly, ApplicationId: r.App?.Id, ApplicationName: r.App?.Name))
                 .ToList();
 
             var detail = new UserDetailView(

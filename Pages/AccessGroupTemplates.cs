@@ -21,7 +21,7 @@ public static partial class DashboardTemplates
             body.Append("</tbody></table></div>");
         }
         return Card(T("User groups"), T("Give a set of people access to the same applications."), body.ToString(),
-            action: $"<a class='btn' data-size='sm' href='/admin/groups/new'>{T("New group")}</a>");
+            action: $"<a class='btn' data-variant='outline' data-size='sm' href='/admin/groups/new'>{T("New group")}</a>");
     }
 
     public static string NewGroupSection() => BackToGroups() +

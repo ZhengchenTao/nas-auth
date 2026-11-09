@@ -22,7 +22,7 @@ public static class ExternalProfileEndpoints
             try
             {
                 var fields = directory.Validate(provider, subject, form["profile_json"]);
-                var user = directory.Create(provider, subject, fields, ctx.User.Identity!.Name!, provisioning.SelectedGrants(form["application"].Select(x => x ?? "")));
+                var user = directory.Create(provider, subject, fields, ctx.User.Identity!.Name!, provisioning.FormGrants(form));
                 audit.AccountAction("directory-create", true, ctx.User.Identity.Name!, $"target={user} provider={provider}");
                 return Results.Redirect("/admin/users/edit?user=" + Uri.EscapeDataString(user));
             }

@@ -94,6 +94,37 @@ public sealed class UserLifecycleTests : IClassFixture<NasAuthAppFactory>
     }
 
     [Fact]
+    public async Task ReusedUsernameStartsWithNewSubjectAndNoApplicationAccess()
+    {
+        const string name = "lifecycle-reused";
+        using var scope = _app.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserRepository>();
+        var grants = scope.ServiceProvider.GetRequiredService<UserResourceRepository>();
+        users.Create(name, name, PasswordHasher.Hash("old-password"), false, allowPasswordLogin: true);
+        grants.Upsert(name, "immich", "openid");
+        using var admin = await Admin();
+        await Write(admin, "/admin/users/delete", ("user_id", name));
+        var form = new[] { ("username", name), ("temp_password", "new-password"),
+            ("allow_password_login", "1"), ("scope:immich", "openid") };
+        var rejected = await Write(admin, "/admin/users/create", form);
+        Assert.Contains("/admin/users/restore", rejected.Headers.Location!.OriginalString);
+        Assert.Null(users.GetByUsername(name));
+
+        var created = await Write(admin, "/admin/users/create", [.. form, ("reuse_username", "1")]);
+        var replacement = users.GetByUsername(name)!;
+        Assert.NotEqual(name, replacement.user_id);
+        Assert.Contains(replacement.user_id, created.Headers.Location!.OriginalString);
+        Assert.True(users.IsRetiredId(name));
+        Assert.Empty(grants.ListByUser(replacement.user_id));
+        Assert.False(users.RestoreIdentity("admin", name, true, PasswordHasher.UnusableHash(), false, null));
+        Assert.Equal(PasswordSignInStatus.Ok, scope.ServiceProvider.GetRequiredService<PasswordSignIn>().Attempt(name, "new-password").Status);
+
+        await Write(admin, "/admin/users/delete", ("user_id", replacement.user_id));
+        Assert.True(users.RestoreIdentity("admin", replacement.user_id, true, PasswordHasher.UnusableHash(), false, null));
+        Assert.Equal(name, users.GetById(replacement.user_id)!.username);
+    }
+
+    [Fact]
     public async Task LifecycleGuards_ProtectCurrentAndRecoveryAdministrators_RejectOrdinaryUsers()
     {
         using var scope=_app.Services.CreateScope();var sp=scope.ServiceProvider;var users=sp.GetRequiredService<UserRepository>();

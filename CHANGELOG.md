@@ -10,7 +10,14 @@ Changes below describe source behavior. They are not a claim that every deployme
 - Add bounded server-side pagination (25/50/100 rows), stable ordering, filter-preserving navigation and clear empty states. Disabled profiles remain searchable; deleted records search only the reserved ID.
 - These changes require no schema migration or organization-specific settings. See [user management](docs/user-management.md).
 
+### Application grants and account lifecycle
+
+- Use the full resource catalog to assign application access during account creation and editing. Account sync shows applications with effective access or delivery history.
+- Allow explicitly confirmed reuse of a deleted sign-in name for a new password account. Preserve the old subject, mint a new subject and downstream login, and require a separate application grant.
+
 ### User groups
+
+- Use the dashboard outline button style for the New group link so its label stays readable in both themes.
 
 - Manage flat user groups and grant application access to all members. Preview changes before saving and inspect direct and group grant sources on each user. Configured account provisioning follows effective access.
 

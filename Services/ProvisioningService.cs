@@ -22,6 +22,18 @@ public sealed class ProvisioningService(AuthDb db, AuthOptions auth, Provisionin
             .SelectMany(id => options.Applications[id].RequiredResources)
             .GroupBy(x => x.Key).ToDictionary(g => g.Key, g => string.Join(' ', g.SelectMany(x => x.Value).Distinct()));
 
+    public Dictionary<string, string> FormGrants(Microsoft.AspNetCore.Http.IFormCollection form)
+    {
+        var grants = SelectedGrants(form["application"].Select(value => value ?? ""));
+        foreach (var resource in catalog.All.Where(resource => resource.AllowsUser(false)))
+        {
+            var selected = form[$"scope:{resource.Aud}"].Where(scope => scope is not null && resource.Scopes.Contains(scope));
+            var scopes = string.Join(' ', selected.Concat(grants.GetValueOrDefault(resource.Aud, "").Split(' ', StringSplitOptions.RemoveEmptyEntries)).Distinct());
+            if (scopes.Length > 0) grants[resource.Aud] = scopes;
+        }
+        return grants;
+    }
+
     public bool SetApplications(string userId,IEnumerable<string> applications)
     {
         using var c=db.OpenConnection();using var tx=c.BeginTransaction();
@@ -93,8 +105,15 @@ public sealed class ProvisioningService(AuthDb db, AuthOptions auth, Provisionin
                 // Never create a downstream account just to disable somebody who never had access.
                 if (!enabled && previous is null) continue;
                 var old = previous is null ? null : JsonSerializer.Deserialize<ProvisionedAccount>(previous.payload);
+                var username = user?.username ?? userId;
+                // A recycled local sign-in name must not match an earlier downstream login.
+                if (username != userId && c.ExecuteScalar<long>("""
+                    SELECT COUNT(*) FROM deleted_user_ids WHERE user_id<>@userId COLLATE NOCASE
+                        AND COALESCE(username,user_id)=@username COLLATE NOCASE
+                    """, new { userId, username }, tx) > 0)
+                    username = userId;
                 var desired = new ProvisionedAccount("", 0, id, auth.Issuer, userId,
-                    user?.username ?? userId, user?.display_name ?? user?.username,
+                    old?.Username ?? username, user?.display_name ?? user?.username,
                     user?.email, enabled);
                 if (old is not null && desired == old with { EventId = "", Revision = 0 }) continue;
                 // Wall-clock floor makes a normal database restore newer than already delivered events.

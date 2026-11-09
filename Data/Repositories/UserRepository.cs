@@ -2,6 +2,8 @@ using Dapper;
 
 namespace NasAuth.Data.Repositories;
 
+public sealed class UserIdentityConflictException() : InvalidOperationException("The username or identity is already reserved.");
+
 public class UserRepository
 {
     private readonly AuthDb _db;
@@ -110,11 +112,19 @@ public class UserRepository
     /// </summary>
     public void Create(string userId, string username, string passwordHash, bool mustChangePassword,
         string? email = null, bool allowPasswordLogin = false, string? displayName = null,
-        string? inviteEmail = null, string? createdBy = null, IReadOnlyDictionary<string,string>? applicationGrants = null)
+        string? inviteEmail = null, string? createdBy = null, IReadOnlyDictionary<string,string>? applicationGrants = null,
+        bool checkIdentityReservation = false)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         using var conn = _db.OpenConnection();
         using var transaction = conn.BeginTransaction();
+        if (checkIdentityReservation && conn.ExecuteScalar<long>("""
+            SELECT EXISTS(SELECT 1 FROM deleted_user_ids WHERE user_id=@userId COLLATE NOCASE
+                OR (@userId=@username COLLATE NOCASE AND COALESCE(username,user_id)=@username COLLATE NOCASE))
+            OR (@userId<>@username COLLATE NOCASE AND EXISTS(
+                SELECT 1 FROM users WHERE username=@username COLLATE NOCASE))
+            """, new { userId, username }, transaction) != 0)
+            throw new UserIdentityConflictException();
         conn.Execute(@"
             INSERT INTO users (user_id, username, password_hash, is_admin, must_change_password,
                                created_at, updated_at, email, allow_password_login, display_name)
@@ -241,16 +251,27 @@ public class UserRepository
         using var tx = conn.BeginTransaction();
         conn.Execute("DELETE FROM refresh_tokens WHERE user_id = @id", new { id = userId }, tx);
         conn.Execute("DELETE FROM auth_codes WHERE user_id = @id", new { id = userId }, tx);
+        var username = conn.ExecuteScalar<string?>("SELECT username FROM users WHERE user_id=@id", new { id = userId }, tx);
         conn.Execute("DELETE FROM users WHERE user_id = @id", new { id = userId }, tx);
         // §十八：登记删过的 id，之后不许再建同名用户（各应用按这个 id 认账号）
         if (retireId)
-            conn.Execute(@"INSERT INTO deleted_user_ids (user_id, deleted_at) VALUES (@id, @now)
-                       ON CONFLICT(user_id) DO NOTHING",
-            new { id = userId, now = DateTimeOffset.UtcNow.ToUnixTimeSeconds() }, tx);
+            conn.Execute(@"INSERT INTO deleted_user_ids (user_id, deleted_at, username) VALUES (@id, @now, @username)
+                       ON CONFLICT(user_id) DO UPDATE SET username=COALESCE(excluded.username,deleted_user_ids.username)",
+            new { id = userId, username, now = DateTimeOffset.UtcNow.ToUnixTimeSeconds() }, tx);
         tx.Commit();
     }
 
     /// <summary>这个 user_id 是否被删过（大小写不敏感，§十八）。新建 / 审批建号前查。</summary>
+    public string? RetiredIdentityForUsername(string username)
+    {
+        using var conn = _db.OpenConnection();
+        return conn.ExecuteScalar<string?>("""
+            SELECT user_id FROM deleted_user_ids
+            WHERE COALESCE(username,user_id)=@username COLLATE NOCASE
+            ORDER BY deleted_at DESC,user_id LIMIT 1
+            """, new { username });
+    }
+
     public bool IsRetiredId(string userId)
     {
         using var conn = _db.OpenConnection();
@@ -349,8 +370,10 @@ public class UserRepository
         int n;
         if(deleted)
             n=c.Execute(@"INSERT INTO users(user_id,username,password_hash,is_admin,must_change_password,created_at,updated_at,email,allow_password_login,session_epoch)
-                SELECT user_id,user_id,@hash,0,0,@now,@now,@email,@allow,@epoch FROM deleted_user_ids WHERE user_id=@id COLLATE NOCASE
-                AND NOT EXISTS(SELECT 1 FROM users WHERE user_id=@id COLLATE NOCASE OR username=@id COLLATE NOCASE)",args,tx);
+                SELECT d.user_id,COALESCE(d.username,d.user_id),@hash,0,0,@now,@now,@email,@allow,@epoch
+                FROM deleted_user_ids d WHERE d.user_id=@id COLLATE NOCASE
+                AND NOT EXISTS(SELECT 1 FROM users u WHERE u.user_id=d.user_id COLLATE NOCASE
+                    OR u.username=COALESCE(d.username,d.user_id) COLLATE NOCASE)",args,tx);
         else
             n=c.Execute(@"UPDATE users SET is_disabled=0,is_admin=0,password_hash=@hash,allow_password_login=@allow,must_change_password=0,
                 failed_login_count=0,locked_until=NULL,session_version=session_version+1,session_epoch=@epoch,updated_at=@now
