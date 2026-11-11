@@ -29,7 +29,8 @@ public record AuthCodeRow(
     long expires_at,
     long consumed,
     long created_at,
-    string? nonce
+    string? nonce,
+    string? session_id = null
 );
 
 public record RefreshTokenRow(
@@ -41,7 +42,8 @@ public record RefreshTokenRow(
     long expires_at,
     long revoked,
     long created_at,
-    long? last_used_at
+    long? last_used_at,
+    string? session_id = null
 );
 
 // 注意字段顺序：Dapper 对 positional record 按 reader 列序匹配构造参数，

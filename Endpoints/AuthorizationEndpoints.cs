@@ -195,7 +195,8 @@ public static class AuthorizationEndpoints
             var grantedScopeStr = string.Join(' ', grantedScopes.Distinct());
             var grantedAud = string.Join(',', grantedResources.Select(r => r.Aud));
 
-            await SignInCookie(ctx, user.user_id);
+            var sessionId = await SignInCookie(ctx, user.user_id, form["use_session"] != "1", user);
+            if (sessionId is null) return RenderError(T("Your session has expired. Please sign in again."), StatusCodes.Status403Forbidden);
 
             var code = RegistrationEndpoints.GenerateRandomToken(32);
             authCodes.Insert(new AuthCodeRow(
@@ -213,7 +214,7 @@ public static class AuthorizationEndpoints
                 consumed: 0,
                 created_at: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 // OIDC nonce：原样存下来，/token 签 id_token 时回显（防重放，Core §3.1.2.1）
-                nonce: string.IsNullOrEmpty(form["nonce"].ToString()) ? null : form["nonce"].ToString()));
+                nonce: string.IsNullOrEmpty(form["nonce"].ToString()) ? null : form["nonce"].ToString(), session_id: sessionId));
 
             audit.Authorize(true, client.client_id, user.user_id, grantedAud,
                 grantedScopeStr, ctx.RemoteIp());
@@ -375,10 +376,12 @@ public static class AuthorizationEndpoints
         return string.IsNullOrEmpty(query) ? "/authorize" : "/authorize?" + query;
     }
 
-    public static async Task SignInCookie(HttpContext ctx, string userId)
+    public static async Task<string?> SignInCookie(HttpContext ctx, string userId, bool freshAuthentication = true, NasAuth.Data.UserRow? proof = null)
     {
         // 票据带上当前会话版本（§十六 SessionValidator）：版本被 +1 后这张 cookie 即作废
         var user = ctx.RequestServices.GetRequiredService<UserRepository>().GetById(userId) ?? throw new InvalidOperationException("Account unavailable");
+        var sessionId = ctx.RequestServices.GetRequiredService<DeviceSessions>().SignIn(ctx, proof ?? user, freshAuthentication);
+        if (sessionId is null) { await ctx.SignOutAsync(); return null; }
         var version = user.session_version;
         var identity = new ClaimsIdentity(new[]
         {
@@ -386,10 +389,12 @@ public static class AuthorizationEndpoints
             new Claim(ClaimTypes.Name, userId),
             new Claim(SessionValidator.ClaimType, version.ToString()),
             new Claim(SessionValidator.EpochClaimType, user.session_epoch),
+            new Claim(DeviceSessions.ClaimType, sessionId),
         }, CookieAuthenticationDefaults.AuthenticationScheme);
         // IsPersistent：cookie 带 Expires 落盘，浏览器重启后 SSO 会话仍在
         await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,
             new ClaimsPrincipal(identity),
             new AuthenticationProperties { IsPersistent = true });
+        return sessionId;
     }
 }

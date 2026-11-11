@@ -301,3 +301,16 @@ td.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end
 .lifecycle-delete { display:inline-block; margin-left:8px; }
 .restore-identity { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:24px; }
 .restore-confirmations { display:grid; gap:14px; margin-top:20px; }
+
+/* Device sessions keep the existing table on desktop and stack complete rows on phones. */
+@media (max-width: 600px) {
+  .device-session-table, .device-session-table tbody { display: block; width: 100%; }
+  .device-session-table thead { display: none; }
+  .device-session-table tr { display: block; padding: 12px 0; }
+  .device-session-table td { display: block; width: 100%; padding: 4px 0; white-space: normal; }
+  .device-session-table td.fit { width: 100%; }
+  .device-session-table td[data-label]::before { content: attr(data-label); display: block; color: var(--muted-foreground); font-size: .75rem; }
+  .device-session-table details { margin: 6px 0; }
+  .device-session-table details form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .device-session-table details .field { flex: 1; min-width: 160px; }
+}

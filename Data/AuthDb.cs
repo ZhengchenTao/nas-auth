@@ -79,6 +79,13 @@ public class AuthDb
         }
         TryAddColumn(conn, "ALTER TABLE provisioning_changes ADD COLUMN application_id TEXT");
         TryAddColumn(conn, "ALTER TABLE deleted_user_ids ADD COLUMN username TEXT COLLATE NOCASE");
+        TryAddColumn(conn, "ALTER TABLE auth_codes ADD COLUMN session_id TEXT");
+        TryAddColumn(conn, "ALTER TABLE refresh_tokens ADD COLUMN session_id TEXT");
+        using (var devices = conn.CreateCommand())
+        {
+            devices.CommandText = DeviceSessionSchema;
+            devices.ExecuteNonQuery();
+        }
         using (var links = conn.CreateCommand())
         {
             links.CommandText = CredentialLinkSchema;
@@ -142,6 +149,25 @@ public class AuthDb
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
             Directory.CreateDirectory(dir);
     }
+
+    private const string DeviceSessionSchema = """
+CREATE TABLE IF NOT EXISTS device_sessions (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    name TEXT, browser TEXT NOT NULL, platform TEXT NOT NULL, last_ip TEXT NOT NULL,
+    created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+    revoked_at INTEGER, session_version INTEGER NOT NULL, session_epoch TEXT NOT NULL,
+    legacy_cookie_expires_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_device_sessions_user ON device_sessions(user_id,last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_auth_codes_session ON auth_codes(session_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_session ON refresh_tokens(session_id);
+CREATE TRIGGER IF NOT EXISTS device_sessions_user_changed
+AFTER UPDATE OF session_version,session_epoch,is_disabled ON users
+WHEN OLD.session_version IS NOT NEW.session_version OR OLD.session_epoch IS NOT NEW.session_epoch
+ OR OLD.is_disabled IS NOT NEW.is_disabled
+BEGIN UPDATE device_sessions SET revoked_at=CAST(strftime('%s','now') AS INTEGER)
+ WHERE user_id=NEW.user_id AND revoked_at IS NULL; END;
+""";
 
     private const string CredentialLinkSchema = """
 CREATE TABLE IF NOT EXISTS credential_links (

@@ -40,7 +40,7 @@ public class JwtIssuer
     /// 单元素时 JWT 的 aud 序列化为字符串，多元素时序列化为数组——两种形态标准校验器
     /// （含本服务 ProxyEndpoints 的 jwt.Audiences.Contains）都能吃。
     /// </summary>
-    public string IssueAccessToken(string userId, string clientId, IReadOnlyList<string> auds, string resource, string scope)
+    public string IssueAccessToken(string userId, string clientId, IReadOnlyList<string> auds, string resource, string scope, string? sessionId = null)
     {
         if (auds is null || auds.Count == 0)
             throw new ArgumentException("auds 至少要有一个 audience", nameof(auds));
@@ -60,6 +60,7 @@ public class JwtIssuer
         };
         var epoch = _users?.GetById(userId)?.session_epoch;
         if (!string.IsNullOrEmpty(epoch)) claims.Add(new Claim(SessionValidator.EpochClaimType, epoch));
+        if (sessionId is not null) claims.Add(new Claim(DeviceSessions.ClaimType, sessionId));
         // 多个 aud claim → JwtPayload 聚合成数组；单个 → 字符串。
         // 不走 JwtSecurityToken(audience:) 构造参数，避免与这里的 aud claim 重复。
         foreach (var a in auds) claims.Add(new Claim("aud", a));

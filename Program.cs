@@ -66,6 +66,10 @@ builder.Services.AddScoped<AccessGroupService>();
 builder.Services.AddScoped<ApplicationDiagnostics>();
 builder.Services.AddScoped<ApplicationOnboarding>();
 builder.Services.AddScoped<CredentialLinkService>();
+var deviceSessions = builder.Configuration.GetSection("DeviceSessions").Get<DeviceSessionOptions>() ?? new();
+deviceSessions.Validate();
+builder.Services.AddSingleton(deviceSessions);
+builder.Services.AddSingleton<DeviceSessions>();
 var credentialLinks = builder.Configuration.GetSection("CredentialLinks").Get<CredentialLinkOptions>() ?? new();
 credentialLinks.Validate();
 builder.Services.AddSingleton(credentialLinks);
@@ -146,7 +150,7 @@ var authBuilder = builder.Services.AddAuthentication(CookieAuthenticationDefault
         options.ReturnUrlParameter = "return_url";
         // 30 天滑动续期：活跃用户 SSO 会话不掉，下游 RP（Gitea / Immich 等）
         // 重新 authorize 时静默放行，不用重输密码
-        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        options.ExpireTimeSpan = TimeSpan.FromHours(deviceSessions.IdleHours);
         options.SlidingExpiration = true;
         options.LoginPath = "/login";
         options.LogoutPath = "/logout";

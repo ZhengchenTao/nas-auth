@@ -39,6 +39,7 @@ These controls follow the [OWASP recovery guidance](https://cheatsheetseries.owa
 The migration adds `credential_links` and an invalidation trigger, preserving existing subjects,
 grants and credentials. Back up SQLite and signing/cookie keys consistently before deployment.
 Use a rollback version that already enforces account epochs (such as the prior unified release).
+If device sessions are enabled, [retain device-session enforcement as well](device-sessions.md#deployment-and-rollback).
 Never restore an old live database to undo a UI change. During rollback, newly issued links will
 be unavailable until an invitation-aware version is running; credential changes already made stay
 effective. Keep trigger/table compatibility when performing a later migration.

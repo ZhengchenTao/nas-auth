@@ -29,15 +29,17 @@ public class JwtValidator
     private readonly JwtOptions _jwt;
     private readonly AuthOptions _auth;
     private readonly UserRepository? _users;
+    private readonly DeviceSessions? _sessions;
     private readonly OidcKeyService _oidcKeys;
     private readonly ILogger _logger;
     private int _legacyExpiredLogged; // 过了截止时间后只 warn 一次，避免每个请求刷日志
 
-    public JwtValidator(JwtOptions jwt, AuthOptions auth, OidcKeyService oidcKeys, ILogger<JwtValidator>? logger = null, NasAuth.Data.AuthDb? db = null)
+    public JwtValidator(JwtOptions jwt, AuthOptions auth, OidcKeyService oidcKeys, ILogger<JwtValidator>? logger = null, NasAuth.Data.AuthDb? db = null, DeviceSessions? sessions = null)
     {
         _jwt = jwt;
         _auth = auth;
         _users = db is null ? null : new UserRepository(db);
+        _sessions = sessions ?? (db is null ? null : new DeviceSessions(db, new(), TimeProvider.System));
         _oidcKeys = oidcKeys;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
     }
@@ -76,6 +78,9 @@ public class JwtValidator
                 if (user is null || (principal.FindFirst(SessionValidator.EpochClaimType)?.Value ?? "") != user.session_epoch)
                 { validated = null; return null; }
             }
+            if (principal.FindFirst(DeviceSessions.ClaimType)?.Value is { } sessionId &&
+                _sessions?.CredentialIsActive(sessionId, principal.FindFirst("sub")?.Value ?? "", touch: true) != true)
+            { validated = null; return null; }
             return principal;
         }
         catch

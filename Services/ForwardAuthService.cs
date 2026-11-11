@@ -57,8 +57,8 @@ public sealed class ForwardAuthService
     }
 
     public record State(string Aud, string ReturnPath, string Nonce, long Exp);
-    public record Ticket(string Aud, string UserId, long SessionVersion, string Nonce, string Id, long Exp, string? SessionEpoch = null);
-    public record Session(string Aud, string UserId, long SessionVersion, long Exp, string? SessionEpoch = null);
+    public record Ticket(string Aud, string UserId, long SessionVersion, string Nonce, string Id, long Exp, string? SessionEpoch = null, string? SessionId = null);
+    public record Session(string Aud, string UserId, long SessionVersion, long Exp, string? SessionEpoch = null, string? SessionId = null);
 
     private long Now => _time.GetUtcNow().ToUnixTimeSeconds();
 
@@ -87,8 +87,8 @@ public sealed class ForwardAuthService
     /// 发起这次登录的浏览器的随机数（取自它带来的 state）。票据只能配这个随机数用：
     /// 拿到别人的 state，配上自己的票据发给对方点（让对方以自己的身份登进站点），随机数对不上。
     /// </param>
-    public string CreateTicket(string aud, string userId, long sessionVersion, string nonce, string sessionEpoch = "") =>
-        Protect(_ticket, new Ticket(aud, userId, sessionVersion, nonce, NewNonce(), Now + (long)TicketLifetime.TotalSeconds, sessionEpoch));
+    public string CreateTicket(string aud, string userId, long sessionVersion, string nonce, string sessionEpoch = "", string? sessionId = null) =>
+        Protect(_ticket, new Ticket(aud, userId, sessionVersion, nonce, NewNonce(), Now + (long)TicketLifetime.TotalSeconds, sessionEpoch, sessionId));
 
     public bool TryReadTicket(string? raw, [NotNullWhen(true)] out Ticket? ticket) =>
         TryUnprotect(_ticket, raw, out ticket) && ticket.Exp > Now;
@@ -107,8 +107,8 @@ public sealed class ForwardAuthService
         return _usedTickets.TryAdd(ticket.Id, ticket.Exp);
     }
 
-    public string CreateSession(string aud, string userId, long sessionVersion, TimeSpan lifetime, string sessionEpoch = "") =>
-        Protect(_session, new Session(aud, userId, sessionVersion, Now + (long)lifetime.TotalSeconds, sessionEpoch));
+    public string CreateSession(string aud, string userId, long sessionVersion, TimeSpan lifetime, string sessionEpoch = "", string? sessionId = null) =>
+        Protect(_session, new Session(aud, userId, sessionVersion, Now + (long)lifetime.TotalSeconds, sessionEpoch, sessionId));
 
     public bool TryReadSession(string? raw, [NotNullWhen(true)] out Session? session) =>
         TryUnprotect(_session, raw, out session) && session.Exp > Now;

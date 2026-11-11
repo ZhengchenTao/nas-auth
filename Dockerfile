@@ -52,6 +52,7 @@ ENV ASPNETCORE_URLS=http://0.0.0.0:8080 \
     DOTNET_NOLOGO=true
 
 LABEL org.opencontainers.image.source="${SOURCE_URL}" \
+      io.nas-auth.device-sessions="1" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.title="nas-auth" \
       org.opencontainers.image.description="OAuth 2.1 / OIDC / DCR authorization server for self-hosted services"

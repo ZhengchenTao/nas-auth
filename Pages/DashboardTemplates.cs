@@ -23,6 +23,7 @@ public static partial class DashboardTemplates
         ("overview", "Overview", "/account"),
         ("grants", "Authorized apps", "/account/grants"),
         ("security", "Sign-in & security", "/account/security"),
+        ("sessions", "Devices and sessions", "/account/sessions"),
     };
 
     private static readonly (string Key, string Label, string Href)[] AdminMenu =
@@ -175,6 +176,9 @@ public static partial class DashboardTemplates
         ["change-password"] = "Change own password",
         ["force-change-password"] = "Set password after reset",
         ["sessions-revoke-others"] = "Sign out other devices",
+        ["session-revoke"] = "Sign out device",
+        ["admin-session-revoke"] = "Sign out device",
+        ["session-name"] = "Rename device",
         ["user-create"] = "Create user",
         ["user-update"] = "Edit user",
         ["user-delete"] = "Delete user",
@@ -483,10 +487,10 @@ public static partial class DashboardTemplates
         }
 
         // 登录会话（§十六）
-        var sessions = $"<form method='post' action='/account/sessions/revoke-others' {Confirm(T("Sign out of all other devices?"))}>" +
+        var sessions = $"<p><a class='btn' data-variant='outline' href='/account/sessions'>{T("Manage device sessions")}</a></p><form method='post' action='/account/sessions/revoke-others' {Confirm(T("Sign out of all other devices?"))}>" +
                        $"<button class='btn' data-variant='outline' type='submit'>{T("Sign out of all other devices")}</button></form>";
         html += Card(T("Sessions"),
-            T("A nas-auth sign-in lasts 30 days and renews while in use. If you signed in on someone else's computer, sign out everywhere else here; this browser stays signed in. Apps you authorized keep working — revoke them under Authorized apps."),
+            T("Review and revoke individual devices. Signing out other devices keeps this session and its linked credentials; older unlinked authorizations may require sign-in again."),
             sessions);
 
         html += Card(T("Recent sign-ins"), T("Includes failed attempts. Kept for 90 days."), LoginsTable(recentLogins));
@@ -713,7 +717,7 @@ public static partial class DashboardTemplates
 
     // ---- 单个用户：资料 / 资源授权 / 外部身份 / 已授权应用 / 会话 / 重置密码 / 删除 ----
     public static string UserEditSection(UserDetailView d,NasAuth.Config.ProvisioningOptions? provisioning=null,
-        IReadOnlyList<NasAuth.Services.ProvisioningStatus>? provisioningStatuses=null, string? credentialSection=null)
+        IReadOnlyList<NasAuth.Services.ProvisioningStatus>? provisioningStatuses=null, string? credentialSection=null, string? deviceSection=null)
     {
         var u = d.User;
         var uid = Hidden("user_id", u.UserId);
@@ -815,9 +819,10 @@ public static partial class DashboardTemplates
             sess.Append($"<form method='post' action='/admin/users/force-logout' style='margin-top:16px' {Confirm(T("Sign {0} out on all devices?", u.Username))}>{uid}" +
                         $"<button class='btn' data-variant='outline' type='submit'>{T("Sign out on all devices")}</button></form>");
         html.Append(Card(T("Sign-ins & sessions"),
-            T("Signing out ends every nas-auth browser session of this user. Apps they already authorized keep working until revoked above."),
+            T("Signing out ends all Auth device sessions and their linked credentials. Application-owned sessions follow the application's own logout rules."),
             sess.ToString()));
 
+        if (deviceSection is not null) html.Append(deviceSection);
         if (credentialSection is not null) html.Append(credentialSection);
         if (!u.IsSelf)
             html.Append(Card(T("Disable account"),T("Stop sign-in and revoke sessions. Keep identity and profile for recovery; restore application access explicitly later."),

@@ -13,10 +13,10 @@ public class AuthCodeRepository
         conn.Execute(@"
             INSERT INTO auth_codes (code, client_id, resource, scope, redirect_uri,
                                     code_challenge, code_challenge_method, user_id,
-                                    expires_at, consumed, created_at, nonce)
+                                    expires_at, consumed, created_at, nonce, session_id)
             VALUES (@code, @client_id, @resource, @scope, @redirect_uri,
                     @code_challenge, @code_challenge_method, @user_id,
-                    @expires_at, @consumed, @created_at, @nonce)", row);
+                    @expires_at, @consumed, @created_at, @nonce, @session_id)", row);
     }
 
     /// <summary>

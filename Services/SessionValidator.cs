@@ -8,9 +8,8 @@ namespace NasAuth.Services;
 
 /// <summary>
 /// 登录会话的服务端作废（external-auth.md §十六）。
-/// 登录 cookie 是 30 天滑动的自包含票据，服务端原本收不回来；现在票据里带登录时的
-/// users.session_version，每个请求在 cookie 验证环节比对，对不上（或用户已删）就作废并清 cookie。
-/// 退出其他设备 / 改密 / 管理员重置密码或强制下线 = 版本 +1。
+/// 旧 cookie 按 users.session_version / session_epoch 校验后平滑纳入设备记录。
+/// 新 cookie 逐次验证服务端 nas_sid；全局撤销同步使设备记录失效，退出其他设备保留当前记录。
 /// </summary>
 public static class SessionValidator
 {
@@ -31,7 +30,22 @@ public static class SessionValidator
         var uid = ctx.Principal?.Identity?.Name;
         var users = ctx.HttpContext.RequestServices.GetRequiredService<UserRepository>();
         var user = string.IsNullOrEmpty(uid) ? null : users.GetById(uid);
-        if (IsCurrent(ctx.Principal, user)) return;
+        var sessions = ctx.HttpContext.RequestServices.GetRequiredService<DeviceSessions>();
+        var id = DeviceSessions.CurrentId(ctx.Principal);
+        if (id is null && IsCurrent(ctx.Principal, user))
+        {
+            var cookie = ctx.Options.CookieManager.GetRequestCookie(ctx.HttpContext, ctx.Options.Cookie.Name!);
+            id = sessions.AdoptLegacy(ctx.HttpContext, user!, cookie ?? "", ctx.Properties.ExpiresUtc);
+            if (id is not null)
+            {
+                var principal = ctx.Principal!.Clone();
+                ((ClaimsIdentity)principal.Identity!).AddClaim(new Claim(DeviceSessions.ClaimType, id));
+                ctx.ReplacePrincipal(principal); ctx.ShouldRenew = true;
+            }
+        }
+        if (id is not null && user is not null &&
+            (ctx.Principal?.FindFirst(EpochClaimType)?.Value ?? "") == user.session_epoch &&
+            sessions.Validate(id, user.user_id, ctx.HttpContext, touch: true)) return;
 
         ctx.RejectPrincipal();
         await ctx.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);

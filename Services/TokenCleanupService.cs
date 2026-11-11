@@ -42,12 +42,13 @@ public class TokenCleanupService : BackgroundService
                 var nRefresh = refresh.CleanupExpired();
                 var nClients = clients.CleanupStale(StaleClient);
                 var nAudit = audit.Purge();
+                var nDevices = scope.ServiceProvider.GetRequiredService<DeviceSessions>().Cleanup();
 
-                if (nCodes + nRefresh + nClients + nAudit > 0)
+                if (nCodes + nRefresh + nClients + nAudit + nDevices > 0)
                 {
                     _logger.LogInformation(
-                        "cleanup auth_codes={Codes} refresh_tokens={Refresh} clients={Clients} audit_log={Audit}",
-                        nCodes, nRefresh, nClients, nAudit);
+                        "cleanup auth_codes={Codes} refresh_tokens={Refresh} clients={Clients} audit_log={Audit} device_sessions={Devices}",
+                        nCodes, nRefresh, nClients, nAudit, nDevices);
                 }
             }
             catch (Exception ex)

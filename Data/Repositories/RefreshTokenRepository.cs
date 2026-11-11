@@ -12,9 +12,9 @@ public class RefreshTokenRepository
         using var conn = _db.OpenConnection();
         conn.Execute(@"
             INSERT INTO refresh_tokens (token_hash, client_id, resource, scope, user_id,
-                                        expires_at, revoked, created_at, last_used_at)
+                                        expires_at, revoked, created_at, last_used_at, session_id)
             VALUES (@token_hash, @client_id, @resource, @scope, @user_id,
-                    @expires_at, @revoked, @created_at, @last_used_at)", row);
+                    @expires_at, @revoked, @created_at, @last_used_at, @session_id)", row);
     }
 
     public RefreshTokenRow? GetByHash(string tokenHash)

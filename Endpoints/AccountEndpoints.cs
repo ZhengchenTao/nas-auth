@@ -67,7 +67,8 @@ public static class AccountEndpoints
             }
             var user = result.User!;
 
-            await AuthorizationEndpoints.SignInCookie(ctx, user.user_id);
+            if (await AuthorizationEndpoints.SignInCookie(ctx, user.user_id, proof: user) is null)
+                return Results.Redirect("/login");
             audit.Login(true, username, ctx.RemoteIp());
 
             // 首次登录强制改密：标志位 1 → 不管 return_url 是啥，先去 force-change-password。
@@ -90,6 +91,8 @@ public static class AccountEndpoints
             string? Get(string k) => p.TryGetValue(k, out var v) ? v : null;
 
             var sessionUser = ctx.User?.Identity?.IsAuthenticated == true ? ctx.User.Identity.Name : null;
+            if (sessionUser is not null && DeviceSessions.CurrentId(ctx.User) is { } sessionId)
+                ctx.RequestServices.GetRequiredService<DeviceSessions>().Revoke(sessionUser, sessionId);
             await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
 
             // forward-auth 站点（§二十二）的退出也回跳到这里登记的来源：它们没有客户端条目，按 resources.json 认
@@ -104,6 +107,7 @@ public static class AccountEndpoints
         // ----- /account 个人中心（强制登录 cookie session）-----
         // 写请求要带 antiforgery token（§二十三）；页面上的表单由 Render / Protect 自动插隐藏字段
         var account = app.MapGroup("/account").RequireAuthorization().RequireCsrfToken();
+        account.MapPersonalDeviceEndpoints();
 
         // 概览：我是谁、怎么登录、能用哪些应用
         account.MapGet("", (HttpContext ctx,
@@ -238,8 +242,9 @@ public static class AccountEndpoints
             UserRepository users, AuditLogger audit) =>
         {
             var userId = ctx.User.Identity?.Name ?? "";
-            if (users.BumpSessionVersion(userId) is null) return Results.Redirect("/login");
-            await AuthorizationEndpoints.SignInCookie(ctx, userId);
+            var currentId = DeviceSessions.CurrentId(ctx.User);
+            if (currentId is null || !ctx.RequestServices.GetRequiredService<DeviceSessions>().RevokeOthers(userId, currentId)) return Results.Redirect("/login");
+            await AuthorizationEndpoints.SignInCookie(ctx, userId, freshAuthentication: false);
             audit.AccountAction("sessions-revoke-others", true, userId);
             return RedirectTo("/account/security", notice: T("Signed out of all other devices"));
         });

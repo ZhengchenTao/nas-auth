@@ -64,6 +64,7 @@ def run(image, team):
             assert "200 OK" in login and "action='" + mount + "/login'" in login
             assert "302 Found" in request(name, mount + "/admin/apps/diagnostics")
             assert "302 Found" in request(name, mount + "/admin/apps/new")
+            assert "302 Found" in request(name, mount + "/account/sessions")
             assert "200 OK" in request(name, mount + "/credential-link")
             preflight = json.loads(docker("exec", name, "dotnet", "/app/nas-auth.dll", "--check-config"))
             assert preflight["ok"] is True

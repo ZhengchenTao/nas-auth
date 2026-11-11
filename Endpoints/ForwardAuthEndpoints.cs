@@ -60,7 +60,7 @@ public static class ForwardAuthEndpoints
         if (fa.TryReadSession(req.Cookies[sessionCookie], out var session) &&
             session.Aud == site.Aud &&
             users.GetById(session.UserId) is { } user &&
-            user.session_version == session.SessionVersion &&
+            (session.SessionId is null ? user.session_version == session.SessionVersion : ctx.RequestServices.GetRequiredService<DeviceSessions>().Validate(session.SessionId, user.user_id, ctx, touch: true)) &&
             user.session_epoch == (session.SessionEpoch ?? "") &&   // 强制下线 / 改密 / 退出其他设备后立即失效
             IsAllowed(site, user.user_id, user.is_admin != 0, userResources))
         {
@@ -138,7 +138,7 @@ public static class ForwardAuthEndpoints
         }
 
         audit.ForwardAuth(true, site.Aud, user.user_id, ctx.RemoteIp());
-        var ticket = fa.CreateTicket(site.Aud, user.user_id, user.session_version, state.Nonce, user.session_epoch);
+        var ticket = fa.CreateTicket(site.Aud, user.user_id, user.session_version, state.Nonce, user.session_epoch, DeviceSessions.CurrentId(ctx.User));
         // state 原样带回去，但重新编码：base64 解码会跳过空白，校验通过不代表串里没有不该进 Location 头的字符
         return Results.Redirect(
             $"{origin}{ForwardAuthService.PathPrefix}/callback?aud={Uri.EscapeDataString(site.Aud)}&ticket={ticket}&state={Uri.EscapeDataString(rawState)}");
@@ -187,11 +187,12 @@ public static class ForwardAuthEndpoints
             return Fail("ticket_state_mismatch");
 
         var user = users.GetById(ticket.UserId);
-        if (user is null || user.session_version != ticket.SessionVersion || user.session_epoch != (ticket.SessionEpoch ?? "")) return Fail("session_revoked");
+        if (user is null || user.session_epoch != (ticket.SessionEpoch ?? "") ||
+            (ticket.SessionId is null ? user.session_version != ticket.SessionVersion : !ctx.RequestServices.GetRequiredService<DeviceSessions>().Validate(ticket.SessionId, user.user_id, ctx, touch: true))) return Fail("session_revoked");
 
         var lifetime = TimeSpan.FromHours(site.ForwardAuth!.SessionHours);
         ctx.Response.Cookies.Append(sessionCookie,
-            fa.CreateSession(site.Aud, user.user_id, user.session_version, lifetime, user.session_epoch), SiteCookie(lifetime));
+            fa.CreateSession(site.Aud, user.user_id, user.session_version, lifetime, user.session_epoch, ticket.SessionId), SiteCookie(lifetime));
         // state cookie 不清，让它自己过期：并排开的其它标签页各有一张没用过的票据，还要靠它完成自己的回调。
         // 重放由「票据只能用一次」挡，不靠清这张 cookie。
         return Results.Redirect(ForwardAuthService.SafeReturnPath(state.ReturnPath, basePath));

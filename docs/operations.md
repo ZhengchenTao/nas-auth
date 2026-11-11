@@ -49,6 +49,9 @@ Encrypt backups, restrict access and keep a second copy where the deployment's r
 
 ## Rollback boundaries
 
+Device-aware versions add per-session revocation. Follow [device-session rollback limits](device-sessions.md#deployment-and-rollback):
+an older image that ignores `nas_sid` can revive revoked sessions even if it still checks the account epoch.
+
 The lifecycle migration adds `users.is_disabled` and `users.session_epoch` with backward-compatible defaults. Original subjects and issuer remain unchanged. Browser SSO cookies, forward-auth tickets/site cookies and locally validated access tokens check the current epoch; restoration assigns a new epoch. Missing epochs on older cookies are accepted only when the stored account epoch remains empty.
 
 After any account is disabled/restored, do not roll back to an image that does not enforce that state and epoch on every applicable path. Downgrading could re-enable an old session despite a healthy process. A forward fix based on the compatible revision is safer. Do not overwrite a live database with an older backup to undo a cosmetic or configuration change: that can resurrect deleted users, credentials and permissions and discard newer audit events.

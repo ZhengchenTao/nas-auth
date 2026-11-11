@@ -144,7 +144,8 @@ public static class TokenEndpoints
             var hash = JwtIssuer.HashRefreshToken(token);
             var row = refreshTokens.GetByHash(hash);
             var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            if (row is not null && row.revoked == 0 && row.expires_at > now)
+            if (row is not null && row.revoked == 0 && row.expires_at > now &&
+                ctx.RequestServices.GetRequiredService<DeviceSessions>().CredentialIsActive(row.session_id, row.user_id))
             {
                 audit.Introspect(true, client!.client_id, ctx.RemoteIp());
                 return Results.Ok(new
@@ -245,8 +246,8 @@ public static class TokenEndpoints
             return Results.BadRequest(new { error = "invalid_grant", error_description = "resource is no longer available" });
         }
 
-        if(users.GetById(row.user_id) is null) return Results.BadRequest(new { error = "invalid_grant" });
-        var access = issuer.IssueAccessToken(row.user_id, client.client_id, auds, row.resource, row.scope);
+        if(users.GetById(row.user_id) is null || !ctx.RequestServices.GetRequiredService<DeviceSessions>().CredentialIsActive(row.session_id, row.user_id, touch: true)) return Results.BadRequest(new { error = "invalid_grant" });
+        var access = issuer.IssueAccessToken(row.user_id, client.client_id, auds, row.resource, row.scope, row.session_id);
         var (refreshPlain, refreshHash) = issuer.IssueRefreshToken();
         refreshTokens.Insert(new RefreshTokenRow(
             token_hash: refreshHash,
@@ -257,7 +258,7 @@ public static class TokenEndpoints
             expires_at: issuer.RefreshTokenExpiry().ToUnixTimeSeconds(),
             revoked: 0,
             created_at: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-            last_used_at: null));
+            last_used_at: null, session_id: row.session_id));
 
         clients.TouchLastUsed(client.client_id);
         audit.Token(true, "authorization_code", client.client_id, row.user_id, row.resource, ctx.RemoteIp());
@@ -350,7 +351,7 @@ public static class TokenEndpoints
         var rowScopes = row.scope.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         // admin_only：管理员身份被撤掉（或资源后来才标 admin_only）后，refresh 同样挡
         var activeUser = users.GetById(row.user_id);
-        if(activeUser is null) return Task.FromResult(Results.BadRequest(new { error = "invalid_grant" }));
+        if(activeUser is null || !ctx.RequestServices.GetRequiredService<DeviceSessions>().CredentialIsActive(row.session_id, row.user_id, touch: true)) return Task.FromResult(Results.BadRequest(new { error = "invalid_grant" }));
         var isAdmin = activeUser.is_admin > 0;
         var grantedResources = new List<NasAuth.Config.ResourceConfig>();
         var grantedScopes = new List<string>();
@@ -375,7 +376,7 @@ public static class TokenEndpoints
         var resourceOut = string.Join(' ', grantedResources.Select(r => r.ResourceUrl));
         var scopeOut = string.Join(' ', grantedScopes.Distinct());
 
-        var access = issuer.IssueAccessToken(row.user_id, client.client_id, auds, resourceOut, scopeOut);
+        var access = issuer.IssueAccessToken(row.user_id, client.client_id, auds, resourceOut, scopeOut, row.session_id);
         var (refreshPlain, refreshHash) = issuer.IssueRefreshToken();
         refreshTokens.Insert(new RefreshTokenRow(
             token_hash: refreshHash,
@@ -386,7 +387,7 @@ public static class TokenEndpoints
             expires_at: issuer.RefreshTokenExpiry().ToUnixTimeSeconds(),
             revoked: 0,
             created_at: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-            last_used_at: null));
+            last_used_at: null, session_id: row.session_id));
 
         clients.TouchLastUsed(client.client_id);
         audit.Token(true, "refresh_token", client.client_id, row.user_id, resourceOut, ctx.RemoteIp());

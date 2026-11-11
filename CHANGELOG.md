@@ -4,6 +4,13 @@ Changes below describe source behavior. They are not a claim that every deployme
 
 ## Unreleased
 
+### Device sessions
+
+- Add personal device/session inventory, naming, individual revocation and an administrator view using existing dashboard styles.
+- Bind new cookies, forward-auth credentials, authorization codes and OAuth token rotation to server-owned sessions. Sign-out-other-devices preserves the current session's linked credentials.
+- Migrate old signed cookies on use, retain revocation tombstones, and support configurable idle/absolute expiry without external fingerprinting services.
+- Device-aware builds carry `io.nas-auth.device-sessions=1`. Do not downgrade to earlier builds after session revocation; keep enforcement in compatible rollback builds.
+
 ### Application onboarding and credential links
 
 - Add an administrator application setup wizard for OIDC, forward-auth and MCP, producing reviewed configuration fragments without changing deployment files or grants.

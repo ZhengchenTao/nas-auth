@@ -31,6 +31,7 @@ public static class AdminEndpoints
             .RequireCsrfToken();
         admin.MapAccessGroupEndpoints();
         admin.MapOnboardingAdminEndpoints();
+        admin.MapAdminDeviceEndpoints();
 
         static string AdminId(HttpContext ctx) => ctx.User.Identity?.Name ?? "";
         static string EditPath(string userId) => "/admin/users/edit?user=" + Uri.EscapeDataString(userId);
@@ -247,7 +248,9 @@ public static class AdminEndpoints
             return Render(ctx, users, identities, DashboardSpace.Admin, "users", T("User · {0}", target.username),
                 DashboardTemplates.UserEditSection(detail,ctx.RequestServices.GetRequiredService<ProvisioningOptions>(),
                     ctx.RequestServices.GetRequiredService<ProvisioningService>().List(targetId),
-                    DashboardTemplates.CredentialLinksSection(target, ctx.RequestServices.GetRequiredService<CredentialLinkService>().List(targetId))));
+                    DashboardTemplates.CredentialLinksSection(target, ctx.RequestServices.GetRequiredService<CredentialLinkService>().List(targetId)),
+                    DashboardTemplates.DeviceSessionsSection(ctx.RequestServices.GetRequiredService<DeviceSessions>().List(targetId), DeviceSessions.CurrentId(ctx.User),
+                        ctx.RequestServices.GetRequiredService<DeviceSessions>(), targetId, admin: true)));
         });
 
         admin.MapPost("/users/provisioning/retry", async (HttpContext ctx, ProvisioningService provisioning, UserRepository users, AuditLogger audit) =>

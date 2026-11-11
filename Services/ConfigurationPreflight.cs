@@ -38,6 +38,7 @@ public static class ConfigurationPreflight
         Check("ExternalProviders", () => _ = ExternalProviderOptions.FromConfiguration(configuration));
         Check("ExternalProfiles", () => (configuration.GetSection("ExternalProfiles").Get<ExternalProfilesOptions>() ?? new()).Validate(auth.Issuer));
         Check("CredentialLinks", () => (configuration.GetSection("CredentialLinks").Get<CredentialLinkOptions>() ?? new()).Validate());
+        Check("DeviceSessions", () => (configuration.GetSection("DeviceSessions").Get<DeviceSessionOptions>() ?? new()).Validate());
         Check("Resources", () => {
             catalog = new ResourceCatalog(auth, NullLogger<ResourceCatalog>.Instance);
             if (catalog.All.GroupBy(r => r.Aud, StringComparer.Ordinal).Any(g => g.Count() > 1)) throw new InvalidOperationException();
