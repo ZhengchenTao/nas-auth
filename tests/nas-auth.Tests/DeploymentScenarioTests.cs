@@ -153,6 +153,9 @@ public class DeploymentScenarioTests
         var checks = s.GetRequiredService<ApplicationDiagnostics>().Inspect(null, null).Configuration;
         Assert.Contains(checks, c => c.Detail == "broken" && c.Message.StartsWith("Client default resource"));
         Assert.Contains(checks, c => c.Detail == "broken" && c.Message.StartsWith("Confidential client"));
+        s.GetRequiredService<AuthOptions>().Dcr.AllowedRedirectHosts = ["unrelated.example.test"];
+        Assert.DoesNotContain(s.GetRequiredService<ApplicationDiagnostics>().Inspect("library", null).Configuration,
+            c => c.Detail == "library-client" && c.Level == "error");
     }
 }
 

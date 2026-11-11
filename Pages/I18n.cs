@@ -46,7 +46,7 @@ public static class I18n
         ["success"] = "通过",
         ["Client default resource is unavailable. Update the preset configuration."] = "客户端默认资源不可用，请修改预置配置。",
         ["Confidential client has no secret. Configure its credential."] = "机密客户端未设置凭据，请补充配置。",
-        ["Client callback URLs do not satisfy the redirect policy. Review the preset configuration."] = "客户端回调地址不符合重定向策略，请检查预置配置。",
+        ["Client callback URLs are missing or malformed. Review the preset configuration."] = "客户端回调地址缺失或格式不正确，请检查预置配置。",
         ["Resource not found. Select a configured resource."] = "资源不存在，请选择已配置的资源。",
         ["Configured application address"] = "已配置的应用地址",
         ["Forward-auth requires proxy routing and trusted headers. Verify these in the deployment."] = "入口保护依赖反向代理路由和可信请求头，需在部署端验证。",

@@ -11,7 +11,7 @@ public sealed record ApplicationDiagnosis(IReadOnlyList<DiagnosticCheck> Configu
 public sealed class ApplicationDiagnostics(ResourceCatalog catalog, ClientRepository clients,
     UserRepository users, UserResourceRepository grants, AccessGroupService groups,
     ExternalIdentityRepository identities, ExternalProviderOptions providers, PasswordLoginGate passwords,
-    ProvisioningOptions provisioningOptions, ProvisioningService provisioning, AuthOptions auth)
+    ProvisioningOptions provisioningOptions, ProvisioningService provisioning)
 {
     public ApplicationDiagnosis Inspect(string? aud, string? userId)
     {
@@ -24,8 +24,9 @@ public sealed class ApplicationDiagnostics(ResourceCatalog catalog, ClientReposi
                 configuration.Add(new("error", "Client default resource is unavailable. Update the preset configuration.", client.client_id));
             if (client.token_endpoint_auth_method != "none" && string.IsNullOrEmpty(client.client_secret_hash))
                 configuration.Add(new("error", "Confidential client has no secret. Configure its credential.", client.client_id));
-            if (RedirectUriPolicy.ValidateList(ClientRepository.ParseRedirectUris(client.redirect_uris), auth.Dcr) is not null)
-                configuration.Add(new("error", "Client callback URLs do not satisfy the redirect policy. Review the preset configuration.", client.client_id));
+            var callbacks = ClientRepository.ParseRedirectUris(client.redirect_uris);
+            if (callbacks.Count == 0 || callbacks.Any(url => !Uri.TryCreate(url, UriKind.Absolute, out _)))
+                configuration.Add(new("error", "Client callback URLs are missing or malformed. Review the preset configuration.", client.client_id));
         }
         if (string.IsNullOrEmpty(aud)) return new(configuration, access);
         var resource = catalog.FindByAud(aud);
