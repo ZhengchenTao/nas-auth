@@ -13,6 +13,14 @@ docker build -t nas-auth:check .
 
 Tests use temporary SQLite databases and fake identity providers; no company directory or production credentials are required. Docker builds run the entire test suite before publishing runtime files. GitHub CI tests Linux and Windows; runtime images target Linux.
 
+For UI changes, review screenshots in light and dark themes at desktop, 390px and 320px widths.
+Include account/security/devices, applications/setup/diagnostics, the user directory, another user's
+details (destructive controls are hidden for yourself), and credential-link error/success pages.
+Check primary links as well as buttons, hover/focus/busy states, long unbroken names and URLs,
+and sidebar resize/Escape behavior without reloading. Measure rendered foreground/background
+contrast; a page with no horizontal scrollbar can still clip content inside a card. Use synthetic
+accounts and avoid capturing live credential links. Keep screenshots out of the source tree.
+
 For a fix, include a failing regression that covers the actual boundary. For lifecycle changes cover existing cookies, forward-auth tickets/sessions, access and refresh tokens, authorization codes, grants, restoration and migration. Presentation-only changes need visual checks and existing relevant template checks rather than tests that mirror CSS.
 
 Preserve default behavior unless an intentional migration is documented. Never change an existing subject or issuer implicitly. Keep organization-specific protocols, identifiers, URLs, credentials and deployment details out of generic implementation and examples. Add both English and Simplified Chinese UI text, appropriate configuration documentation and an Unreleased changelog entry.

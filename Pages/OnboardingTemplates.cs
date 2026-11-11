@@ -24,8 +24,8 @@ public static partial class DashboardTemplates
             $"<div class='field'><label for='setup-callbacks'>{T("OIDC callback URLs (one per line)")}</label><textarea id='setup-callbacks' name='callbacks' rows='3' maxlength='4096'>{Esc(input.Callbacks)}</textarea></div>" +
             $"<p class='hint'>{T("Leave scopes empty for the suggested defaults. Client type and callbacks apply to OIDC only.")}</p>" +
             $"<div class='form-foot'><button class='btn' type='submit'>{T("Generate configuration")}</button></div></form>";
-        var html = Card(T("Connect an application"), T("Generate configuration for review. Deployment files remain the source of truth."), form);
-        foreach (var error in draft.Errors) html += $"<p role='alert' class='hint'>{Esc(T(error))}</p>";
+        var errors = string.Join("", draft.Errors.Select(error => Alert(Esc(T(error)), error: true)));
+        var html = Card(T("Connect an application"), T("Generate configuration for review. Deployment files remain the source of truth."), errors + form);
         if (draft.Resources.Length == 0) return html;
         html += Card("resources.json", T("Merge these entries into the existing array; do not replace the whole file."), Code(draft.Resources));
         if (draft.Clients != "[]") html += Card("clients.preset.json", T("Merge these entries into the existing array; do not replace the whole file."), Code(draft.Clients));
@@ -71,7 +71,7 @@ public static partial class DashboardTemplates
     {
         var title = T(complete ? "Password set" : "Set your password");
         var body = $"<header><h2>{title}</h2><p>{T(complete ? "Sign in with your new password. Previous Auth sessions and tokens have been revoked." : "Use the invitation or recovery link provided by your administrator.")}</p></header><section>";
-        if (error is not null) body += $"<p role='alert'>{Esc(T(error))}</p>";
+        if (error is not null) body += Alert(Esc(T(error)), error: true);
         if (complete) body += $"<a class='btn block' href='/login'>{T("Sign in")}</a>";
         else body += $"<form id='credential-link-form' method='post' action='/credential-link' class='form'><input type='hidden' name='token' value='{Esc(token)}'>" +
             $"<div class='field'><label for='link-password'>{T("New password")}</label><input id='link-password' name='new_password' type='password' minlength='8' maxlength='256' required autocomplete='new-password'></div>" +

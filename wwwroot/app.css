@@ -8,7 +8,8 @@
 :root { --nas-mono: ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace; }
 
 body { min-height: 100vh; }
-a { color: inherit; }
+/* Link colors belong to Basecoat's component layer; overriding all anchors here
+   also overrides primary-button foreground colors. */
 code, .mono { font-family: var(--nas-mono); }
 code {
   font-size: .85em; padding: .1em .35em; border-radius: calc(var(--radius) - 4px);
@@ -24,11 +25,15 @@ code {
 .sep::before, .sep::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
 
 /* 状态徽章：Basecoat 只有 primary / secondary / outline / destructive，补 ok / warn 两种 */
-.badge.ok   { background: color-mix(in oklab, #16a34a 14%, transparent); color: #15803d; border-color: transparent; }
-.badge.warn { background: color-mix(in oklab, #f59e0b 18%, transparent); color: #b45309; border-color: transparent; }
+.badge.ok   { background: color-mix(in oklab, #16a34a 14%, transparent); color: #166534; border-color: transparent; }
+.badge.warn { background: color-mix(in oklab, #f59e0b 18%, transparent); color: #854d0e; border-color: transparent; }
 .dark .badge.ok   { color: #4ade80; }
 .dark .badge.warn { color: #fbbf24; }
 .badge.mono { font-family: var(--nas-mono); font-weight: 500; }
+:root { --nas-danger-text: #b91c1c; }
+.dark { --nas-danger-text: #fca5a5; }
+.btn[data-variant='destructive'], .badge[data-variant='destructive'],
+.alert[data-variant='destructive'], .alert[data-variant='destructive'] > section { color: var(--nas-danger-text); }
 
 /* ---------------- 登录 / 授权 / 改密等单卡片页 ---------------- */
 .auth-page { background: var(--muted); display: flex; justify-content: center; padding: 10vh 16px 48px; }
@@ -83,7 +88,7 @@ img.sb-avatar { object-fit: cover; }
   .dash-main { padding: 16px 16px 40px; }
 }
 
-.table td.wrap { white-space: normal; }
+.table td.wrap { white-space: normal; overflow-wrap: anywhere; }
 .table td.fit { width: 1%; }
 .table td .badge + .badge { margin-left: 4px; }
 .empty-note { color: var(--muted-foreground); text-align: center; padding: 28px 0; font-size: .875rem; margin: 0; }
@@ -153,9 +158,9 @@ img.sb-avatar { object-fit: cover; }
 .space-switch .badge { padding: 0 6px; min-width: 0; font-size: .6875rem; }
 
 /* 键值列表（个人概览） */
-.kv { display: grid; grid-template-columns: max-content 1fr; gap: 10px 24px; margin: 0; font-size: .875rem; }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 24px; margin: 0; font-size: .875rem; }
 .kv dt { color: var(--muted-foreground); }
-.kv dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .inline-icon { display: inline-flex; align-items: center; gap: 6px; }
 
 /* 管理概览统计卡 */
@@ -313,4 +318,18 @@ td.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end
   .device-session-table details { margin: 6px 0; }
   .device-session-table details form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   .device-session-table details .field { flex: 1; min-width: 160px; }
+}
+
+/* Keep header actions and long translated labels readable on small screens. */
+.card > header > .card-action { display: flex; flex-wrap: wrap; gap: 8px; }
+.card > section > .alert { margin-bottom: 16px; }
+@media (max-width: 600px) {
+  .card > header:has(> .card-action) { grid-template-columns: minmax(0, 1fr); }
+  .card > header > .card-action { grid-column: 1; grid-row: auto; justify-self: start; }
+  .kv { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .kv dd { margin-bottom: 10px; }
+  .btn { max-width: 100%; white-space: normal; height: auto; min-height: 36px; padding-block: 6px; }
+  .btn[data-size="icon"] { width: 36px; flex-shrink: 0; }
+  .filter-bar .field, .form-grid, .res-grid, .application-choice-grid { min-width: 0; }
+  .form-grid, .res-grid, .application-choice-grid { grid-template-columns: minmax(0, 1fr); }
 }

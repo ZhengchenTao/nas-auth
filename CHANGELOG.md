@@ -4,6 +4,9 @@ Changes below describe source behavior. They are not a claim that every deployme
 
 ## Unreleased
 
+- Fix primary link-button foreground colors in both themes, narrow-screen diagnostic headers and long device/address text; keep sidebar visibility synchronized across viewport changes and support Escape to close it.
+- Improve success-badge contrast and make application setup/password-link validation errors use the existing alert style.
+
 ### Device sessions
 
 - Add personal device/session inventory, naming, individual revocation and an administrator view using existing dashboard styles.

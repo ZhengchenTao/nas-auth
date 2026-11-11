@@ -6,6 +6,37 @@
   apply();
   if (m && m.addEventListener) m.addEventListener('change', apply);
 })();
+(function () {
+  // Basecoat initializes sidebar visibility once. Keep it in sync when a window
+  // crosses the mobile breakpoint without reloading the page.
+  function responsiveSidebar() {
+    var sidebar = document.querySelector('.sidebar');
+    if (!sidebar || !window.matchMedia) return;
+    var media = window.matchMedia('(min-width: ' + (parseInt(sidebar.dataset.breakpoint, 10) || 768) + 'px)');
+    var toggle = document.querySelector('[data-sidebar-toggle]');
+    function describe() {
+      if (toggle) toggle.setAttribute('aria-expanded', String(sidebar.getAttribute('aria-hidden') !== 'true'));
+    }
+    function sync() {
+      if (typeof sidebar.open !== 'function') return;
+      if (media.matches) sidebar.open(); else sidebar.close();
+      describe();
+    }
+    sidebar.addEventListener('basecoat:initialized', sync, { once: true });
+    if (media.addEventListener) media.addEventListener('change', sync);
+    new MutationObserver(describe).observe(sidebar, { attributes: true, attributeFilter: ['aria-hidden'] });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && !media.matches && sidebar.getAttribute('aria-hidden') === 'false' && typeof sidebar.close === 'function') {
+        sidebar.close();
+        if (toggle) toggle.focus();
+        event.preventDefault();
+      }
+    });
+    sync();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', responsiveSidebar);
+  else responsiveSidebar();
+})();
 
 // 页面交互全走 data 属性 + 事件委托，模板里不写任何内联 on*= / <script>（2026-09-29 安全整改）：
 // 这样页面能在 CSP script-src 'self' 下工作，用户可控文本（DCR 的 client_name 等）只进 HTML 属性值，
