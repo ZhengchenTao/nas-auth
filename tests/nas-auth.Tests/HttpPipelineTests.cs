@@ -79,9 +79,9 @@ public sealed class NasAuthAppFactory : WebApplicationFactory<Program>
         try { Directory.Delete(_dataDir, recursive: true); } catch { /* ignore */ }
     }
 
-    internal static string RepoRoot()
+    internal static string RepoRoot([System.Runtime.CompilerServices.CallerFilePath] string sourcePath = "")
     {
-        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
+        for (var d = new DirectoryInfo(Path.GetDirectoryName(sourcePath)!); d is not null; d = d.Parent)
             if (File.Exists(Path.Combine(d.FullName, "nas-auth.csproj"))) return d.FullName;
         throw new InvalidOperationException("找不到 nas-auth.csproj");
     }

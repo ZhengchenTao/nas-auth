@@ -47,6 +47,7 @@ builder.Services.AddScoped<SettingsRepository>();
 builder.Services.AddScoped<ExternalIdentityRepository>();
 builder.Services.AddScoped<UserResourceRepository>();
 builder.Services.AddScoped<AccessGroupService>();
+builder.Services.AddScoped<ApplicationDiagnostics>();
 builder.Services.AddScoped<ExternalInviteRepository>();
 builder.Services.AddSingleton<ProfileService>();
 // 取外部头像用：短超时，拿不到就算了，不能拖慢登录

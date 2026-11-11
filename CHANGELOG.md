@@ -4,6 +4,13 @@ Changes below describe source behavior. They are not a claim that every deployme
 
 ## Unreleased
 
+### Unified releases and application diagnostics
+
+- Test one runtime image with household and path-mounted team configurations before publishing. Record immutable release digests and support checked offline image export/import instead of rebuilding per deployment.
+- Add administrator-only application configuration checks and searchable account access diagnosis, including partial scopes, direct/group grant sources and desired versus acknowledged account synchronization state.
+- Preserve configuration-file ownership and existing UI components. Diagnostics are read-only and do not claim external connectivity, current downstream state or global session revocation.
+
+
 ### Team administration
 
 - Search existing accounts by display name, username, stable ID or email; filter active users by Auth role and switch between active, disabled and deleted identities with state totals.

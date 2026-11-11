@@ -550,6 +550,21 @@ public static class AdminEndpoints
                 DashboardTemplates.AppsSection(resources, clientViews, ctx.Request.Query["view"].ToString()));
         });
 
+        admin.MapGet("/apps/diagnostics", (HttpContext ctx, UserRepository users,
+            ExternalIdentityRepository identities, ApplicationDiagnostics diagnostics, ResourceCatalog catalog, AuthOptions auth) =>
+        {
+            var aud = ctx.Request.Query["aud"].ToString();
+            var userId = ctx.Request.Query["user"].ToString().Trim();
+            var query = ctx.Request.Query["q"].ToString().Trim();
+            if (aud.Length > 128 || userId.Length > 128 || query.Length > 128) return Results.BadRequest();
+            var candidates = query.Length == 0 ? null : users.Search(NasAuth.Data.UserDirectoryFilter.Normalize(query)).Users
+                .Concat(users.Search(NasAuth.Data.UserDirectoryFilter.Normalize(query, "disabled")).Users).ToArray();
+            if (candidates is not null) userId = "";
+            ctx.Response.Headers.CacheControl = "no-store";
+            return Render(ctx, users, identities, DashboardSpace.Admin, "apps", "Application diagnostics",
+                DashboardTemplates.DiagnosticsSection(catalog.All, aud, userId, diagnostics.Inspect(aud, userId), auth.Issuer, query, candidates));
+        });
+
         admin.MapPost("/apps/delete-client", async (HttpContext ctx, ClientRepository clients, AuditLogger audit) =>
         {
             var form = await ctx.Request.ReadFormAsync();

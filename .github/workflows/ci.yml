@@ -32,5 +32,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Test offline image transport verification
+        run: python3 .github/scripts/test_image_bundle.py
       - name: Build tested runtime image without deployment credentials
         run: docker build --build-arg REVISION="$GITHUB_SHA" -t nas-auth:ci .
+      - name: Boot the same image with household and team configuration
+        run: python3 .github/scripts/smoke-image.py nas-auth:ci

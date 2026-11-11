@@ -38,3 +38,6 @@ coverage/
 
 # .NET --artifacts-path output
 artifacts/
+
+# Python release-helper caches
+__pycache__/

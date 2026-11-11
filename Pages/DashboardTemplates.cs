@@ -958,7 +958,7 @@ public static partial class DashboardTemplates
                         foreach (var c in linked) overview.Append($"<span>{Esc(c.ClientName)} <span class='mono hint'>{Esc(c.ClientId)}</span></span>");
                         overview.Append("</dd>");
                     }
-                    overview.Append("</dl></section>");
+                    overview.Append($"</dl><a class='btn' data-variant='outline' data-size='sm' href='/admin/apps/diagnostics?aud={Uri.EscapeDataString(r.Aud)}'>{T("Check configuration and access")}</a></section>");
                 }
                 overview.Append($"<p class='hint application-source'>{T("Read-only configuration: resources.json; preset clients: clients.preset.json. Edit the files and restart. Manage user access under Users.")}</p></div></details>");
             }

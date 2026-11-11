@@ -79,11 +79,12 @@ jobs:
           echo "full_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "==> Image: $IMAGE_REF:$IMAGE_TAG"
 
-      - name: Build and push
+      - name: Build release image
+        id: build
         uses: https://git.aifacely.net/mirror/build-push-action@v6
         with:
           context: .
-          push: true
+          push: false
           # provenance/sbom 关掉：默认会多推一层 attestation manifest，
           # Gitea registry 支持不好。
           provenance: false
@@ -106,12 +107,39 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.image_ref }}:${{ steps.meta.outputs.image_tag }}
             ${{ steps.meta.outputs.image_ref }}:latest
+            ${{ steps.meta.outputs.image_ref }}:sha-${{ steps.meta.outputs.full_sha }}
+
+      - name: Verify both deployment scenarios before publishing
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.image_ref }}:sha-${{ steps.meta.outputs.full_sha }}
+        run: |
+          python3 .github/scripts/smoke-image.py "$RELEASE_TAG"
+          python3 .github/scripts/test_image_bundle.py
+
+      - name: Publish tested release and verify offline transport
+        id: release
+        env:
+          IMAGE_REF: ${{ steps.meta.outputs.image_ref }}
+          FULL_SHA: ${{ steps.meta.outputs.full_sha }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          docker push "$IMAGE_REF:sha-$FULL_SHA"
+          RELEASE_IMAGE=$(docker image inspect "$IMAGE_REF:sha-$FULL_SHA" --format '{{index .RepoDigests 0}}')
+          echo "image=$RELEASE_IMAGE" >> "$GITHUB_OUTPUT"
+          BUNDLE_DIR=$(mktemp -d)
+          trap 'rm -rf "$BUNDLE_DIR"' EXIT
+          python3 .github/scripts/image-bundle.py export --image "$RELEASE_IMAGE" --output "$BUNDLE_DIR"
+          python3 .github/scripts/image-bundle.py import "$BUNDLE_DIR/manifest.json"
+          docker push "$IMAGE_REF:$IMAGE_TAG"
+          docker push "$IMAGE_REF:latest"
 
       - name: Build summary
         if: always()
         run: |
           {
             echo "## Build Summary"
+            echo "Immutable release: ${{ steps.release.outputs.image }}"
+            echo "Deploy the digest directly, or export it with .github/scripts/image-bundle.py; do not rebuild per instance."
             echo ""
             echo "| 项 | 值 |"
             echo "|---|---|"

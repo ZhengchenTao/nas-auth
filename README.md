@@ -1,5 +1,7 @@
 # nas-auth
 
+See [unified image releases](docs/unified-release.md) and [application configuration/access diagnostics](docs/application-diagnostics.md).
+
 Find existing accounts with name/email search, role and lifecycle filters, and bounded pagination. See [user management](docs/user-management.md).
 
 Optional [application account provisioning](docs/account-provisioning.md) creates accounts before first sign-in, with durable delivery, retry and per-user status. Application roles remain managed by each app.

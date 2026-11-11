@@ -1,5 +1,7 @@
 # nas-auth
 
+统一镜像发布与双场景回归：[发布说明](docs/unified-release.md)；应用配置与访问排查：[诊断说明](docs/application-diagnostics.md)。
+
 用户管理支持姓名、用户名、邮箱搜索，角色与账号状态筛选及分页，见[用户管理说明](docs/user-management.md)。
 
 可选的[应用账号预开通](docs/account-provisioning.md)支持首次登录前建号、可靠投递、失败重试和同步状态。默认关闭，应用内角色与数据权限仍由各应用管理。
