@@ -115,6 +115,9 @@ public class PresetClientConfig
     [JsonPropertyName("client_secret")]
     public string? ClientSecret { get; set; }
 
+    [JsonPropertyName("client_secret_env")]
+    public string? ClientSecretEnvironment { get; set; }
+
     [JsonPropertyName("client_name")]
     public string ClientName { get; set; } = "";
 

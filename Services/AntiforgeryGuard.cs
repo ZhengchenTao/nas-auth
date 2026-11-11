@@ -51,20 +51,20 @@ public static class AntiforgeryGuard
     }
 
     /// <summary>给端点 / 路由组挂上校验。挂在门禁过滤器（未登录 → 登录页、非管理员 → 404）之后，那些照旧先生效。</summary>
-    public static TBuilder RequireCsrfToken<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
+    public static TBuilder RequireCsrfToken<TBuilder>(this TBuilder builder, bool includeAnonymous = false) where TBuilder : IEndpointConventionBuilder
     {
         builder.WithMetadata(RequiresTokenMetadata.Instance);
-        builder.AddEndpointFilter(FilterAsync);
+        builder.AddEndpointFilter((ic, next) => FilterAsync(ic, next, includeAnonymous));
         return builder;
     }
 
-    private static async ValueTask<object?> FilterAsync(EndpointFilterInvocationContext ic, EndpointFilterDelegate next)
+    private static async ValueTask<object?> FilterAsync(EndpointFilterInvocationContext ic, EndpointFilterDelegate next, bool includeAnonymous)
     {
         var ctx = ic.HttpContext;
         if (!CrossOriginGuard.IsStateChanging(ctx.Request.Method)) return await next(ic);
         // 没有会话的请求不借任何人的身份，交给端点自己处理（/external/{provider}/bind 送去登录）；
         // /account、/admin 有 RequireAuthorization，走不到这里
-        if (ctx.User.Identity?.IsAuthenticated != true) return await next(ic);
+        if (!includeAnonymous && ctx.User.Identity?.IsAuthenticated != true) return await next(ic);
 
         try
         {

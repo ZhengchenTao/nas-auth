@@ -4,6 +4,13 @@ Changes below describe source behavior. They are not a claim that every deployme
 
 ## Unreleased
 
+### Application onboarding and credential links
+
+- Add an administrator application setup wizard for OIDC, forward-auth and MCP, producing reviewed configuration fragments without changing deployment files or grants.
+- Add `--check-config` with redacted area-level validation and no host, database, key generation or external requests. Preset client credentials may reference environment variables using `client_secret_env`.
+- Add expiring, revocable, one-use local password invitation and recovery links with administrator-assisted delivery, status history and atomic credential replacement. Recovery invalidates existing Auth credentials and preserves application grants and external identities.
+- Add Windows/Linux and both deployment-shape coverage for configuration generation, the standalone preflight command, invitation/recovery HTTP flows and credential invalidation.
+
 ### Unified releases and application diagnostics
 
 - Test one runtime image with household and path-mounted team configurations before publishing. Record immutable release digests and support checked offline image export/import instead of rebuilding per deployment.

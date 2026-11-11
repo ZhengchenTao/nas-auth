@@ -90,7 +90,7 @@ public sealed class NasAuthAppFactory : WebApplicationFactory<Program>
     /// 每个请求换一个来源 IP：/login /authorize /token 的 auth-sensitive 限速按 IP 5 次/分钟，
     /// TestServer 的 RemoteIpAddress 是 null（全部挤进同一个桶），不拆开的话测试之间互相 429。
     /// </summary>
-    private sealed class DistinctClientIpFilter : IStartupFilter
+    internal sealed class DistinctClientIpFilter : IStartupFilter
     {
         private static int _n;
 

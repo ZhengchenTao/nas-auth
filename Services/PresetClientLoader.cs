@@ -12,6 +12,21 @@ namespace NasAuth.Services;
 /// </summary>
 public static class PresetClientLoader
 {
+    public static IReadOnlyList<PresetClientConfig> Read(AuthOptions auth)
+    {
+        if (string.IsNullOrWhiteSpace(auth.ClientsPresetPath) || !File.Exists(auth.ClientsPresetPath)) return [];
+        return JsonSerializer.Deserialize<List<PresetClientConfig>>(File.ReadAllText(auth.ClientsPresetPath),
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
+    }
+
+    public static string? Secret(PresetClientConfig client)
+    {
+        if (string.IsNullOrWhiteSpace(client.ClientSecretEnvironment)) return client.ClientSecret;
+        if (!string.IsNullOrEmpty(client.ClientSecret)) throw new InvalidOperationException("Configure one client credential source only.");
+        return Environment.GetEnvironmentVariable(client.ClientSecretEnvironment) is { Length: > 0 } value
+            ? value : throw new InvalidOperationException("A client credential environment variable is missing.");
+    }
+
     public static void Load(AuthOptions auth, ClientRepository clients, ILogger logger)
     {
         var path = auth.ClientsPresetPath;
@@ -46,14 +61,15 @@ public static class PresetClientLoader
                 preset.RedirectUris is null || preset.RedirectUris.Count == 0)
             {
                 throw new InvalidOperationException(
-                    $"clients.preset.json 中存在不合法记录：{JsonSerializer.Serialize(preset)}");
+                    "clients.preset.json contains an invalid record (id, name or callback is missing).");
             }
 
             string? secretHash = null;
-            if (!string.IsNullOrEmpty(preset.ClientSecret))
+            var secret = Secret(preset);
+            if (!string.IsNullOrEmpty(secret))
             {
                 // client secret 用 SHA-256 hex 即可（不是密码，本身就是高熵随机串）
-                var h = SHA256.HashData(Encoding.UTF8.GetBytes(preset.ClientSecret));
+                var h = SHA256.HashData(Encoding.UTF8.GetBytes(secret));
                 secretHash = Convert.ToHexString(h);
             }
 

@@ -30,6 +30,7 @@ public static class AdminEndpoints
             // 写请求要带 antiforgery token（§二十三）；排在管理员门禁之后，非管理员照旧 404
             .RequireCsrfToken();
         admin.MapAccessGroupEndpoints();
+        admin.MapOnboardingAdminEndpoints();
 
         static string AdminId(HttpContext ctx) => ctx.User.Identity?.Name ?? "";
         static string EditPath(string userId) => "/admin/users/edit?user=" + Uri.EscapeDataString(userId);
@@ -103,7 +104,8 @@ public static class AdminEndpoints
         });
 
         admin.MapPost("/users/create", async (HttpContext ctx, UserRepository users,
-            ExternalInviteRepository invites, AuditLogger audit, ProvisioningService provisioning) =>
+            ExternalInviteRepository invites, AuditLogger audit, ProvisioningService provisioning,
+            CredentialLinkService links, AuthOptions auth, ExternalIdentityRepository identities, PasswordLoginGate passwords) =>
         {
             var adminId = AdminId(ctx);
             var form = await ctx.Request.ReadFormAsync();
@@ -112,6 +114,9 @@ public static class AdminEndpoints
             var newEmail = form["email"].ToString();
             var inviteEmail = form["invite_email"].ToString().Trim();
             var allowPassword = form["allow_password_login"].ToString() == "1";
+            var passwordInvitation = allowPassword && form["credential_invite"] == "1";
+            if (passwordInvitation && !passwords.Enabled)
+                return RedirectTo("/admin/users", error: T("Password access must be enabled before issuing an invitation."));
             if (form["invite_by_email"] == "1") inviteEmail = newEmail.Trim();
             if (string.IsNullOrEmpty(newUsername) && !allowPassword && !string.IsNullOrEmpty(inviteEmail))
                 newUsername = System.Text.RegularExpressions.Regex.Replace(inviteEmail.Split('@')[0], "[^a-zA-Z0-9._-]", "").ToLowerInvariant();
@@ -124,7 +129,7 @@ public static class AdminEndpoints
             if (!UsernamePattern.IsMatch(newUsername))
                 return RedirectTo("/admin/users", error: T("Username may only contain letters, digits, . _ -, length 1-32"));
             // 只有允许密码登录才要密码：只走 Google / 微软的人没有可改的密码，强制改密会让他永远过不了 /authorize
-            if (allowPassword && (string.IsNullOrEmpty(tempPwd) || tempPwd.Length < 8))
+            if (allowPassword && !passwordInvitation && (string.IsNullOrEmpty(tempPwd) || tempPwd.Length < 8))
                 return RedirectTo("/admin/users", error: T("Password must be at least 8 characters"));
             if (users.GetByUsername(newUsername) is not null)
                 return RedirectTo("/admin/users", error: T("Username {0} already exists", newUsername));
@@ -141,7 +146,7 @@ public static class AdminEndpoints
             try { users.Create(
                 userId: newUserId,
                 username: newUsername,
-                passwordHash: allowPassword ? PasswordHasher.Hash(tempPwd) : PasswordHasher.UnusableHash(),
+                passwordHash: allowPassword && !passwordInvitation ? PasswordHasher.Hash(tempPwd) : PasswordHasher.UnusableHash(),
                 mustChangePassword: mustChange,
                 email: newEmail,
                 allowPasswordLogin: allowPassword, inviteEmail: inviteEmail, createdBy: adminId,
@@ -151,6 +156,14 @@ public static class AdminEndpoints
             catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 19)
             { return RedirectTo("/admin/users", error: T("Username or pending email binding already exists; no account was created")); }
             audit.AccountAction(reuseName ? "user-create-reused-name" : "user-create", true, adminId, $"target={newUserId} password_login={(allowPassword ? 1 : 0)} must_change={(mustChange ? 1 : 0)}");
+
+            if (passwordInvitation)
+            {
+                var issued = links.Issue(adminId, newUserId, "invitation");
+                if (issued is null) return RedirectTo(EditPath(newUserId), error: T("The account was created. Issue a new password link from its user page."));
+                audit.AccountAction("credential-link-issue", true, adminId, $"target={newUserId} link={issued.Id} purpose=invitation");
+                return Render(ctx, users, identities, DashboardSpace.Admin, "users", "Password link created", DashboardTemplates.IssuedCredentialSection(issued, auth.Issuer));
+            }
 
             if (!string.IsNullOrEmpty(inviteEmail))
             {
@@ -233,7 +246,8 @@ public static class AdminEndpoints
                 GrantSources: groups.Sources(targetId));
             return Render(ctx, users, identities, DashboardSpace.Admin, "users", T("User · {0}", target.username),
                 DashboardTemplates.UserEditSection(detail,ctx.RequestServices.GetRequiredService<ProvisioningOptions>(),
-                    ctx.RequestServices.GetRequiredService<ProvisioningService>().List(targetId)));
+                    ctx.RequestServices.GetRequiredService<ProvisioningService>().List(targetId)) +
+                    DashboardTemplates.CredentialLinksSection(target, ctx.RequestServices.GetRequiredService<CredentialLinkService>().List(targetId)));
         });
 
         admin.MapPost("/users/provisioning/retry", async (HttpContext ctx, ProvisioningService provisioning, UserRepository users, AuditLogger audit) =>

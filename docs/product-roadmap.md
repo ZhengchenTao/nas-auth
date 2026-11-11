@@ -1,6 +1,6 @@
 # Product assessment and proposed roadmap
 
-Assessment started 2026-11-05; implementation status updated 2026-11-06. Remaining recommendations are not release commitments.
+Assessment started 2026-11-05; implementation status updated 2026-11-11. Remaining recommendations are not release commitments.
 
 ## Positioning
 
@@ -10,9 +10,12 @@ A lightweight identity gateway for households and small teams: OIDC, forward-aut
 
 The product already supports external identity approval and binding, local passwords, per-user resource grants, audit logs, configurable external profiles, account disabling and explicit original-identity restoration. These capabilities need coherent onboarding, recovery and troubleshooting flows rather than more isolated forms.
 
-Current source supports a binary administrator flag, individual grants and flat user groups with grant-source explanations and change previews. Invitation binding exists, but it is not a complete expiring invitation and credential-recovery experience. Local authentication has no passkey/MFA enrollment. Device-specific session inventory is absent. Local user management now supports bounded server-side search, role/lifecycle filters and pagination. Resource/client configuration remains oriented toward deployment files.
+Current source supports a binary administrator flag, individual grants and flat user groups with grant-source explanations and change previews. Local password invitations and administrator-assisted recovery now use expiring, revocable links; verified automatic delivery and external-provider recovery remain separate work. Local authentication has no passkey/MFA enrollment. Device-specific session inventory is absent. Local user management supports bounded server-side search, role/lifecycle filters and pagination. Resource/client configuration remains in deployment files, with a setup wizard and preflight command to prepare and validate changes.
 
 ## Implemented in source as of 2026-11-06
+
+Additions on 2026-11-11: [unified release artifacts](unified-release.md), [application diagnostics](application-diagnostics.md),
+[application setup and preflight](application-onboarding.md), and [local invitations/recovery](invitations-and-recovery.md).
 
 - Lifecycle hardening covers restored identities, sessions and forward-auth epochs. Minute-based access-token lifetime configuration is available. Release gates, Windows/Linux CI, contribution/security policies and operations documentation are present.
 - Optional durable application account provisioning includes application selection, delivery status, retry and reconciliation. Business permissions remain in each receiving app. The generic receiver contract stays independent of deployment adapters.
@@ -32,8 +35,8 @@ These are source capabilities, not a statement that any particular installation 
 ## Priority 1: team administration
 
 1. **Group access.** Flat groups, application grants, grant sources and impact previews are available. Use real NAS and small-team deployments to validate the group workflow.
-2. **Onboarding and recovery.** Build on existing invitation binding: expiring single-use invitations, status, cancellation, reissue and a user-controlled initial credential step. Make password recovery optional when a verified delivery channel is configured; otherwise support an audited administrator-assisted recovery flow.
-3. **Application onboarding and diagnostics.** Provide an OIDC/forward-auth/MCP setup wizard, exact callback URLs, configuration validation and a preview of a selected user's effective claims. Keep client/resource details behind the application-level view. Diagnose account pending, account disabled, grant missing, provider unavailable and browser lookup unavailable as distinct operator-visible states.
+2. **Onboarding and recovery.** Local password invitations and audited administrator-assisted recovery are implemented with expiry, single use, status, cancellation and reissue. Optional verified delivery, self-service recovery requests and richer external-provider onboarding remain follow-up work.
+3. **Application onboarding and diagnostics.** OIDC/forward-auth/MCP setup, callback/configuration checks and effective grant diagnosis are implemented. Effective claim preview and explicit external-provider/browser-lookup availability checks remain follow-up work. Keep deployment files authoritative.
 4. **Stronger local sign-in.** Prioritize passkeys and a usable recovery path. Evaluate TOTP compatibility based on demand. Make enforcement configurable for administrators and applications; do not assume every upstream provider has performed MFA.
 5. **Sessions and temporary access.** Add named/device-specific sessions and individual revocation, configurable idle/absolute expiry, and expiring guest access. Document which connected applications can receive logout or provisioning updates.
 6. **Scalable daily operation.** Add local-user search, pagination, filters and carefully previewed batch actions. Show pending onboarding and expiring permissions as actionable work, rather than presenting raw counters without next steps.

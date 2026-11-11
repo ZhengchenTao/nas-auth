@@ -226,3 +226,14 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
+(function () {
+  function credentialLink() {
+    var form = document.getElementById('credential-link-form');
+    if (!form) return;
+    var token = new URLSearchParams(location.hash.slice(1)).get('token');
+    if (token && /^[a-f0-9]{64}$/i.test(token)) form.elements.token.value = token;
+    if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', credentialLink);
+  else credentialLink();
+})();

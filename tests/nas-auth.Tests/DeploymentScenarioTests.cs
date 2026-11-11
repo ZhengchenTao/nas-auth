@@ -19,6 +19,7 @@ public sealed class DeploymentScenarioFactory(bool team) : WebApplicationFactory
     public string Issuer => "https://auth.example.test" + Mount;
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.ConfigureServices(s => s.AddSingleton<IStartupFilter, NasAuthAppFactory.DistinctClientIpFilter>());
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "resources.json"), """
             [{"aud":"library","resource_url":"https://apps.example.test/library","display_name":"Library","scopes":["openid","profile"],"app":{"id":"library","name":"Library","capability":"web"}},

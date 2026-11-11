@@ -90,6 +90,7 @@ img.sb-avatar { object-fit: cover; }
 
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; align-items: end; }
 .form-grid.narrow { max-width: 640px; }
+.application-setup-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
 .form-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
 .form-foot .grow { flex: 1; }
 .check-line { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: .875rem; }

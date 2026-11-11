@@ -79,6 +79,11 @@ public class AuthDb
         }
         TryAddColumn(conn, "ALTER TABLE provisioning_changes ADD COLUMN application_id TEXT");
         TryAddColumn(conn, "ALTER TABLE deleted_user_ids ADD COLUMN username TEXT COLLATE NOCASE");
+        using (var links = conn.CreateCommand())
+        {
+            links.CommandText = CredentialLinkSchema;
+            links.ExecuteNonQuery();
+        }
         BackfillDisplayNamesOnce(conn);
     }
 
@@ -137,6 +142,22 @@ public class AuthDb
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
             Directory.CreateDirectory(dir);
     }
+
+    private const string CredentialLinkSchema = """
+CREATE TABLE IF NOT EXISTS credential_links (
+    id TEXT PRIMARY KEY, token_hash TEXT UNIQUE NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    purpose TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+    state TEXT NOT NULL, used_at INTEGER, created_by TEXT NOT NULL, stamp TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_credential_links_user ON credential_links(user_id,created_at);
+CREATE TRIGGER IF NOT EXISTS credential_links_user_changed
+AFTER UPDATE OF password_hash,session_version,session_epoch,allow_password_login,is_disabled,is_admin,email ON users
+WHEN OLD.password_hash IS NOT NEW.password_hash OR OLD.session_version IS NOT NEW.session_version
+ OR OLD.session_epoch IS NOT NEW.session_epoch OR OLD.allow_password_login IS NOT NEW.allow_password_login
+ OR OLD.is_disabled IS NOT NEW.is_disabled OR OLD.is_admin IS NOT NEW.is_admin OR OLD.email IS NOT NEW.email
+BEGIN UPDATE credential_links SET state='revoked' WHERE user_id=NEW.user_id AND state='pending'; END;
+""";
 
     private const string ProvisioningSchema = @"
 CREATE TABLE IF NOT EXISTS provisioning_changes (

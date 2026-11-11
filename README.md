@@ -2,6 +2,9 @@
 
 See [unified image releases](docs/unified-release.md) and [application configuration/access diagnostics](docs/application-diagnostics.md).
 
+Connect applications with the [setup wizard and deployment preflight](docs/application-onboarding.md),
+and onboard or recover local password accounts with [expiring credential links](docs/invitations-and-recovery.md).
+
 Find existing accounts with name/email search, role and lifecycle filters, and bounded pagination. See [user management](docs/user-management.md).
 
 Optional [application account provisioning](docs/account-provisioning.md) creates accounts before first sign-in, with durable delivery, retry and per-user status. Application roles remain managed by each app.

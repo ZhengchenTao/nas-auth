@@ -11,7 +11,7 @@ public sealed record ApplicationDiagnosis(IReadOnlyList<DiagnosticCheck> Configu
 public sealed class ApplicationDiagnostics(ResourceCatalog catalog, ClientRepository clients,
     UserRepository users, UserResourceRepository grants, AccessGroupService groups,
     ExternalIdentityRepository identities, ExternalProviderOptions providers, PasswordLoginGate passwords,
-    ProvisioningOptions provisioningOptions, ProvisioningService provisioning)
+    ProvisioningOptions provisioningOptions, ProvisioningService provisioning, CredentialLinkService credentialLinks)
 {
     public ApplicationDiagnosis Inspect(string? aud, string? userId)
     {
@@ -59,6 +59,10 @@ public sealed class ApplicationDiagnostics(ResourceCatalog catalog, ClientReposi
         }
         access.Add(new(user.is_disabled != 0 ? "error" : "success",
             user.is_disabled != 0 ? "Account is disabled. Review the account before restoring it." : "Account is active.", user.username));
+        var invitationHistory = credentialLinks.List(userId);
+        if (!invitationHistory.Any(l => l.state == "used") && invitationHistory.FirstOrDefault(l => l.purpose == "invitation") is { } invitation)
+            access.Add(new("warning", invitation.state == "pending" ? "An invitation is awaiting password setup."
+                : "The invitation is no longer available. Review the account and reissue a link if needed."));
         var bindings = identities.ListByUser(userId).Where(i => providers.IsEnabled(i.provider)).ToArray();
         var passwordAvailable = passwords.AllowsUser(user) && !string.IsNullOrEmpty(user.password_hash);
         access.Add(new(passwordAvailable || bindings.Length > 0 ? "info" : "warning",

@@ -534,6 +534,7 @@ public static partial class DashboardTemplates
         create.Append($"<div class='field'><label for='new_email'>{T("Email")}</label><input type='email' id='new_email' name='email' autocomplete='off' placeholder='{T("sent to apps as the email claim")}'></div>");
         create.Append("</div>" + ApplicationChoices(catalog));
         create.Append(Hidden("allow_password_login", "1"));
+        create.Append($"<label class='check-line'><input type='checkbox' name='credential_invite' value='1'>{T("Let the recipient set their password using an expiring invitation link (leave Password empty).")}</label>");
         create.Append($"<details class='advanced-resources'><summary>{T("Reuse a deleted username")}</summary><label class='check-line'><input type='checkbox' name='reuse_username' value='1'>{T("This is a different person. I have checked existing app bindings. Grant apps after creation.")}</label></details>");
         create.Append("<div class='form-foot'>");
         create.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='must_change_password' value='1'>{T("Must change password on first sign-in")}</label>");
@@ -569,7 +570,7 @@ public static partial class DashboardTemplates
             external.Append($"<form method='post' action='/admin/users/create'><input type='hidden' name='invite_by_email' value='1'><div class='field'><label>{T("Email")}</label><input class='input' type='email' name='email' required autocomplete='off'></div><p class='hint'>{T("The first verified external sign-in will bind this account. No password is created.")}</p>" + ApplicationChoices(catalog) + $"<button class='btn'>{T("Create external account")}</button></form>");
         return UserLifecycleNavigation("active", directory) + Card(T("Users"), null, sb.ToString()) + (externalSignInEnabled ? Card(T("Create external account"), null, external.ToString()) : "") +
             $"<details class='card account-create'{(externalSignInEnabled ? "" : " open")}><summary><span class='account-create-heading'><span class='account-create-title'>{T("Create password account")}</span><span class='hint'>{T("For accounts that sign in with a username and password")}</span></span><span class='account-create-chevron' aria-hidden='true'></span></summary>" +
-            $"<div class='account-create-body'><p class='hint'>{T("Tell the user their password. Turn on \"Must change password on first sign-in\" if they should pick their own.")}</p>" + create.ToString() + "</div></details>";
+            $"<div class='account-create-body'><p class='hint'>{T("Choose a password, or use an invitation link so the recipient can set one.")}</p>" + create.ToString() + "</div></details>";
     }
 
     private static string ApplicationChoices(NasAuth.Services.ResourceCatalog? catalog)
@@ -922,7 +923,7 @@ public static partial class DashboardTemplates
         var nav = new StringBuilder($"<nav class='app-tabs' aria-label='{T("Application views")}'>");
         foreach (var (key, label) in new[] { ("apps", "Connected apps"), ("clients", "OAuth clients"), ("resources", "Technical details") })
             nav.Append($"<a href='/admin/apps?view={key}'{(view == key ? " aria-current='page'" : "")}>{Esc(Label("apps-" + key, label))}</a>");
-        nav.Append("</nav>");
+        nav.Append($"<a href='/admin/apps/new'>{T("Connect an application")}</a></nav>");
         var overview = new StringBuilder();
         if (resources.Count == 0) overview.Append(Empty(T("No resources.")));
         else

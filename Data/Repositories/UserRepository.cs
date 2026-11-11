@@ -10,7 +10,7 @@ public class UserRepository
     public UserRepository(AuthDb db) => _db = db;
 
     // 显式列序：必须与 UserRow 构造参数顺序一致，Dapper positional record 按列序绑定。
-    private const string UserCols =
+    internal const string UserCols =
         "user_id, username, password_hash, created_at, updated_at, is_admin, must_change_password, " +
         "email, allow_password_login, failed_login_count, locked_until, session_version, display_name, avatar, is_disabled, session_epoch";
 

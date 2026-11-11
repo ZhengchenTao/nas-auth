@@ -302,7 +302,7 @@ public class ResourceCatalog
         }
     }
 
-    private static string RawPath(string resourceUrl)
+    internal static string RawPath(string resourceUrl)
     {
         var authorityStart = resourceUrl.IndexOf("://", StringComparison.Ordinal) + 3;
         var pathStart = resourceUrl.IndexOfAny(['/', '?', '#'], authorityStart);
@@ -311,7 +311,7 @@ public class ResourceCatalog
         return pathEnd < 0 ? resourceUrl[pathStart..] : resourceUrl[pathStart..pathEnd];
     }
 
-    private static bool IsSafeSitePath(string path)
+    internal static bool IsSafeSitePath(string path)
     {
         if (path.Contains('\\') || path.Contains("%2f", StringComparison.OrdinalIgnoreCase) ||
             path.Contains("%5c", StringComparison.OrdinalIgnoreCase)) return false;

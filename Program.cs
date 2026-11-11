@@ -10,7 +10,23 @@ using NasAuth.Data.Repositories;
 using NasAuth.Endpoints;
 using NasAuth.Services;
 
-var builder = WebApplication.CreateBuilder(args);
+var checkConfiguration = args.Contains("--check-config", StringComparer.Ordinal);
+WebApplicationBuilder builder;
+try { builder = WebApplication.CreateBuilder(args.Where(a => a != "--check-config").ToArray()); }
+catch (Exception) when (checkConfiguration)
+{
+    Console.WriteLine("{\"ok\":false,\"checks\":[{\"Area\":\"Configuration files\",\"Ok\":false,\"Message\":\"Unable to load configuration. Check JSON syntax and file access.\"}]}");
+    Environment.ExitCode = 2;
+    return;
+}
+if (checkConfiguration)
+{
+    var checks = ConfigurationPreflight.Inspect(builder.Configuration);
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { ok = checks.All(c => c.Ok), checks },
+        new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+    Environment.ExitCode = checks.All(c => c.Ok) ? 0 : 2;
+    return;
+}
 
 // ---------- 配置 ----------
 var authOptions = new AuthOptions();
@@ -48,6 +64,11 @@ builder.Services.AddScoped<ExternalIdentityRepository>();
 builder.Services.AddScoped<UserResourceRepository>();
 builder.Services.AddScoped<AccessGroupService>();
 builder.Services.AddScoped<ApplicationDiagnostics>();
+builder.Services.AddScoped<ApplicationOnboarding>();
+builder.Services.AddScoped<CredentialLinkService>();
+var credentialLinks = builder.Configuration.GetSection("CredentialLinks").Get<CredentialLinkOptions>() ?? new();
+credentialLinks.Validate();
+builder.Services.AddSingleton(credentialLinks);
 builder.Services.AddScoped<ExternalInviteRepository>();
 builder.Services.AddSingleton<ProfileService>();
 // 取外部头像用：短超时，拿不到就算了，不能拖慢登录
@@ -484,6 +505,7 @@ app.MapAuthorizationEndpoints();
 app.MapTokenEndpoints();
 app.MapAccountEndpoints();
 app.MapAdminEndpoints();
+app.MapCredentialLinkEndpoints();
 app.MapExternalProfileEndpoints();
 app.MapExternalLoginEndpoints();
 app.MapProfileEndpoints();
