@@ -713,7 +713,7 @@ public static partial class DashboardTemplates
 
     // ---- 单个用户：资料 / 资源授权 / 外部身份 / 已授权应用 / 会话 / 重置密码 / 删除 ----
     public static string UserEditSection(UserDetailView d,NasAuth.Config.ProvisioningOptions? provisioning=null,
-        IReadOnlyList<NasAuth.Services.ProvisioningStatus>? provisioningStatuses=null)
+        IReadOnlyList<NasAuth.Services.ProvisioningStatus>? provisioningStatuses=null, string? credentialSection=null)
     {
         var u = d.User;
         var uid = Hidden("user_id", u.UserId);
@@ -818,6 +818,7 @@ public static partial class DashboardTemplates
             T("Signing out ends every nas-auth browser session of this user. Apps they already authorized keep working until revoked above."),
             sess.ToString()));
 
+        if (credentialSection is not null) html.Append(credentialSection);
         if (!u.IsSelf)
             html.Append(Card(T("Disable account"),T("Stop sign-in and revoke sessions. Keep identity and profile for recovery; restore application access explicitly later."),
                 $"<form method='post' action='/admin/users/disable' {Confirm(T("Disable {0}? They will be signed out.",u.Username))}>{uid}<button class='btn' data-variant='outline'>{T("Disable account")}</button></form>"));

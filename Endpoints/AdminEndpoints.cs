@@ -246,8 +246,8 @@ public static class AdminEndpoints
                 GrantSources: groups.Sources(targetId));
             return Render(ctx, users, identities, DashboardSpace.Admin, "users", T("User · {0}", target.username),
                 DashboardTemplates.UserEditSection(detail,ctx.RequestServices.GetRequiredService<ProvisioningOptions>(),
-                    ctx.RequestServices.GetRequiredService<ProvisioningService>().List(targetId)) +
-                    DashboardTemplates.CredentialLinksSection(target, ctx.RequestServices.GetRequiredService<CredentialLinkService>().List(targetId)));
+                    ctx.RequestServices.GetRequiredService<ProvisioningService>().List(targetId),
+                    DashboardTemplates.CredentialLinksSection(target, ctx.RequestServices.GetRequiredService<CredentialLinkService>().List(targetId))));
         });
 
         admin.MapPost("/users/provisioning/retry", async (HttpContext ctx, ProvisioningService provisioning, UserRepository users, AuditLogger audit) =>
