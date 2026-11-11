@@ -23,6 +23,8 @@ patch or rebuild Auth to install an instance configuration.
 ## Online deployment
 
 Set the deployment's Compose `image` to the release digest and recreate only Auth.
+The optional Gitea deploy action reconciles the version in the deployment repository;
+update that repository first. It does not override a pinned digest with the new build.
 Do not use a local `build:` or a floating `latest` reference as the release authority.
 Keep UID/file permissions, settings mounts, bootstrap credential injection, issuer,
 database and signing/cookie keys unchanged. Verify compatibility with [operations](operations.md)

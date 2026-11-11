@@ -33,7 +33,7 @@ on:
         required: false
         default: ''
       deploy:
-        description: 'Explicitly deploy the built image to the configured runtime'
+        description: 'Redeploy the version pinned in the deployment configuration'
         required: false
         type: boolean
         default: false
@@ -150,6 +150,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # ---- deploy ----
+      # 部署仓锁定 digest；先更新部署配置再触发。此步骤不会把版本自动改成 latest。
       # 仅在配置了 vars.DEPLOY_SERVICE 时运行。留空（例如开源镜像里的 GitHub）就跳过。
       #
       # runner 摸不到部署目标的本地路径，改成 ssh 过去触发。目标侧是 ssh 强制命令
