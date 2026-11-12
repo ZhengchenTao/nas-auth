@@ -142,6 +142,7 @@ public static class Ui
     {
         "overview" => Line("<rect x='3' y='3' width='7' height='9' rx='1'/><rect x='14' y='3' width='7' height='5' rx='1'/><rect x='14' y='12' width='7' height='9' rx='1'/><rect x='3' y='16' width='7' height='5' rx='1'/>"),
         "security" => Line("<rect x='4' y='11' width='16' height='10' rx='2'/><path d='M8 11V7a4 4 0 0 1 8 0v4'/>"),
+        "sessions" => Line("<rect x='2' y='3' width='15' height='12' rx='2'/><path d='M6 21h7M9 15v6'/><rect x='16' y='9' width='6' height='12' rx='1'/><path d='M18 18h2'/>"),
         "apps" => Line("<path d='m12 3 9 5-9 5-9-5z'/><path d='m3 13 9 5 9-5'/>"),
         "audit" => Line("<path d='M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z'/><path d='M14 3v6h6M8 13h8M8 17h5'/>"),
         "grants" => Line("<circle cx='8' cy='15' r='4'/><path d='M10.8 12.2 20 3M16 7l3 3M14 9l2 2'/>"),

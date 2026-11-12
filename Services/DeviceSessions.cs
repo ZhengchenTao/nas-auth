@@ -73,9 +73,7 @@ public sealed class DeviceSessions(AuthDb db, DeviceSessionOptions options, Time
 
     private void Insert(SqliteConnection c, SqliteTransaction tx, HttpContext context, UserRow user, string id, long? legacyExpiry)
     {
-        var agent = context.Request.Headers.UserAgent.ToString();
-        var browser = agent.Contains("Edg/") ? "Edge" : agent.Contains("Firefox/") ? "Firefox" : agent.Contains("Chrome/") || agent.Contains("CriOS/") ? "Chrome" : agent.Contains("Safari/") ? "Safari" : "Unknown browser";
-        var platform = agent.Contains("Android") ? "Android" : agent.Contains("iPhone") ? "iPhone" : agent.Contains("iPad") ? "iPad" : agent.Contains("Windows") ? "Windows" : agent.Contains("Macintosh") ? "macOS" : agent.Contains("Linux") ? "Linux" : "Unknown device";
+        var (browser, platform) = Describe(context);
         var now = Now;
         var expiry = Math.Min(now + options.IdleHours * 3600L, options.AbsoluteHours == 0 ? long.MaxValue : now + options.AbsoluteHours * 3600L);
         c.Execute("""
@@ -86,6 +84,18 @@ public sealed class DeviceSessions(AuthDb db, DeviceSessionOptions options, Time
     }
 
     private static string Ip(HttpContext context) => context.Connection.RemoteIpAddress?.ToString() ?? "";
+    private static (string Browser, string Platform) Describe(HttpContext context)
+    {
+        var agent = context.Request.Headers.UserAgent.ToString();
+        var browser = agent.Contains("Edg/") || agent.Contains("EdgA/") || agent.Contains("EdgiOS/") ? "Edge"
+            : agent.Contains("Firefox/") || agent.Contains("FxiOS/") ? "Firefox"
+            : agent.Contains("Chrome/") || agent.Contains("CriOS/") ? "Chrome"
+            : agent.Contains("Safari/") ? "Safari" : "Unknown browser";
+        var platform = agent.Contains("Android") ? "Android" : agent.Contains("iPhone") ? "iPhone" : agent.Contains("iPad") ? "iPad"
+            : agent.Contains("Windows") ? "Windows" : agent.Contains("Macintosh") ? "macOS" : agent.Contains("Linux") ? "Linux" : "Unknown device";
+        return (browser, platform);
+    }
+
     public bool Validate(string id, string userId, HttpContext? browserContext = null, bool touch = false)
     {
         using var c = db.OpenConnection();
@@ -95,6 +105,21 @@ public sealed class DeviceSessions(AuthDb db, DeviceSessionOptions options, Time
                 AND d.session_version=u.session_version AND d.session_epoch=u.session_epoch
             """, new { id, userId });
         if (row is null || row.revoked_at is not null || EffectiveExpiry(row) <= Now) return false;
+        // A proxy subrequest may migrate an old cookie without a User-Agent. Fill only missing
+        // labels on a later browser request, even within the activity-write throttle window.
+        // Token requests have no browserContext; neither they nor stripped headers erase labels.
+        if (touch && browserContext is not null && (row.browser == "Unknown browser" || row.platform == "Unknown device"))
+        {
+            var (browser, platform) = Describe(browserContext);
+            if ((row.browser == "Unknown browser" && browser != "Unknown browser") ||
+                (row.platform == "Unknown device" && platform != "Unknown device"))
+                c.Execute("""
+                    UPDATE device_sessions SET
+                        browser=CASE WHEN browser='Unknown browser' THEN @browser ELSE browser END,
+                        platform=CASE WHEN platform='Unknown device' THEN @platform ELSE platform END
+                    WHERE id=@id AND user_id=@userId AND revoked_at IS NULL AND session_version=@version AND session_epoch=@epoch
+                    """, new { browser, platform, id, userId, version = row.session_version, epoch = row.session_epoch });
+        }
         if (touch && row!.last_seen_at <= Now - 60)
         {
             var now = Now;

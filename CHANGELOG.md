@@ -4,6 +4,8 @@ Changes below describe source behavior. They are not a claim that every deployme
 
 ## Unreleased
 
+- Fill missing browser/OS labels after headerless legacy-cookie migration without changing session identity or revocation; collapse ended-session history and restore the device navigation icon.
+
 - Fix primary link-button foreground colors in both themes, narrow-screen diagnostic headers and long device/address text; keep sidebar visibility synchronized across viewport changes and support Escape to close it.
 - Improve success-badge contrast and make application setup/password-link validation errors use the existing alert style.
 

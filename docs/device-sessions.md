@@ -11,6 +11,10 @@ windows and automation can be separate sessions. Full User-Agent strings are not
 is no location/fingerprint service. IP and activity metadata belong to the account and its administrators.
 Activity can include related application requests; token refresh does not replace the browser IP
 with the receiving server's address. Activity writes are throttled to once a minute.
+Missing browser/OS labels are filled by the next authenticated browser request, including within
+the activity throttle window. Known labels and custom names are preserved. Proxies that strip
+User-Agent may initially create unknown labels; no proxy header-policy change is required.
+Active sessions appear first; ended sessions are collapsed under a separate history disclosure.
 
 ## Revocation
 
@@ -79,3 +83,6 @@ in a compatible rollback or use a forward fix; do not restore an older live data
 新签发的 Auth cookie、forward-auth 凭据、授权码及 token 与设备绑定；单独下线保留其他设备。
 旧 Auth cookie 首次使用时平滑纳入列表；没有设备标识的旧授权和应用自身会话仍有原有边界。
 升级后不能直接回退到忽略设备标识的旧镜像，否则可能使已下线设备重新有效。
+
+未知浏览器/系统信息会在该会话下次通过真实浏览器访问时补全，不改变设备名称、会话标识或到期策略。
+已知信息不会被无浏览器信息的代理请求覆盖。已结束的会话折叠为历史记录，保留原有撤销状态。

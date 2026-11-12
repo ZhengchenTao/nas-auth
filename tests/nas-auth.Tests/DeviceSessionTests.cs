@@ -164,6 +164,68 @@ public class DeviceSessionTests
         Assert.Single(sessions.List(user.user_id));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HeaderlessProxyMigrationIsEnrichedByTheNextBrowserRequest(bool team)
+    {
+        using var app = new DeploymentScenarioFactory(team); using var scope = app.Services.CreateScope(); var sp = scope.ServiceProvider;
+        var user = sp.GetRequiredService<UserRepository>().GetById("admin")!;
+        var sessions = sp.GetRequiredService<DeviceSessions>();
+        var options = sp.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>().Get(CookieAuthenticationDefaults.AuthenticationScheme);
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, user.user_id),
+            new Claim(SessionValidator.ClaimType, user.session_version.ToString()), new Claim(SessionValidator.EpochClaimType, user.session_epoch)], CookieAuthenticationDefaults.AuthenticationScheme));
+        var ticket = new AuthenticationTicket(principal, new AuthenticationProperties { IsPersistent = true,
+            IssuedUtc = DateTimeOffset.UtcNow.AddHours(-1), ExpiresUtc = DateTimeOffset.UtcNow.AddDays(5) }, CookieAuthenticationDefaults.AuthenticationScheme);
+        var cookie = options.TicketDataFormat.Protect(ticket);
+        using var browser = app.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false, AllowAutoRedirect = false });
+        HttpRequestMessage Request(bool proxy, string? agent = null)
+        {
+            var url = proxy ? "https://gate.example.test" + app.Mount + "/forward-auth/verify?aud=library-gate&response=auth_request"
+                : "https://auth.example.test" + app.Mount + "/account/sessions";
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", options.Cookie.Name + "=" + cookie);
+            request.Headers.Add("X-Forwarded-Uri", "/library/"); request.Headers.Add("X-Forwarded-Method", "GET");
+            if (agent is not null) request.Headers.Add("User-Agent", agent);
+            return request;
+        }
+        // Nginx auth_request can forward the old Auth cookie but strip the browser headers.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.SendAsync(Request(true))).StatusCode);
+        var initial = Assert.Single(sessions.List(user.user_id));
+        Assert.Equal("Unknown browser", initial.browser); Assert.Equal("Unknown device", initial.platform);
+        Assert.True(sessions.Rename(user.user_id, initial.id, "My workstation"));
+        Assert.Equal(HttpStatusCode.OK, (await browser.SendAsync(Request(false, "Mozilla/5.0 Windows Chrome/130.0"))).StatusCode);
+        var enriched = Assert.Single(sessions.List(user.user_id));
+        Assert.Equal(initial.id, enriched.id); Assert.Equal("Chrome", enriched.browser); Assert.Equal("Windows", enriched.platform);
+        Assert.Equal("My workstation", enriched.name); Assert.Equal(initial.created_at, enriched.created_at);
+        Assert.Equal(initial.expires_at, enriched.expires_at); // Metadata repair does not reset expiry or require a minute's wait.
+        await browser.SendAsync(Request(true));
+        await browser.SendAsync(Request(false, "iPhone Safari/605.1"));
+        Assert.True(sessions.CredentialIsActive(initial.id, user.user_id, touch: true));
+        Assert.Equal("Chrome", Assert.Single(sessions.List(user.user_id)).browser);
+        Assert.Equal("Windows", Assert.Single(sessions.List(user.user_id)).platform);
+        Assert.True(sessions.Revoke(user.user_id, initial.id));
+        Assert.Equal(HttpStatusCode.Redirect, (await browser.SendAsync(Request(false, "Windows Edg/130.0"))).StatusCode);
+        Assert.Equal("Chrome", Assert.Single(sessions.List(user.user_id)).browser);
+    }
+
+    [Theory]
+    [InlineData("iPhone", "Mozilla/5.0 iPhone FxiOS/130.0 Safari/605.1", "Firefox", "iPhone")]
+    [InlineData("Edg/130.0", "Windows Chrome/130.0", "Edge", "Windows")]
+    [InlineData("", "Android Chrome/130.0 EdgA/130.0", "Edge", "Android")]
+    [InlineData("", "iPhone EdgiOS/130.0 Safari/605.1", "Edge", "iPhone")]
+    public void OnlyMissingDeviceLabelsAreFilled(string initialAgent, string nextAgent, string browser, string platform)
+    {
+        using var app = new NasAuthAppFactory(); using var scope = app.Services.CreateScope(); var sp = scope.ServiceProvider;
+        var sessions = sp.GetRequiredService<DeviceSessions>(); var user = sp.GetRequiredService<UserRepository>().GetById("admin")!;
+        var context = new DefaultHttpContext(); context.Request.Headers.UserAgent = initialAgent;
+        var id = sessions.SignIn(context, user, true)!;
+        context.Request.Headers.UserAgent = nextAgent;
+        Assert.True(sessions.Validate(id, user.user_id, context, touch: true));
+        var row = Assert.Single(sessions.List(user.user_id));
+        Assert.Equal(browser, row.browser); Assert.Equal(platform, row.platform);
+    }
+
     [Fact]
     public void IdleAndAbsoluteExpiryAndRevokedConsentAreEnforced()
     {

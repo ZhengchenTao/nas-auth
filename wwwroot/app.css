@@ -333,3 +333,10 @@ td.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end
   .filter-bar .field, .form-grid, .res-grid, .application-choice-grid { min-width: 0; }
   .form-grid, .res-grid, .application-choice-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+.session-history { margin-top: 16px; }
+.session-history::details-content { transition: none; }
+.session-history > summary { gap: 8px; padding: 12px 0; cursor: pointer; color: var(--muted-foreground); }
+.session-history > summary::after { content: ''; width: 6px; height: 6px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(45deg); }
+.session-history[open] > summary::after { transform: rotate(225deg); }
+.session-history > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; border-radius: 4px; }

@@ -39,6 +39,8 @@ public static class I18n
         ["Rename device"] = "修改设备名称",
         ["Device name"] = "设备名称",
         ["Sign out device"] = "下线此设备",
+        ["No active device sessions."] = "暂无有效设备会话。",
+        ["Ended sessions ({0})"] = "已结束的会话（{0}）",
         ["Unknown browser"] = "未知浏览器",
         ["Unknown device"] = "未知设备",
         ["The device name or session is unavailable."] = "设备名称无效或会话已失效。",

@@ -12,11 +12,16 @@ public static partial class DashboardTemplates
         DeviceSessions sessions, string userId, bool admin = false)
     {
         var body = new StringBuilder();
-        if (rows.Count == 0) body.Append(Empty(T("Devices appear when their browser next uses Auth.")));
-        else
+        var activeRows = rows.Where(sessions.Available).ToArray();
+        var endedRows = rows.Where(row => !sessions.Available(row)).ToArray();
+        if (activeRows.Length == 0) body.Append(Empty(T("No active device sessions.")));
+        foreach (var group in new[] { activeRows, endedRows })
         {
+            if (group.Length == 0) continue;
+            var history = ReferenceEquals(group, endedRows);
+            if (history) body.Append($"<details class='session-history'><summary>{T("Ended sessions ({0})", endedRows.Length)}</summary>");
             body.Append($"<div class='table-container'><table class='table device-session-table'><thead><tr><th>{T("Device")}</th><th>{T("Last activity")}</th><th>{T("Expires")}</th><th></th></tr></thead><tbody>");
-            foreach (var row in rows)
+            foreach (var row in group)
             {
                 var active = sessions.Available(row);
                 var state = row.revoked_at is not null ? "revoked" : active ? "active" : "expired";
@@ -34,6 +39,7 @@ public static partial class DashboardTemplates
                 body.Append("</td></tr>");
             }
             body.Append("</tbody></table></div>");
+            if (history) body.Append("</details>");
         }
         body.Append($"<p class='hint'>{T("Up to 50 recent sessions are shown. Device names are inferred from the browser, not verified hardware identities. Activity can include linked application requests.")}</p>");
         body.Append($"<p class='hint'>{T("Signing out revokes this Auth session and its linked credentials. Older unlinked authorizations and application-owned sessions may remain; review Authorized apps when needed.")}</p>");
