@@ -18,9 +18,11 @@ public static class AuthorizationEndpoints
 {
     public static void MapAuthorizationEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/authorize", (HttpContext ctx,
+        app.MapGet("/authorize", async (HttpContext ctx,
             ClientRepository clients, ResourceCatalog catalog,
-            ExternalProviderOptions providers, PasswordLoginGate passwordLogin, AuthOptions options) =>
+            ExternalProviderOptions providers, PasswordLoginGate passwordLogin, AuthOptions options,
+            UserRepository users, UserResourceRepository userResources, AuthCodeRepository authCodes,
+            JwtIssuer issuer, AuditLogger audit) =>
         {
             var q = ctx.Request.Query;
             var err = ValidateAuthorizeParams(q, clients, catalog, options,
@@ -38,22 +40,50 @@ public static class AuthorizationEndpoints
 
             var resourceDisplay = string.Join(", ", resources.Select(r => r.DisplayName));
             var hidden = ExtractHiddenFields(q, requestedScopes);
-            var html = HtmlTemplates.Authorize(
-                client!.client_name,
-                resourceDisplay,
-                requestedScopes,
-                hidden,
-                error: null,
-                // 外部登录回调后会带会话回到这个 URL，所以 return_url 必须含完整 query
-                returnUrl: ctx.Request.PathBase + ctx.Request.Path + ctx.Request.QueryString,
-                sessionUser: SessionUserId(ctx),
-                googleEnabled: providers.GoogleEnabled,
-                microsoftEnabled: providers.MicrosoftEnabled,
-                passwordEnabled: passwordLogin.Enabled,
-                redirectUri: redirectUri,
-                selfRegistered: client!.auto_registered != 0,
-                providerChoices: providers.EnabledProviders);
-            return Results.Content(html, "text/html; charset=utf-8");
+            IResult Render(string? error, int statusCode)
+            {
+                var html = HtmlTemplates.Authorize(
+                    client!.client_name, resourceDisplay, requestedScopes, hidden, error,
+                    returnUrl: ctx.Request.PathBase + ctx.Request.Path + ctx.Request.QueryString,
+                    sessionUser: SessionUserId(ctx),
+                    googleEnabled: providers.GoogleEnabled,
+                    microsoftEnabled: providers.MicrosoftEnabled,
+                    passwordEnabled: passwordLogin.Enabled,
+                    redirectUri: redirectUri,
+                    selfRegistered: client.auto_registered != 0,
+                    providerChoices: providers.EnabledProviders);
+                ctx.Response.StatusCode = statusCode;
+                return Results.Content(html, "text/html; charset=utf-8");
+            }
+
+            var prompt = q["prompt"].ToString();
+            var automatic = client is { auto_registered: 0, client_secret_hash.Length: > 0,
+                    token_endpoint_auth_method: "client_secret_basic" or "client_secret_post" }
+                && options.AutomaticAuthorizationClients.Contains(client.client_id, StringComparer.Ordinal)
+                && resources.Count == 1
+                && resources[0].ResourceUrl == client.default_resource
+                && requestedScopes.Contains("openid", StringComparer.Ordinal)
+                && requestedScopes.All(OidcScopes.Contains)
+                && q["state"].Count == 1
+                && !string.IsNullOrWhiteSpace(q["state"].ToString())
+                && !q.ContainsKey("max_age")
+                && !q.ContainsKey("claims")
+                && !q.ContainsKey("request")
+                && !q.ContainsKey("request_uri");
+            if (automatic && (prompt is "" or "none")
+                && SessionUserId(ctx) is { } sessionUid && users.GetById(sessionUid) is { } user)
+            {
+                IResult OnError(string message, int status) => prompt == "none"
+                    ? RedirectAuthorizationResponse(redirectUri!, "error", "interaction_required", q["state"].ToString())
+                    : Render(message, status);
+                return await CompleteAuthorization(ctx, q, client!, resources, requestedScopes, redirectUri!, user,
+                    false, userResources, authCodes, issuer, audit, OnError);
+            }
+            if (prompt == "none")
+                return RedirectAuthorizationResponse(redirectUri!, "error",
+                    SessionUserId(ctx) is null ? "login_required" : "consent_required", q["state"].ToString());
+
+            return Render(null, StatusCodes.Status200OK);
         });
 
         app.MapPost("/authorize", async (HttpContext ctx,
@@ -152,79 +182,95 @@ public static class AuthorizationEndpoints
                 user = result.User!;
             }
 
-            // 首次登录 / admin 重置后必须先改密：不在 consent 页里处理改密流程
-            // （consent 表单不带 cookie 也能 POST，改完不知道回哪），
-            // 把人挤到正常 /login → 强制改密 → 再回来 consent。
-            if (user.must_change_password != 0)
-            {
-                audit.Authorize(false, client!.client_id, user.user_id, auditAud,
-                    string.Join(' ', requestedScopes), ctx.RemoteIp(), "must_change_password");
-                return RenderError(T("This account must change its password first. Please go to /login, change your password, then return to this page to authorize."),
-                    StatusCodes.Status403Forbidden);
-            }
-
-            // §5.5 用户级授权检查：逐资源查 user_resources（当前用户, aud）存在且
-            // 该资源被请求的 scope ⊆ 授予 scopes。
-            // 单资源（显式 resource）：未授权 → 403，语义同前。
-            // 多资源（DCR 反推）：保留被授权的资源（downscope），全被丢弃才 403。
-            // 在资源 allowlist 检查之后：资源合法 ≠ 这个用户被授权用它。
-            var grantedResources = new List<NasAuth.Config.ResourceConfig>();
-            var grantedScopes = new List<string>();
-            foreach (var r in resources)
-            {
-                var rScopes = requestedScopes.Where(r.Scopes.Contains).ToArray();
-                if (rScopes.Length == 0) continue; // 反推集合里这个资源没被请求到 scope
-                if (!r.AllowsUser(user.is_admin != 0)) continue; // admin_only：非管理员即使有授权行也拒
-                if (userResources.IsAllowed(user.user_id, r.Aud, rScopes))
-                {
-                    grantedResources.Add(r);
-                    grantedScopes.AddRange(rScopes);
-                }
-            }
-            if (grantedResources.Count == 0)
-            {
-                audit.Authorize(false, client!.client_id, user.user_id, auditAud,
-                    string.Join(' ', requestedScopes), ctx.RemoteIp(), "access_denied_user_resource");
-                return RenderError(T("Your account is not authorized for this resource (or the requested scopes exceed your grant). Ask an administrator to grant it under Users → Resources."),
-                    StatusCodes.Status403Forbidden);
-            }
-
-            // 多资源时 resource 列存空格拼接的 resource_url，scope 存 downscope 后的并集；
-            // /token 据此 split 还原、签多 aud token。
-            var grantedResourceUrls = string.Join(' ', grantedResources.Select(r => r.ResourceUrl));
-            var grantedScopeStr = string.Join(' ', grantedScopes.Distinct());
-            var grantedAud = string.Join(',', grantedResources.Select(r => r.Aud));
-
-            var sessionId = await SignInCookie(ctx, user.user_id, form["use_session"] != "1", user);
-            if (sessionId is null) return RenderError(T("Your session has expired. Please sign in again."), StatusCodes.Status403Forbidden);
-
-            var code = RegistrationEndpoints.GenerateRandomToken(32);
-            authCodes.Insert(new AuthCodeRow(
-                code: code,
-                client_id: client!.client_id,
-                resource: grantedResourceUrls,
-                scope: grantedScopeStr,
-                redirect_uri: redirectUri!,
-                // .ToString()：缺参时 StringValues→string 隐式转换给 null，会撞列上的 NOT NULL；
-                // 空串=「没有 PKCE」（confidential client 跳过的合法形态）
-                code_challenge: form["code_challenge"].ToString(),
-                code_challenge_method: form["code_challenge_method"].ToString(),
-                user_id: user.user_id,
-                expires_at: issuer.AuthCodeExpiry().ToUnixTimeSeconds(),
-                consumed: 0,
-                created_at: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                // OIDC nonce：原样存下来，/token 签 id_token 时回显（防重放，Core §3.1.2.1）
-                nonce: string.IsNullOrEmpty(form["nonce"].ToString()) ? null : form["nonce"].ToString(), session_id: sessionId));
-
-            audit.Authorize(true, client.client_id, user.user_id, grantedAud,
-                grantedScopeStr, ctx.RemoteIp());
-
-            var sep = redirectUri!.Contains('?') ? '&' : '?';
-            var state = form["state"].ToString();
-            var location = $"{redirectUri}{sep}code={Uri.EscapeDataString(code)}" +
-                           (string.IsNullOrEmpty(state) ? "" : $"&state={Uri.EscapeDataString(state)}");
-            return Results.Redirect(location);
+            return await CompleteAuthorization(ctx, form, client!, resources, requestedScopes, redirectUri!, user,
+                form["use_session"] != "1", userResources, authCodes, issuer, audit, RenderError);
         }).RequireRateLimiting("auth-sensitive");
+    }
+
+    private static async Task<IResult> CompleteAuthorization(
+        HttpContext ctx, IEnumerable<KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues>> parameters, ClientRow client,
+        List<ResourceConfig> resources, string[] requestedScopes, string redirectUri, UserRow user,
+        bool freshAuthentication, UserResourceRepository userResources, AuthCodeRepository authCodes,
+        JwtIssuer issuer, AuditLogger audit, Func<string, int, IResult> renderError)
+    {
+        string Parameter(string key) => parameters.FirstOrDefault(pair => pair.Key == key).Value.ToString();
+        var auditAud = string.Join(',', resources.Select(r => r.Aud));
+        // 首次登录 / admin 重置后必须先改密：不在 consent 页里处理改密流程
+        // （consent 表单不带 cookie 也能 POST，改完不知道回哪），
+        // 把人挤到正常 /login → 强制改密 → 再回来 consent。
+        if (user.must_change_password != 0)
+        {
+            audit.Authorize(false, client.client_id, user.user_id, auditAud,
+                string.Join(' ', requestedScopes), ctx.RemoteIp(), "must_change_password");
+            return renderError(T("This account must change its password first. Please go to /login, change your password, then return to this page to authorize."),
+                StatusCodes.Status403Forbidden);
+        }
+
+        // §5.5 用户级授权检查：逐资源查 user_resources（当前用户, aud）存在且
+        // 该资源被请求的 scope ⊆ 授予 scopes。
+        // 单资源（显式 resource）：未授权 → 403，语义同前。
+        // 多资源（DCR 反推）：保留被授权的资源（downscope），全被丢弃才 403。
+        // 在资源 allowlist 检查之后：资源合法 ≠ 这个用户被授权用它。
+        var grantedResources = new List<NasAuth.Config.ResourceConfig>();
+        var grantedScopes = new List<string>();
+        foreach (var r in resources)
+        {
+            var rScopes = requestedScopes.Where(r.Scopes.Contains).ToArray();
+            if (rScopes.Length == 0) continue; // 反推集合里这个资源没被请求到 scope
+            if (!r.AllowsUser(user.is_admin != 0)) continue; // admin_only：非管理员即使有授权行也拒
+            if (userResources.IsAllowed(user.user_id, r.Aud, rScopes))
+            {
+                grantedResources.Add(r);
+                grantedScopes.AddRange(rScopes);
+            }
+        }
+        if (grantedResources.Count == 0)
+        {
+            audit.Authorize(false, client.client_id, user.user_id, auditAud,
+                string.Join(' ', requestedScopes), ctx.RemoteIp(), "access_denied_user_resource");
+            return renderError(T("Your account is not authorized for this resource (or the requested scopes exceed your grant). Ask an administrator to grant it under Users → Resources."),
+                StatusCodes.Status403Forbidden);
+        }
+
+        // 多资源时 resource 列存空格拼接的 resource_url，scope 存 downscope 后的并集；
+        // /token 据此 split 还原、签多 aud token。
+        var grantedResourceUrls = string.Join(' ', grantedResources.Select(r => r.ResourceUrl));
+        var grantedScopeStr = string.Join(' ', grantedScopes.Distinct());
+        var grantedAud = string.Join(',', grantedResources.Select(r => r.Aud));
+
+        var sessionId = await SignInCookie(ctx, user.user_id, freshAuthentication, user);
+        if (sessionId is null) return renderError(T("Your session has expired. Please sign in again."), StatusCodes.Status403Forbidden);
+
+        var code = RegistrationEndpoints.GenerateRandomToken(32);
+        authCodes.Insert(new AuthCodeRow(
+            code: code,
+            client_id: client.client_id,
+            resource: grantedResourceUrls,
+            scope: grantedScopeStr,
+            redirect_uri: redirectUri,
+            // .ToString()：缺参时 StringValues→string 隐式转换给 null，会撞列上的 NOT NULL；
+            // 空串=「没有 PKCE」（confidential client 跳过的合法形态）
+            code_challenge: Parameter("code_challenge"),
+            code_challenge_method: Parameter("code_challenge_method"),
+            user_id: user.user_id,
+            expires_at: issuer.AuthCodeExpiry().ToUnixTimeSeconds(),
+            consumed: 0,
+            created_at: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            // OIDC nonce：原样存下来，/token 签 id_token 时回显（防重放，Core §3.1.2.1）
+            nonce: string.IsNullOrEmpty(Parameter("nonce")) ? null : Parameter("nonce"), session_id: sessionId));
+
+        audit.Authorize(true, client.client_id, user.user_id, grantedAud,
+            grantedScopeStr, ctx.RemoteIp());
+
+        return RedirectAuthorizationResponse(redirectUri, "code", code, Parameter("state"));
+    }
+
+    private static IResult RedirectAuthorizationResponse(string redirectUri, string parameter, string value, string state)
+    {
+        var separator = redirectUri.Contains('?') ? '&' : '?';
+        var location = $"{redirectUri}{separator}{parameter}={Uri.EscapeDataString(value)}" +
+                       (string.IsNullOrEmpty(state) ? "" : $"&state={Uri.EscapeDataString(state)}");
+        return Results.Redirect(location);
     }
 
     /// <summary>

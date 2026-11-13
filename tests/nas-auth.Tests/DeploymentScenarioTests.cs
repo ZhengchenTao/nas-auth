@@ -12,7 +12,7 @@ using Xunit;
 namespace NasAuth.Tests;
 
 /// <summary>The same entry point is exercised with household and path-mounted team configuration.</summary>
-public sealed class DeploymentScenarioFactory(bool team) : WebApplicationFactory<Program>
+public sealed class DeploymentScenarioFactory(bool team, bool automaticAuthorization = false) : WebApplicationFactory<Program>
 {
     private readonly string dir = Path.Combine(Path.GetTempPath(), "auth-scenario-" + Guid.NewGuid().ToString("N"));
     public string Mount => team ? "/auth" : "";
@@ -38,6 +38,8 @@ public sealed class DeploymentScenarioFactory(bool team) : WebApplicationFactory
         builder.UseSetting("Auth:Database", "Data Source=" + Path.Combine(dir, "auth.db") + ";Pooling=False");
         builder.UseSetting("Auth:ResourcesPath", Path.Combine(dir, "resources.json"));
         builder.UseSetting("Auth:ClientsPresetPath", Path.Combine(dir, "clients.json"));
+        if (automaticAuthorization)
+            builder.UseSetting("Auth:AutomaticAuthorizationClients:0", "trusted-client");
         builder.UseSetting("ExternalProviders:UseConfiguredProviders", "true");
         if (team)
         {
@@ -72,6 +74,46 @@ public sealed class DeploymentScenarioFactory(bool team) : WebApplicationFactory
 
 public class DeploymentScenarioTests
 {
+    [Fact]
+    public async Task TrustedOidcAuthorizationReusesExistingDeviceAndChecksTheGrant()
+    {
+        using var app = new DeploymentScenarioFactory(true, automaticAuthorization: true);
+        using var scope = app.Services.CreateScope();
+        var services = scope.ServiceProvider;
+        services.GetRequiredService<ClientRepository>().UpsertPreset(new PresetClientConfig
+        {
+            ClientId = "trusted-client",
+            ClientName = "Trusted",
+            RedirectUris = ["https://apps.example.test/callback"],
+            DefaultResource = "https://apps.example.test/library",
+            TokenEndpointAuthMethod = "client_secret_post"
+        }, JwtIssuer.HashRefreshToken("test-secret"));
+        var users = services.GetRequiredService<UserRepository>();
+        users.Create("sso-member", "sso-member", PasswordHasher.Hash("test-password"), false, allowPasswordLogin: true);
+        var grants = services.GetRequiredService<UserResourceRepository>();
+        grants.Upsert("sso-member", "library", "openid profile");
+        using var browser = app.Browser();
+        const string request = "/auth/authorize?response_type=code&client_id=trusted-client"
+            + "&redirect_uri=https%3A%2F%2Fapps.example.test%2Fcallback&scope=openid%20profile&state=rp-state";
+
+        var anonymous = await browser.GetAsync(request + "&prompt=none");
+        Assert.Contains("error=login_required", anonymous.Headers.Location!.Query);
+        var login = await browser.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string, string>
+            { ["username"] = "sso-member", ["password"] = "test-password" }));
+        Assert.Equal(HttpStatusCode.Redirect, login.StatusCode);
+        var activeDevice = Assert.Single(services.GetRequiredService<DeviceSessions>().List("sso-member"));
+        var authorized = await browser.GetAsync(request);
+        Assert.Equal(HttpStatusCode.Redirect, authorized.StatusCode);
+        var callback = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(authorized.Headers.Location!.Query);
+        Assert.Equal("rp-state", callback["state"].ToString());
+        var code = services.GetRequiredService<AuthCodeRepository>().ConsumeAtomic(callback["code"].ToString());
+        Assert.Equal(activeDevice.id, code!.session_id);
+        Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync(request + "&prompt=consent")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await browser.GetAsync(request.Replace("apps.example.test", "other.example.test"))).StatusCode);
+        grants.Upsert("sso-member", "library", "openid");
+        Assert.Equal(HttpStatusCode.Forbidden, (await browser.GetAsync(request)).StatusCode);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

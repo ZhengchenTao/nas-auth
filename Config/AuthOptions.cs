@@ -16,6 +16,8 @@ public class AuthOptions
     public DcrOptions Dcr { get; set; } = new();
     /// <summary>Opt-in UserInfo administrator groups, keyed by exact OIDC client ID. Empty by default.</summary>
     public Dictionary<string, string[]> AdminGroupsByClient { get; set; } = new(StringComparer.Ordinal);
+    /// <summary>Confidential OIDC clients approved for automatic authorization of their default resource.</summary>
+    public string[] AutomaticAuthorizationClients { get; set; } = [];
 
     public void NormalizeAndValidate()
     {
