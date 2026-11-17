@@ -52,7 +52,7 @@ public sealed class DirectoryAccountTests : IClassFixture<TicketAuthFactory>
         var user = new NasAuth.Pages.UserAdminView("staff", "staff", false, false, false, "-", Email: "staff@example.test");
         var detail = new NasAuth.Pages.UserDetailView(user, [], [], [], [],
             Invites: [new NasAuth.Pages.InviteView("staff@example.test", "-")]);
-        var html = NasAuth.Pages.DashboardTemplates.UserEditSection(detail, emailBindingAvailable: providers.SupportsVerifiedEmailBinding);
+        var html = NasAuth.Pages.DashboardTemplates.UserEditSection(detail, emailBindingAvailable: providers.SupportsVerifiedEmailBinding, view: "identities");
         Assert.DoesNotContain("/admin/users/invites/add", html);
         Assert.Contains("/admin/users/invites/delete", html);
     }

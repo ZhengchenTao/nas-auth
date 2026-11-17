@@ -132,7 +132,7 @@ public class TemplateContractTests
         var user = new UserAdminView("bob", "bob", false, false, false, "2026-09-29 20:00");
         var grants = new[] { new AccountAuthorizationView("c1", "Claude", "https://res.example", "Res", new[] { "read:x" }, "-") };
         var html = DashboardTemplates.UserEditSection(new UserDetailView(user, Array.Empty<UserResourceEditView>(),
-            Array.Empty<BindingView>(), grants, Array.Empty<AuditView>()));
+            Array.Empty<BindingView>(), grants, Array.Empty<AuditView>()), view: "access");
         Assert.Contains("action='/admin/users/revoke'", html);
         Assert.Contains("name='user_id' value='bob'", html);
         Assert.Contains("action='/admin/users/revoke-all'", html);

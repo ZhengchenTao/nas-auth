@@ -64,7 +64,7 @@ public static partial class DashboardTemplates
         return Card(T("Password link created"), T("Copy this link now and deliver it to the verified recipient. It will not be shown again. No email has been sent."),
             $"<div class='field'><label for='issued-credential-link'>{T("One-time link")}</label><textarea id='issued-credential-link' rows='3' readonly autocomplete='off'>{Esc(url)}</textarea></div>" +
             $"<p>{T("Expires")}: {DateTimeOffset.FromUnixTimeSeconds(link.ExpiresAt):yyyy-MM-dd HH:mm} UTC</p>" +
-            $"<a class='btn' data-variant='outline' href='{Esc(EditHref(link.UserId))}'>{T("Back to user")}</a>");
+            $"<a class='btn' data-variant='outline' href='{Esc(EditHref(link.UserId) + "&view=security")}'>{T("Back to user")}</a>");
     }
 
     public static string CredentialEntryPage(string? error = null, bool complete = false, string token = "")

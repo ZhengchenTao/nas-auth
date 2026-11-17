@@ -34,7 +34,7 @@ public static class AdminEndpoints
         admin.MapAdminDeviceEndpoints();
 
         static string AdminId(HttpContext ctx) => ctx.User.Identity?.Name ?? "";
-        static string EditPath(string userId) => "/admin/users/edit?user=" + Uri.EscapeDataString(userId);
+        static string EditPath(string userId, string view = "profile") => "/admin/users/edit?user=" + Uri.EscapeDataString(userId) + "&view=" + view;
 
         // ----- 概览 -----
         admin.MapGet("", (HttpContext ctx,
@@ -166,7 +166,7 @@ public static class AdminEndpoints
             if (passwordInvitation)
             {
                 var issued = links.Issue(adminId, newUserId, "invitation");
-                if (issued is null) return RedirectTo(EditPath(newUserId), error: T("The account was created. Issue a new password link from its user page."));
+                if (issued is null) return RedirectTo(EditPath(newUserId, "security"), error: T("The account was created. Issue a new password link from its user page."));
                 audit.AccountAction("credential-link-issue", true, adminId, $"target={newUserId} link={issued.Id} purpose=invitation");
                 return Render(ctx, users, identities, DashboardSpace.Admin, "users", "Password link created", DashboardTemplates.IssuedCredentialSection(issued, auth.Issuer));
             }
@@ -190,16 +190,16 @@ public static class AdminEndpoints
             var form = await ctx.Request.ReadFormAsync();
             var targetId = form["user_id"].ToString();
             if (!providers.SupportsVerifiedEmailBinding)
-                return RedirectTo(EditPath(targetId), error: T("No configured sign-in provider can verify email for first binding."));
+                return RedirectTo(EditPath(targetId, "identities"), error: T("No configured sign-in provider can verify email for first binding."));
             var email = form["email"].ToString().Trim();
             if (users.GetById(targetId) is null)
                 return RedirectTo("/admin/users", error: T("User does not exist"));
             if (string.IsNullOrEmpty(email) || !IsValidEmail(email))
-                return RedirectTo(EditPath(targetId), error: T("Invalid email address"));
+                return RedirectTo(EditPath(targetId, "identities"), error: T("Invalid email address"));
             if (!invites.Add(email, targetId, AdminId(ctx)))
-                return RedirectTo(EditPath(targetId), error: T("{0} is already pre-bound", email));
+                return RedirectTo(EditPath(targetId, "identities"), error: T("{0} is already pre-bound", email));
             audit.AccountAction("invite-add", true, AdminId(ctx), $"target={targetId} email={UserRepository.NormalizeEmail(email)}");
-            return RedirectTo(EditPath(targetId), notice: T("Pre-bound {0}", email));
+            return RedirectTo(EditPath(targetId, "identities"), notice: T("Pre-bound {0}", email));
         });
 
         admin.MapPost("/users/invites/delete", async (HttpContext ctx,
@@ -209,9 +209,9 @@ public static class AdminEndpoints
             var targetId = form["user_id"].ToString();
             var email = form["email"].ToString();
             if (!invites.Delete(email, targetId))
-                return RedirectTo(EditPath(targetId), error: T("Pre-bound email not found"));
+                return RedirectTo(EditPath(targetId, "identities"), error: T("Pre-bound email not found"));
             audit.AccountAction("invite-delete", true, AdminId(ctx), $"target={targetId} email={UserRepository.NormalizeEmail(email)}");
-            return RedirectTo(EditPath(targetId), notice: T("Removed pre-bound {0}", email));
+            return RedirectTo(EditPath(targetId, "identities"), notice: T("Removed pre-bound {0}", email));
         });
 
         // 单个用户编辑页：资料 / 资源授权 / 外部身份 / 授权记录 / 会话 / 重置密码 / 删除
@@ -260,7 +260,8 @@ public static class AdminEndpoints
                     DashboardTemplates.DeviceSessionsSection(ctx.RequestServices.GetRequiredService<DeviceSessions>().List(targetId), DeviceSessions.CurrentId(ctx.User),
                         ctx.RequestServices.GetRequiredService<DeviceSessions>(), targetId, admin: true, username: target.username, isSelf: targetId == AdminId(ctx)),
                     emailBindingAvailable: providers.SupportsVerifiedEmailBinding,
-                    availableGroups: groups.List().Where(g => !detail.Groups!.Any(current => current.Id == g.Id)).ToList()));
+                    availableGroups: groups.List().Where(g => !detail.Groups!.Any(current => current.Id == g.Id)).ToList(),
+                    view: ctx.Request.Query["view"]));
         });
 
         admin.MapPost("/users/provisioning/retry", async (HttpContext ctx, ProvisioningService provisioning, UserRepository users, AuditLogger audit) =>
@@ -271,7 +272,7 @@ public static class AdminEndpoints
             provisioning.Reconcile(target);
             provisioning.Retry(target);
             audit.AccountAction("provisioning-reconcile", true, AdminId(ctx), $"target={target}");
-            return RedirectTo(EditPath(target), notice: T("Account synchronization queued"));
+            return RedirectTo(EditPath(target, "access"), notice: T("Account synchronization queued"));
         });
 
         admin.MapPost("/users/applications",async(HttpContext ctx,ProvisioningService provisioning,AuditLogger audit)=>
@@ -279,7 +280,7 @@ public static class AdminEndpoints
             var form=await ctx.Request.ReadFormAsync();var target=form["user_id"].ToString();
             if(!provisioning.SetApplications(target,form["application"].Select(x=>x??"")))return Results.NotFound();
             audit.AccountAction("user-applications-update",true,AdminId(ctx),$"target={target}");
-            return RedirectTo(EditPath(target),notice:T("Grants saved"));
+            return RedirectTo(EditPath(target, "access"),notice:T("Grants saved"));
         });
 
         // §十四：编辑邮箱 / 允许密码登录（管理员可改任何人，包括自己 —— 关掉自己的密码登录是推荐做法，
@@ -364,14 +365,14 @@ public static class AdminEndpoints
             if (users.GetById(targetId) is null)
                 return RedirectTo("/admin/users", error: T("User does not exist"));
             if (string.IsNullOrEmpty(tempPwd) || tempPwd.Length < 8)
-                return RedirectTo(EditPath(targetId), error: T("Password must be at least 8 characters"));
+                return RedirectTo(EditPath(targetId, "security"), error: T("Password must be at least 8 characters"));
             if (targetId == adminId)
-                return RedirectTo(EditPath(targetId), error: T("Use \"Change password\" under Sign-in & security for your own password"));
+                return RedirectTo(EditPath(targetId, "security"), error: T("Use \"Change password\" under Sign-in & security for your own password"));
 
             users.ResetPassword(targetId, PasswordHasher.Hash(tempPwd), mustChange);
             users.BumpSessionVersion(targetId); // 重置密码 = 旧会话一并作废（§十六）
             audit.AccountAction("user-reset-password", true, adminId, $"target={targetId} must_change={(mustChange ? 1 : 0)}");
-            return RedirectTo(EditPath(targetId), notice: mustChange
+            return RedirectTo(EditPath(targetId, "security"), notice: mustChange
                 ? T("Reset password for {0}; they must change it on next sign-in", targetId)
                 : T("Reset password for {0}", targetId));
         });
@@ -400,7 +401,7 @@ public static class AdminEndpoints
             userResources.Replace(targetId, replacement);
 
             audit.AccountAction("user-resources-update", true, AdminId(ctx), $"target={targetId}");
-            return RedirectTo(EditPath(targetId), notice: T("Grants saved"));
+            return RedirectTo(EditPath(targetId, "access"), notice: T("Grants saved"));
         });
 
         // 代管别人的授权（§十六）：吊销某个 (client, resource) / 全部
@@ -414,11 +415,11 @@ public static class AdminEndpoints
             if (users.GetById(targetId) is null)
                 return RedirectTo("/admin/users", error: T("User does not exist"));
             if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(resource))
-                return RedirectTo(EditPath(targetId), error: T("Missing parameters"));
+                return RedirectTo(EditPath(targetId, "access"), error: T("Missing parameters"));
 
             var n = refreshTokens.RevokeByClientResource(targetId, clientId, resource);
             audit.AccountAction("admin-revoke", true, AdminId(ctx), $"target={targetId} client={clientId} resource={resource} count={n}");
-            return RedirectTo(EditPath(targetId), notice: T("Revoked {0} refresh token(s)", n));
+            return RedirectTo(EditPath(targetId, "access"), notice: T("Revoked {0} refresh token(s)", n));
         });
 
         admin.MapPost("/users/revoke-all", async (HttpContext ctx,
@@ -431,7 +432,7 @@ public static class AdminEndpoints
 
             var n = refreshTokens.RevokeAllByUser(targetId);
             audit.AccountAction("admin-revoke-all", true, AdminId(ctx), $"target={targetId} count={n}");
-            return RedirectTo(EditPath(targetId), notice: T("Revoked {0} refresh token(s)", n));
+            return RedirectTo(EditPath(targetId, "access"), notice: T("Revoked {0} refresh token(s)", n));
         });
 
         admin.MapPost("/users/unbind", async (HttpContext ctx,
@@ -444,11 +445,11 @@ public static class AdminEndpoints
 
             var row = identities.Get(provider, subject);
             if (row is null || row.user_id != targetId)
-                return RedirectTo(EditPath(targetId), error: T("Binding not found"));
+                return RedirectTo(EditPath(targetId, "identities"), error: T("Binding not found"));
 
             identities.Delete(provider, subject);
             audit.AccountAction("admin-unbind-external", true, AdminId(ctx), $"target={targetId} provider={provider} subject={subject}");
-            return RedirectTo(EditPath(targetId), notice: T("Unbound {0} account", provider));
+            return RedirectTo(EditPath(targetId, "identities"), notice: T("Unbound {0} account", provider));
         });
 
         // 强制下线（§十六）：该用户所有浏览器里的 nas-auth 登录立即失效；已发给应用的授权不受影响（另有吊销）
@@ -458,12 +459,12 @@ public static class AdminEndpoints
             var form = await ctx.Request.ReadFormAsync();
             var targetId = form["user_id"].ToString();
             if (targetId == adminId)
-                return RedirectTo(EditPath(targetId), error: T("To sign yourself out elsewhere, use Sign-in & security"));
+                return RedirectTo(EditPath(targetId, "security"), error: T("To sign yourself out elsewhere, use Sign-in & security"));
             if (users.BumpSessionVersion(targetId) is null)
                 return RedirectTo("/admin/users", error: T("User does not exist"));
 
             audit.AccountAction("admin-force-logout", true, adminId, $"target={targetId}");
-            return RedirectTo(EditPath(targetId), notice: T("{0} has been signed out on all devices", targetId));
+            return RedirectTo(EditPath(targetId, "security"), notice: T("{0} has been signed out on all devices", targetId));
         });
 
         // ----- 待批申请 -----

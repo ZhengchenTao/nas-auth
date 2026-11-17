@@ -19,7 +19,7 @@ internal static class AccessGroupEndpoints
             var form = await ctx.Request.ReadFormAsync();
             var userId = form["user_id"].ToString();
             var groupId = form["group_id"].ToString();
-            var returnPath = "/admin/users/edit?user=" + Uri.EscapeDataString(userId);
+            var returnPath = "/admin/users/edit?user=" + Uri.EscapeDataString(userId) + "&view=access";
             if (!groups.ChangeMember(groupId, userId, add: true))
                 return RedirectTo(returnPath, error: T("Membership has changed. Reload the user page and try again."));
             Log(ctx, audit, "group-member-add", groupId, userId);

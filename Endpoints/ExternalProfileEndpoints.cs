@@ -24,7 +24,7 @@ public static class ExternalProfileEndpoints
                 var fields = directory.Validate(provider, subject, form["profile_json"]);
                 var user = directory.Create(provider, subject, fields, ctx.User.Identity!.Name!, provisioning.FormGrants(form));
                 audit.AccountAction("directory-create", true, ctx.User.Identity.Name!, $"target={user} provider={provider}");
-                return Results.Redirect("/admin/users/edit?user=" + Uri.EscapeDataString(user));
+                return Results.Redirect("/admin/users/edit?user=" + Uri.EscapeDataString(user) + "&view=identities");
             }
             catch (InvalidDataException error) { return RedirectTo("/admin/users", error: NasAuth.Pages.I18n.T(error.Message)); }
         });
@@ -54,7 +54,7 @@ public static class ExternalProfileEndpoints
             }
             ctx.RequestServices.GetRequiredService<AuditLogger>().AccountAction("directory-import", true,
                 ctx.User.Identity!.Name!, $"target={row.user_id} provider={provider} mode={(self ? "self" : "admin")} fields={string.Join(',', fields.Keys)}");
-            return Results.Redirect(self ? ReturnUrl.SafeLocal(form["return_url"]) : "/admin/users/edit?user=" + Uri.EscapeDataString(row.user_id));
+            return Results.Redirect(self ? ReturnUrl.SafeLocal(form["return_url"]) : "/admin/users/edit?user=" + Uri.EscapeDataString(row.user_id) + "&view=identities");
         }
         catch (InvalidDataException error) { return Results.BadRequest(new { error = error.Message }); }
     }

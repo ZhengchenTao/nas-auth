@@ -38,8 +38,80 @@ code {
 @media (forced-colors: active) {
   .field > select { appearance: auto; background: Canvas; color: CanvasText; }
 }
-.user-group-form { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; margin-top: 1rem; }
-.user-group-form .field { flex: 0 1 16rem; min-width: 0; }
+@supports (appearance: base-select) and selector(select::picker(select)) {
+  .field > select, .field > select::picker(select) { appearance: base-select; }
+  .field > select { background: var(--card); padding-inline: .75rem; gap: .625rem; }
+  .field > select::picker-icon { color: var(--muted-foreground); }
+  .field > select:open::picker-icon { rotate: 180deg; }
+  .field > select::picker(select) {
+    margin-block: .375rem;
+    min-inline-size: anchor-size(width);
+    max-inline-size: calc(100vw - 2rem);
+    max-block-size: min(22rem, 55dvh);
+    padding: .3rem;
+    border: 1px solid var(--border);
+    border-radius: .75rem;
+    background: var(--popover);
+    color: var(--popover-foreground);
+    box-shadow: 0 12px 26px rgb(0 0 0 / .18);
+    overflow-y: auto;
+  }
+  .field > select option {
+    min-block-size: 2.25rem;
+    padding: .45rem .625rem;
+    gap: .625rem;
+    border-radius: .45rem;
+    background: transparent;
+    color: inherit;
+    overflow-wrap: anywhere;
+  }
+  .field > select option:checked { font-weight: 600; background: var(--muted); }
+  .field > select option:is(:hover, :focus-visible) { background: var(--accent); color: var(--accent-foreground); }
+  .field > select option::checkmark { order: 1; margin-inline-start: auto; }
+  .field > select option:disabled { display: none; }
+}
+.user-detail-tabs { gap: .125rem; }
+.user-detail-tabs a { padding-inline: clamp(.625rem, 2vw, 1rem); }
+.user-group-section > section { padding-top: .25rem; }
+.user-group-memberships {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+  gap: .5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.user-group-memberships a {
+  display: flex;
+  align-items: center;
+  gap: .625rem;
+  min-height: 2.625rem;
+  padding: .5rem .75rem;
+  border: 1px solid var(--border);
+  border-radius: .625rem;
+  color: var(--foreground);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.user-group-memberships a:hover { background: var(--muted); }
+.user-group-memberships a svg { flex-shrink: 0; color: var(--muted-foreground); }
+.user-group-memberships a svg:last-child { margin-inline-start: auto; rotate: 180deg; }
+.user-group-form {
+  display: grid;
+  grid-template-columns: minmax(0, 24rem) auto;
+  justify-content: start;
+  align-items: end;
+  gap: .625rem;
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+.user-group-form select { width: 100%; }
+.user-group-form .btn { min-height: 2.375rem; }
+@media (max-width: 420px) {
+  .user-group-form { grid-template-columns: minmax(0, 1fr); }
+  .user-group-form .btn { justify-self: start; }
+}
 .user-group-links { gap: .375rem; }
 .user-group-links .badge { white-space: normal; overflow-wrap: anywhere; }
 .btn.block { width: 100%; }

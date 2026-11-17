@@ -25,11 +25,11 @@ public static class OnboardingEndpoints
             ExternalIdentityRepository identities, CredentialLinkService links, AuthOptions auth, AuditLogger audit) => {
             var form = await ctx.Request.ReadFormAsync();
             var id = form["user_id"].ToString();
-            if (form["verified"] != "1") return RedirectTo("/admin/users/edit?user=" + Uri.EscapeDataString(id), error: T("Verify the recipient's identity before issuing a link."));
+            if (form["verified"] != "1") return RedirectTo("/admin/users/edit?user=" + Uri.EscapeDataString(id) + "&view=security", error: T("Verify the recipient's identity before issuing a link."));
             var history = links.List(id);
             var purpose = history.Any(l => l.purpose == "invitation") && !history.Any(l => l.state == "used") ? "invitation" : "recovery";
             var issued = links.Issue(ctx.User.Identity!.Name!, id, purpose);
-            if (issued is null) return RedirectTo("/admin/users/edit?user=" + Uri.EscapeDataString(id), error: T("A password link cannot be issued for this account. Check its status and password access."));
+            if (issued is null) return RedirectTo("/admin/users/edit?user=" + Uri.EscapeDataString(id) + "&view=security", error: T("A password link cannot be issued for this account. Check its status and password access."));
             audit.AccountAction("credential-link-issue", true, ctx.User.Identity.Name!, $"target={id} link={issued.Id} purpose={purpose}");
             return Render(ctx, users, identities, DashboardSpace.Admin, "users", "Password link created", DashboardTemplates.IssuedCredentialSection(issued, auth.Issuer));
         });
@@ -37,7 +37,7 @@ public static class OnboardingEndpoints
             var form = await ctx.Request.ReadFormAsync(); var id = form["user_id"].ToString();
             var cancelled = links.Cancel(ctx.User.Identity!.Name!, id, form["id"].ToString());
             audit.AccountAction("credential-link-cancel", cancelled, ctx.User.Identity.Name!, $"target={id}");
-            return RedirectTo("/admin/users/edit?user=" + Uri.EscapeDataString(id), notice: T("Link status updated."));
+            return RedirectTo("/admin/users/edit?user=" + Uri.EscapeDataString(id) + "&view=security", notice: T("Link status updated."));
         });
     }
 

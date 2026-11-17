@@ -612,8 +612,13 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
 
         var c = _app.Client();
         Assert.Equal(HttpStatusCode.Redirect, (await Login(c, "/admin/users")).StatusCode);
-        var detailUrl = "/admin/users/edit?user=group-ui-member";
+        var detailUrl = "/admin/users/edit?user=group-ui-member&view=access";
+        var profile = await c.GetStringAsync("/admin/users/edit?user=group-ui-member");
+        Assert.Contains("aria-current='page'>Profile", profile);
+        Assert.DoesNotContain("name='group_id'", profile);
         var detail = await c.GetStringAsync(detailUrl);
+        Assert.Contains("aria-current='page'>Access", detail);
+        Assert.DoesNotContain("action='/admin/users/update'", detail);
         Assert.Contains("name='group_id'", detail);
         Assert.Contains($"<option value='{groupId}'>UI membership group</option>", detail);
         var add = await SendCsrf(c, Post("/admin/users/groups/add",
@@ -626,7 +631,8 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         Assert.Contains($"href='/admin/groups/{groupId}'>UI membership group</a>", list);
         var updated = await c.GetStringAsync(detailUrl);
         Assert.DoesNotContain($"<option value='{groupId}'>", updated);
-        Assert.Contains($"href='/admin/groups/{groupId}'>UI membership group</a>", updated);
+        Assert.Contains($"href='/admin/groups/{groupId}'>", updated);
+        Assert.Contains("<span>UI membership group</span>", updated);
     }
 
     [Fact]
@@ -652,13 +658,14 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         }
 
         // 编辑页能看到预绑定邮箱
-        var edit = await c.GetStringAsync("/admin/users/edit?user=googleonly");
-        Assert.Contains("g@example.com", edit);
-        Assert.Contains("/admin/users/invites/delete", edit);
-        Assert.DoesNotContain("Password invitation and recovery", edit);
-        Assert.Contains("data-confirm='Sign googleonly out on all devices?'", edit);
-        Assert.Contains("action='/admin/users/force-logout'", edit);
-        Assert.Contains("Recent sign-ins", edit);
+        var identities = await c.GetStringAsync("/admin/users/edit?user=googleonly&view=identities");
+        Assert.Contains("g@example.com", identities);
+        Assert.Contains("/admin/users/invites/delete", identities);
+        var security = await c.GetStringAsync("/admin/users/edit?user=googleonly&view=security");
+        Assert.DoesNotContain("Password invitation and recovery", security);
+        Assert.Contains("data-confirm='Sign googleonly out on all devices?'", security);
+        Assert.Contains("action='/admin/users/force-logout'", security);
+        Assert.Contains("Recent sign-ins", security);
 
         // 删人 → 同名（大小写不同也算）不许再建
         Assert.Equal(HttpStatusCode.Redirect, (await SendCsrf(c, Post("/admin/users/delete",
@@ -906,7 +913,7 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         Assert.Equal(0, MustChange("extonly1"));
 
         // 重置密码同理：默认清掉标志，勾了才置
-        Assert.Contains("name='must_change_password'", await c.GetStringAsync("/admin/users/edit?user=strict1"));
+        Assert.Contains("name='must_change_password'", await c.GetStringAsync("/admin/users/edit?user=strict1&view=security"));
         Assert.Equal(HttpStatusCode.Redirect, (await SendCsrf(c, Post("/admin/users/reset-password", Form(
             ("user_id", "strict1"), ("temp_password", "another-password")), secFetchSite: "same-origin"))).StatusCode);
         Assert.Equal(0, MustChange("strict1"));

@@ -141,19 +141,29 @@ public static partial class DashboardTemplates
     private static string UserGroupsSection(string userId, IReadOnlyList<AccessGroup>? current,
         IReadOnlyList<AccessGroup> available)
     {
-        var body = new StringBuilder(GroupLinks(current));
+        var body = new StringBuilder("<div class='user-group-card'>");
+        if (current is { Count: > 0 })
+        {
+            body.Append("<ul class='user-group-memberships'>");
+            foreach (var group in current)
+                body.Append($"<li><a href='{GroupPath(group.Id)}'>{NavIcon("groups")}<span>{Esc(group.Name)}</span>{IconBack}</a></li>");
+            body.Append("</ul>");
+        }
+        else
+            body.Append(Empty(T("No groups")));
         if (available.Count > 0)
         {
             body.Append($"<form class='user-group-form' method='post' action='/admin/users/groups/add' {Confirm(T("Add this user to the selected group? They will inherit its application access."))}>");
             body.Append(Hidden("user_id", userId));
-            body.Append($"<div class='field'><label for='add-user-group'>{T("Add to group")}</label><select id='add-user-group' name='group_id' required><option value='' disabled selected>{T("Select a group")}</option>");
+            body.Append($"<div class='field'><label for='add-user-group'>{T("Group")}</label><select id='add-user-group' name='group_id' required><option value='' disabled selected>{T("Select a group")}</option>");
             foreach (var group in available)
                 body.Append($"<option value='{Esc(group.Id)}'>{Esc(group.Name)}</option>");
-            body.Append($"</select></div><button class='btn' data-variant='outline' type='submit'>{T("Add to group")}</button></form>");
+            body.Append($"</select></div><button class='btn' type='submit'>{T("Add to group")}</button></form>");
         }
         else if (current is not { Count: > 0 })
             body.Append($"<p><a href='/admin/groups/new'>{T("New group")}</a></p>");
-        return Card(T("Groups"), null, "<div id='user-groups'>" + body + "</div>");
+        body.Append("</div>");
+        return Card(T("Groups"), null, body.ToString(), "card user-group-section");
     }
 
     private static string UserGrantSourcesSection(UserDetailView detail)

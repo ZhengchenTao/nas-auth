@@ -42,7 +42,7 @@ public static class DeviceSessionEndpoints
             if (!sessions.Revoke(userId, id)) return Results.NotFound();
             audit.AccountAction("admin-session-revoke", true, ctx.User.Identity!.Name!, $"target={userId} session={AuditId(id)}");
             if (id == DeviceSessions.CurrentId(ctx.User)) { await ctx.SignOutAsync(); return Results.Redirect("/login?notice=" + AccountEndpoints.LoginNoticeSignedOut); }
-            return RedirectTo("/admin/users/edit?user=" + Uri.EscapeDataString(userId), notice: T("The selected device has been signed out."));
+            return RedirectTo("/admin/users/edit?user=" + Uri.EscapeDataString(userId) + "&view=security", notice: T("The selected device has been signed out."));
         });
     }
 }

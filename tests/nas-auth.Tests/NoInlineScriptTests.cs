@@ -200,15 +200,21 @@ public class NoInlineScriptTests
     {
         I18n.Lang = "en";
         var u = new UserAdminView("bob", "bob", false, false, false, "-");
-        var html = DashboardTemplates.UserEditSection(new UserDetailView(u, Array.Empty<UserResourceEditView>(),
+        var detail = new UserDetailView(u, Array.Empty<UserResourceEditView>(),
             new[] { new BindingView("google", "sub", null, null, "-") },
             new[] { new AccountAuthorizationView("c1", "Claude", "https://res.example", "Res", new[] { "read:x" }, "-") },
-            Array.Empty<AuditView>()));
-        AssertNoInlineScript(html);
-        var confirms = Attributes(html).Where(a => a.Name == "data-confirm").Select(a => a.Value).ToList();
-        Assert.Contains("Unbind this external account?", confirms);
-        Assert.Contains("Revoke all grants of bob?", confirms);
-        Assert.Contains("Delete user bob? All of their refresh tokens will be revoked.", confirms);
+            Array.Empty<AuditView>());
+        foreach (var (view, message) in new[]
+        {
+            ("identities", "Unbind this external account?"),
+            ("access", "Revoke all grants of bob?"),
+            ("security", "Delete user bob? All of their refresh tokens will be revoked.")
+        })
+        {
+            var html = DashboardTemplates.UserEditSection(detail, view: view);
+            AssertNoInlineScript(html);
+            Assert.Contains(message, Attributes(html).Where(a => a.Name == "data-confirm").Select(a => a.Value));
+        }
     }
 
     [Fact]

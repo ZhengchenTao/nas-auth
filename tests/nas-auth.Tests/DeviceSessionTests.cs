@@ -262,7 +262,7 @@ public class DeviceSessionTests
         await Login(admin, "", "admin", "devpassword", "Windows Chrome/130.0");
         await Login(user, "", "managed", "test-password", "iPhone Safari/605.1");
         var id = Assert.Single(sp.GetRequiredService<DeviceSessions>().List("managed")).id;
-        Assert.Contains("Devices and sessions", await admin.GetStringAsync("/admin/users/edit?user=managed"));
+        Assert.Contains("Devices and sessions", await admin.GetStringAsync("/admin/users/edit?user=managed&view=security"));
         Assert.Equal(HttpStatusCode.NotFound, (await Post(admin, "", "/admin/users/sessions/revoke", ("id", id), ("user_id", "admin"))).StatusCode);
         Assert.Equal(HttpStatusCode.Redirect, (await Post(admin, "", "/admin/users/sessions/revoke", ("id", id), ("user_id", "managed"))).StatusCode);
         Assert.Equal(HttpStatusCode.Redirect, (await user.GetAsync("/account")).StatusCode);

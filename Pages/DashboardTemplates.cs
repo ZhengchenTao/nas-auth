@@ -725,130 +725,157 @@ public static partial class DashboardTemplates
     // ---- 单个用户：资料 / 资源授权 / 外部身份 / 已授权应用 / 会话 / 重置密码 / 删除 ----
     public static string UserEditSection(UserDetailView d,NasAuth.Config.ProvisioningOptions? provisioning=null,
         IReadOnlyList<NasAuth.Services.ProvisioningStatus>? provisioningStatuses=null, string? credentialSection=null, string? deviceSection=null,
-        bool emailBindingAvailable = true, IReadOnlyList<NasAuth.Services.AccessGroup>? availableGroups = null)
+        bool emailBindingAvailable = true, IReadOnlyList<NasAuth.Services.AccessGroup>? availableGroups = null, string? view = null)
     {
         var u = d.User;
         var uid = Hidden("user_id", u.UserId);
         var html = new StringBuilder();
         html.Append($"<div class='page-actions'><a class='btn' data-variant='ghost' data-size='sm' href='/admin/users'>{IconBack}{T("Back to users")}</a></div>");
 
-        // 资料：邮箱 + 允许密码登录（§十四）
-        var profile = new StringBuilder();
-        profile.Append($"<p style='margin:0 0 16px'>{RoleBadge(u)} {StatusBadges(u)}");
-        if (u.IsSelf) profile.Append($" <span class='badge' data-variant='secondary'>{T("you")}</span>");
-        profile.Append($" <span class='hint' style='margin-left:6px'>{T("Created")} {Esc(u.CreatedAtDisplay)}</span></p>");
-        profile.Append($"<div class='avatar-row'>{Avatar(u.AvatarFile, u.DisplayName ?? u.Username, "avatar-lg")}");
-        profile.Append($"<form method='post' action='/admin/users/avatar' enctype='multipart/form-data' class='avatar-upload'>{uid}");
-        profile.Append("<input class='input' type='file' name='avatar' accept='image/png,image/jpeg,image/webp' required>");
-        profile.Append($"<button class='btn' data-variant='outline' type='submit'>{T("Upload avatar")}</button></form>");
-        if (!string.IsNullOrEmpty(u.AvatarFile))
-            profile.Append($"<form method='post' action='/admin/users/avatar/remove'>{uid}<button class='btn' data-variant='ghost' type='submit'>{T("Remove")}</button></form>");
-        profile.Append("</div>");
-        profile.Append($"<form method='post' action='/admin/users/update'>{uid}");
-        profile.Append("<div class='form-grid narrow'>");
-        profile.Append($"<div class='field'><label for='display_name'>{T("Nickname")}</label><input id='display_name' name='display_name' maxlength='64' value='{Esc(u.DisplayName ?? "")}' placeholder='{Esc(u.Username)}' autocomplete='off'></div>");
-        profile.Append($"<div class='field'><label for='email'>{T("Email")}</label><input type='email' id='email' name='email' value='{Esc(u.Email)}' autocomplete='off' placeholder='{T("sent to apps as the email claim")}'></div>");
-        profile.Append("</div><div class='form-foot'>");
-        profile.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='allow_password_login' value='1'{(u.AllowPasswordLogin ? " checked" : "")}>{T("Allow password sign-in")}</label>");
-        profile.Append($"<button class='btn' type='submit'>{T("Save")}</button>");
-        profile.Append("</div></form>");
-        html.Append(Card(T("Profile"),
-            T("Some connected apps use email to match existing accounts. Use a consistent email where required. Enable password sign-in only when this account needs it."),
-            profile.ToString()));
+        view = view is "access" or "identities" or "security" ? view : "profile";
+        html.Append($"<nav class='app-tabs user-detail-tabs' aria-label='{T("User details")}'>");
+        foreach (var (key, label) in new[] { ("profile", "Profile"), ("access", "Access"), ("identities", "External identities"), ("security", "Sign-in & security") })
+            html.Append($"<a href='{Esc(EditHref(u.UserId) + "&view=" + key)}'{(key == view ? " aria-current='page'" : "")}>{T(label)}</a>");
+        html.Append("</nav>");
 
-        var role = new StringBuilder($"<div class='admin-role-row'><div class='admin-role-status'><span class='hint'>{T("Role")}</span>{RoleBadge(u)}</div>");
-        if (!u.IsSelf)
-            role.Append($"<form method='post' action='/admin/users/administrator' {Confirm(T("Change administrator role for {0}?", u.Username))}>{uid}{Hidden("is_admin", u.IsAdmin ? "0" : "1")}<button class='btn' data-variant='outline' type='submit'>{T(u.IsAdmin ? "Remove administrator" : "Make administrator")}</button></form>");
-        else
-            role.Append($"<p class='hint'>{T("You cannot remove your own administrator role")}</p>");
-        role.Append("</div>");
-        html.Append(Card(T("Administrator access"), T("Administrators can manage users, identity providers and application access. Application permissions remain separate."), role.ToString()));
-        html.Append(ExternalProfilesSection(d.Bindings));
-        // 资源授权（checkbox）
-        var res = $"<form method='post' action='/admin/users/resources'>{uid}{AccessFields(d.Resources, d)}<div class='form-foot'><button class='btn' type='submit'>{T("Save grants")}</button></div></form>";
-        html.Append(Card(T("Application access"),
-            T("Edit this user's direct grants. Access from their groups still applies. Resources marked \"admins only\" can only be granted to administrators."), res));
-        if (provisioning is { Applications.Count: > 0 } && provisioningStatuses is not null)
+        switch (view)
         {
-            var effective = d.Resources.Select(r => r with { GrantedScopes = EffectiveScopes(d, r) }).ToList();
-            html.Append(ProvisioningSection(u.UserId, provisioning, provisioningStatuses, effective, u.IsAdmin));
-        }
-        if (availableGroups is not null) html.Append(UserGroupsSection(u.UserId, d.Groups, availableGroups));
-        if (d.GrantSources is not null) html.Append(UserGrantSourcesSection(d));
-
-        // 外部身份（管理员可解绑）
-        var ids = new StringBuilder();
-        if (d.Bindings.Count == 0) ids.Append(Empty(T("No external identities bound yet.")));
-        else
-        {
-            ids.Append($"<div class='table-container'><table class='table'><thead><tr><th>{T("Provider")}</th><th>{T("Account")}</th><th>{T("Bound")}</th><th></th></tr></thead><tbody>");
-            foreach (var b in d.Bindings)
-            {
-                ids.Append($"<tr><td>{ProviderBadge(b.Provider)}</td>");
-                ids.Append($"<td class='wrap'>{Esc(b.DisplayName ?? "-")}<span class='sub'>{Esc(b.Email ?? b.Subject)}</span></td>");
-                ids.Append($"<td>{Esc(b.BoundAtDisplay)}</td>");
-                ids.Append($"<td class='fit'><form method='post' action='/admin/users/unbind' {Confirm(T("Unbind this external account?"))}>{uid}");
-                ids.Append(Hidden("provider", b.Provider)).Append(Hidden("subject", b.Subject));
-                ids.Append($"<button class='btn' data-variant='destructive' data-size='sm' type='submit'>{T("Unbind")}</button></form></td></tr>");
-            }
-            ids.Append("</tbody></table></div>");
-        }
-
-        if (d.Invites is { Count: > 0 } invites)
-        {
-            ids.Append($"<h3 class='subhead'>{T("Pending first bindings")}</h3>");
-            if (!emailBindingAvailable)
-                ids.Append($"<p class='hint'>{T("Current sign-in providers cannot use these email bindings. You can remove existing entries.")}</p>");
-            ids.Append($"<div class='table-container'><table class='table'><thead><tr><th>{T("Email")}</th><th>{T("Added")}</th><th></th></tr></thead><tbody>");
-            foreach (var i in invites)
-            {
-                ids.Append($"<tr><td class='wrap mono'>{Esc(i.Email)}</td><td>{Esc(i.CreatedAtDisplay)}</td>");
-                ids.Append($"<td class='fit'><form method='post' action='/admin/users/invites/delete'>{uid}{Hidden("email", i.Email)}");
-                ids.Append($"<button class='btn' data-variant='outline' data-size='sm' type='submit'>{T("Remove")}</button></form></td></tr>");
-            }
-            ids.Append("</tbody></table></div>");
-        }
-        if (emailBindingAvailable && !string.IsNullOrEmpty(u.Email))
-        {
-            ids.Append($"<form method='post' action='/admin/users/invites/add' class='form-foot'>{uid}");
-            ids.Append(Hidden("email", u.Email));
-            ids.Append($"<button class='btn' data-variant='outline' type='submit'>{T("Enable first binding for account email")}</button></form>");
-        }
-        html.Append(Card(T("External identities"), emailBindingAvailable
-            ? T("A pending email binding is used once when a provider verifies the address. Other new identities go through approval.")
-            : T("The external accounts listed here can be used to sign in."), ids.ToString()));
-
-        // 代管已授权应用
-        var revokeAll = d.Grants.Count == 0 ? null :
-            $"<form method='post' action='/admin/users/revoke-all' {Confirm(T("Revoke all grants of {0}?", u.Username))}>{uid}" +
-            $"<button class='btn' data-variant='destructive' data-size='sm' type='submit'>{T("Revoke all")}</button></form>";
-        html.Append(Card(T("Authorized apps"),
-            T("Revoking deletes the refresh tokens; issued access tokens remain valid until they expire."),
-            GrantsTable(d.Grants, "/admin/users/revoke", u.UserId), action: revokeAll));
-
-        if (deviceSection is not null) html.Append(deviceSection);
-        html.Append(Card(T("Recent sign-ins"), T("Includes failed attempts. Kept for 90 days."), LoginsTable(d.RecentLogins)));
-        if (credentialSection is not null) html.Append(credentialSection);
-        if (!u.IsSelf)
-            html.Append(Card(T("Disable account"),T("Stop sign-in and revoke sessions. Keep identity and profile for recovery; restore application access explicitly later."),
-                $"<form method='post' action='/admin/users/disable' {Confirm(T("Disable {0}? They will be signed out.",u.Username))}>{uid}<button class='btn' data-variant='outline'>{T("Disable account")}</button></form>"));
-
-        // 重置密码 / 删除：不对自己、不对管理员
-        if (!u.IsSelf && !u.IsAdmin)
-        {
-            var reset = new StringBuilder($"<form method='post' action='/admin/users/reset-password'>{uid}");
-            reset.Append($"<div class='form-grid narrow'><div class='field'><label for='temp_password'>{T("New password")}</label><input id='temp_password' name='temp_password' type='password' required minlength='8' placeholder='{T("≥ 8 chars")}' autocomplete='off'></div></div>");
-            reset.Append($"<div class='form-foot'><label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='must_change_password' value='1'>{T("Must change password on first sign-in")}</label><span class='grow'></span><button class='btn' data-variant='outline' type='submit'>{T("Reset password")}</button></div>");
-            reset.Append("</form>");
-            html.Append(Card(T("Reset password"), T("Set a new password and tell them. Their current sessions end immediately."), reset.ToString()));
-
-            var del = new StringBuilder($"<form method='post' action='/admin/users/delete' {Confirm(T("Delete user {0}? All of their refresh tokens will be revoked.", u.Username))}>{uid}");
-            del.Append($"<button class='btn' data-variant='destructive' type='submit'>{T("Delete user")}</button></form>");
-            html.Append(Card(T("Delete user"),
-                T("Revokes all of their refresh tokens and removes their external identities and resource grants. Cannot be undone."),
-                del.ToString(), "card danger"));
+            case "access": RenderAccess(); break;
+            case "identities": RenderIdentities(); break;
+            case "security": RenderSecurity(); break;
+            default: RenderProfile(); break;
         }
         return html.ToString();
+
+        void RenderProfile()
+        {
+            // 资料：邮箱 + 允许密码登录（§十四）
+            var profile = new StringBuilder();
+            profile.Append($"<p style='margin:0 0 16px'>{RoleBadge(u)} {StatusBadges(u)}");
+            if (u.IsSelf) profile.Append($" <span class='badge' data-variant='secondary'>{T("you")}</span>");
+            profile.Append($" <span class='hint' style='margin-left:6px'>{T("Created")} {Esc(u.CreatedAtDisplay)}</span></p>");
+            profile.Append($"<div class='avatar-row'>{Avatar(u.AvatarFile, u.DisplayName ?? u.Username, "avatar-lg")}");
+            profile.Append($"<form method='post' action='/admin/users/avatar' enctype='multipart/form-data' class='avatar-upload'>{uid}");
+            profile.Append("<input class='input' type='file' name='avatar' accept='image/png,image/jpeg,image/webp' required>");
+            profile.Append($"<button class='btn' data-variant='outline' type='submit'>{T("Upload avatar")}</button></form>");
+            if (!string.IsNullOrEmpty(u.AvatarFile))
+                profile.Append($"<form method='post' action='/admin/users/avatar/remove'>{uid}<button class='btn' data-variant='ghost' type='submit'>{T("Remove")}</button></form>");
+            profile.Append("</div>");
+            profile.Append($"<form method='post' action='/admin/users/update'>{uid}");
+            profile.Append("<div class='form-grid narrow'>");
+            profile.Append($"<div class='field'><label for='display_name'>{T("Nickname")}</label><input id='display_name' name='display_name' maxlength='64' value='{Esc(u.DisplayName ?? "")}' placeholder='{Esc(u.Username)}' autocomplete='off'></div>");
+            profile.Append($"<div class='field'><label for='email'>{T("Email")}</label><input type='email' id='email' name='email' value='{Esc(u.Email)}' autocomplete='off' placeholder='{T("sent to apps as the email claim")}'></div>");
+            profile.Append("</div><div class='form-foot'>");
+            profile.Append($"<label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='allow_password_login' value='1'{(u.AllowPasswordLogin ? " checked" : "")}>{T("Allow password sign-in")}</label>");
+            profile.Append($"<button class='btn' type='submit'>{T("Save")}</button>");
+            profile.Append("</div></form>");
+            html.Append(Card(T("Profile"),
+                T("Some connected apps use email to match existing accounts. Use a consistent email where required. Enable password sign-in only when this account needs it."),
+                profile.ToString()));
+
+            var role = new StringBuilder($"<div class='admin-role-row'><div class='admin-role-status'><span class='hint'>{T("Role")}</span>{RoleBadge(u)}</div>");
+            if (!u.IsSelf)
+                role.Append($"<form method='post' action='/admin/users/administrator' {Confirm(T("Change administrator role for {0}?", u.Username))}>{uid}{Hidden("is_admin", u.IsAdmin ? "0" : "1")}<button class='btn' data-variant='outline' type='submit'>{T(u.IsAdmin ? "Remove administrator" : "Make administrator")}</button></form>");
+            else
+                role.Append($"<p class='hint'>{T("You cannot remove your own administrator role")}</p>");
+            role.Append("</div>");
+            html.Append(Card(T("Administrator access"), T("Administrators can manage users, identity providers and application access. Application permissions remain separate."), role.ToString()));
+        }
+
+        void RenderAccess()
+        {
+            if (availableGroups is not null) html.Append(UserGroupsSection(u.UserId, d.Groups, availableGroups));
+            // 资源授权（checkbox）
+            var res = $"<form method='post' action='/admin/users/resources'>{uid}{AccessFields(d.Resources, d)}<div class='form-foot'><button class='btn' type='submit'>{T("Save grants")}</button></div></form>";
+            html.Append(Card(T("Application access"),
+                T("Edit this user's direct grants. Access from their groups still applies. Resources marked \"admins only\" can only be granted to administrators."), res));
+            if (provisioning is { Applications.Count: > 0 } && provisioningStatuses is not null)
+            {
+                var effective = d.Resources.Select(r => r with { GrantedScopes = EffectiveScopes(d, r) }).ToList();
+                html.Append(ProvisioningSection(u.UserId, provisioning, provisioningStatuses, effective, u.IsAdmin));
+            }
+            if (d.GrantSources is not null) html.Append(UserGrantSourcesSection(d));
+
+            // 代管已授权应用
+            var revokeAll = d.Grants.Count == 0 ? null :
+                $"<form method='post' action='/admin/users/revoke-all' {Confirm(T("Revoke all grants of {0}?", u.Username))}>{uid}" +
+                $"<button class='btn' data-variant='destructive' data-size='sm' type='submit'>{T("Revoke all")}</button></form>";
+            html.Append(Card(T("Authorized apps"),
+                T("Revoking deletes the refresh tokens; issued access tokens remain valid until they expire."),
+                GrantsTable(d.Grants, "/admin/users/revoke", u.UserId), action: revokeAll));
+        }
+
+        void RenderIdentities()
+        {
+            html.Append(ExternalProfilesSection(d.Bindings));
+            // 外部身份（管理员可解绑）
+            var ids = new StringBuilder();
+            if (d.Bindings.Count == 0) ids.Append(Empty(T("No external identities bound yet.")));
+            else
+            {
+                ids.Append($"<div class='table-container'><table class='table'><thead><tr><th>{T("Provider")}</th><th>{T("Account")}</th><th>{T("Bound")}</th><th></th></tr></thead><tbody>");
+                foreach (var b in d.Bindings)
+                {
+                    ids.Append($"<tr><td>{ProviderBadge(b.Provider)}</td>");
+                    ids.Append($"<td class='wrap'>{Esc(b.DisplayName ?? "-")}<span class='sub'>{Esc(b.Email ?? b.Subject)}</span></td>");
+                    ids.Append($"<td>{Esc(b.BoundAtDisplay)}</td>");
+                    ids.Append($"<td class='fit'><form method='post' action='/admin/users/unbind' {Confirm(T("Unbind this external account?"))}>{uid}");
+                    ids.Append(Hidden("provider", b.Provider)).Append(Hidden("subject", b.Subject));
+                    ids.Append($"<button class='btn' data-variant='destructive' data-size='sm' type='submit'>{T("Unbind")}</button></form></td></tr>");
+                }
+                ids.Append("</tbody></table></div>");
+            }
+
+            if (d.Invites is { Count: > 0 } invites)
+            {
+                ids.Append($"<h3 class='subhead'>{T("Pending first bindings")}</h3>");
+                if (!emailBindingAvailable)
+                    ids.Append($"<p class='hint'>{T("Current sign-in providers cannot use these email bindings. You can remove existing entries.")}</p>");
+                ids.Append($"<div class='table-container'><table class='table'><thead><tr><th>{T("Email")}</th><th>{T("Added")}</th><th></th></tr></thead><tbody>");
+                foreach (var i in invites)
+                {
+                    ids.Append($"<tr><td class='wrap mono'>{Esc(i.Email)}</td><td>{Esc(i.CreatedAtDisplay)}</td>");
+                    ids.Append($"<td class='fit'><form method='post' action='/admin/users/invites/delete'>{uid}{Hidden("email", i.Email)}");
+                    ids.Append($"<button class='btn' data-variant='outline' data-size='sm' type='submit'>{T("Remove")}</button></form></td></tr>");
+                }
+                ids.Append("</tbody></table></div>");
+            }
+            if (emailBindingAvailable && !string.IsNullOrEmpty(u.Email))
+            {
+                ids.Append($"<form method='post' action='/admin/users/invites/add' class='form-foot'>{uid}");
+                ids.Append(Hidden("email", u.Email));
+                ids.Append($"<button class='btn' data-variant='outline' type='submit'>{T("Enable first binding for account email")}</button></form>");
+            }
+            html.Append(Card(T("External identities"), emailBindingAvailable
+                ? T("A pending email binding is used once when a provider verifies the address. Other new identities go through approval.")
+                : T("The external accounts listed here can be used to sign in."), ids.ToString()));
+        }
+
+        void RenderSecurity()
+        {
+            if (deviceSection is not null) html.Append(deviceSection);
+            html.Append(Card(T("Recent sign-ins"), T("Includes failed attempts. Kept for 90 days."), LoginsTable(d.RecentLogins)));
+            if (credentialSection is not null) html.Append(credentialSection);
+            if (!u.IsSelf)
+                html.Append(Card(T("Disable account"),T("Stop sign-in and revoke sessions. Keep identity and profile for recovery; restore application access explicitly later."),
+                    $"<form method='post' action='/admin/users/disable' {Confirm(T("Disable {0}? They will be signed out.",u.Username))}>{uid}<button class='btn' data-variant='outline'>{T("Disable account")}</button></form>"));
+
+            // 重置密码 / 删除：不对自己、不对管理员
+            if (!u.IsSelf && !u.IsAdmin)
+            {
+                var reset = new StringBuilder($"<form method='post' action='/admin/users/reset-password'>{uid}");
+                reset.Append($"<div class='form-grid narrow'><div class='field'><label for='temp_password'>{T("New password")}</label><input id='temp_password' name='temp_password' type='password' required minlength='8' placeholder='{T("≥ 8 chars")}' autocomplete='off'></div></div>");
+                reset.Append($"<div class='form-foot'><label class='label' style='gap:8px'><input class='input' type='checkbox' role='switch' name='must_change_password' value='1'>{T("Must change password on first sign-in")}</label><span class='grow'></span><button class='btn' data-variant='outline' type='submit'>{T("Reset password")}</button></div>");
+                reset.Append("</form>");
+                html.Append(Card(T("Reset password"), T("Set a new password and tell them. Their current sessions end immediately."), reset.ToString()));
+
+                var del = new StringBuilder($"<form method='post' action='/admin/users/delete' {Confirm(T("Delete user {0}? All of their refresh tokens will be revoked.", u.Username))}>{uid}");
+                del.Append($"<button class='btn' data-variant='destructive' type='submit'>{T("Delete user")}</button></form>");
+                html.Append(Card(T("Delete user"),
+                    T("Revokes all of their refresh tokens and removes their external identities and resource grants. Cannot be undone."),
+                    del.ToString(), "card danger"));
+            }
+        }
     }
 
     // ---- 待批申请 ----

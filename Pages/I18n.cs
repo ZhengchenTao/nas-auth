@@ -28,6 +28,8 @@ public static class I18n
 
     private static readonly Dictionary<string, string> Zh = new(StringComparer.Ordinal)
     {
+        ["Group"] = "用户组",
+        ["User details"] = "用户详情",
         ["Confirm action"] = "确认操作",
         ["No groups"] = "未加入用户组",
         ["Add to group"] = "加入用户组",
