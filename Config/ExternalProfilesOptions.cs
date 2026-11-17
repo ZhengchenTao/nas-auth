@@ -16,7 +16,9 @@ public sealed class ExternalProfilesOptions
             if (provider.Fields.Count > 16) throw new InvalidOperationException("Too many external profile fields.");
             _ = ExternalProfileData.Encode(provider.Fields.ToDictionary(x => x.Key, _ => ""));
             foreach (var field in provider.Fields.Values)
-                if (field.Label.Length is < 1 or > 80 || field.Label.Any(char.IsControl) || field.Type is not ("text" or "email"))
+                if (field.Label.Length is < 1 or > 80 || field.Label.Any(char.IsControl) ||
+                    (field.LabelZh is { } zh && (zh.Length is < 1 or > 80 || zh.Any(char.IsControl))) ||
+                    field.Type is not ("text" or "email"))
                     throw new InvalidOperationException("Invalid external profile field definition.");
             if (string.IsNullOrEmpty(provider.BrowserLookupUrl)) continue;
             if (!Uri.TryCreate(provider.BrowserLookupUrl, UriKind.Absolute, out var uri) || uri.Scheme != "https" ||
@@ -31,6 +33,7 @@ public sealed class ExternalProfilesOptions
 public sealed class ExternalProfileProvider
 {
     public string DisplayName { get; set; } = "External identity";
+    public string? DisplayNameZh { get; set; }
     public Dictionary<string, ExternalProfileField> Fields { get; set; } = new(StringComparer.Ordinal);
     public string BrowserLookupUrl { get; set; } = "";
     public string SubjectField { get; set; } = "user_id";
@@ -46,6 +49,7 @@ public sealed class ExternalProfileProvider
 public sealed class ExternalProfileField
 {
     public string Label { get; set; } = "Field";
+    public string? LabelZh { get; set; }
     public string Type { get; set; } = "text";
     public bool Visible { get; set; } = true;
     public bool BrowserImport { get; set; }

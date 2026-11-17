@@ -211,8 +211,10 @@ public static class HtmlTemplates
     {
         var target = string.IsNullOrEmpty(returnUrl) ? "/account" : returnUrl;
         var sb = new StringBuilder();
-        sb.Append(CardHeader(string.IsNullOrEmpty(Branding.LoginTitle) ? T("Sign in to {0}", Esc(Branding.SiteName)) : Esc(Branding.LoginTitle),
-            string.IsNullOrEmpty(Branding.LoginSubtitle) ? T("One account for all your NAS apps") : Esc(Branding.LoginSubtitle)));
+        var loginTitle = IsZh ? Branding.LoginTitleZh ?? Branding.LoginTitle : Branding.LoginTitle;
+        var loginSubtitle = IsZh ? Branding.LoginSubtitleZh ?? Branding.LoginSubtitle : Branding.LoginSubtitle;
+        sb.Append(CardHeader(string.IsNullOrEmpty(loginTitle) ? T("Sign in to {0}", Esc(Branding.SiteName)) : Esc(loginTitle),
+            string.IsNullOrEmpty(loginSubtitle) ? T("One account for all your NAS apps") : Esc(loginSubtitle)));
         sb.Append("<section>");
         if (!string.IsNullOrEmpty(notice)) sb.Append(Alert(Esc(notice), error: false));
         if (!string.IsNullOrEmpty(error)) sb.Append(Alert(Esc(error), error: true));

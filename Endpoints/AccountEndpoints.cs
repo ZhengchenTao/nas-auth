@@ -172,7 +172,7 @@ public static class AccountEndpoints
             return RedirectTo("/account/grants", notice: T("Revoked {0} refresh token(s)", n));
         });
 
-        // 登录与安全：外部账号绑定、改密码、登录会话、最近登录
+        // 登录与安全：外部账号绑定、改密码、最近登录
         account.MapGet("/security", (HttpContext ctx,
             UserRepository users,
             ExternalIdentityRepository identities,
@@ -246,7 +246,7 @@ public static class AccountEndpoints
             if (currentId is null || !ctx.RequestServices.GetRequiredService<DeviceSessions>().RevokeOthers(userId, currentId)) return Results.Redirect("/login");
             await AuthorizationEndpoints.SignInCookie(ctx, userId, freshAuthentication: false);
             audit.AccountAction("sessions-revoke-others", true, userId);
-            return RedirectTo("/account/security", notice: T("Signed out of all other devices"));
+            return RedirectTo("/account/sessions", notice: T("Signed out of all other devices"));
         });
 
         // ----- 强制改密页面（首次登录 / admin 重置后）-----

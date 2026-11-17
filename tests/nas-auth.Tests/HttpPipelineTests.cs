@@ -601,6 +601,35 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
     }
 
     [Fact]
+    public async Task AdminCanAddGroupFromUserDetailsAndSeeMembershipInUserList()
+    {
+        using var scope = _app.Services.CreateScope();
+        var services = scope.ServiceProvider;
+        var users = services.GetRequiredService<UserRepository>();
+        users.Create("group-ui-member", "group-ui-member", PasswordHasher.UnusableHash(), mustChangePassword: false);
+        var groups = services.GetRequiredService<AccessGroupService>();
+        var groupId = groups.Create("UI membership group")!;
+
+        var c = _app.Client();
+        Assert.Equal(HttpStatusCode.Redirect, (await Login(c, "/admin/users")).StatusCode);
+        var detailUrl = "/admin/users/edit?user=group-ui-member";
+        var detail = await c.GetStringAsync(detailUrl);
+        Assert.Contains("name='group_id'", detail);
+        Assert.Contains($"<option value='{groupId}'>UI membership group</option>", detail);
+        var add = await SendCsrf(c, Post("/admin/users/groups/add",
+            Form(("user_id", "group-ui-member"), ("group_id", groupId)), secFetchSite: "same-origin"));
+        Assert.Equal(HttpStatusCode.Redirect, add.StatusCode);
+        Assert.StartsWith(detailUrl, add.Headers.Location!.OriginalString);
+        Assert.Equal(groupId, Assert.Single(groups.Memberships("group-ui-member")).Id);
+
+        var list = await c.GetStringAsync("/admin/users?q=group-ui-member");
+        Assert.Contains($"href='/admin/groups/{groupId}'>UI membership group</a>", list);
+        var updated = await c.GetStringAsync(detailUrl);
+        Assert.DoesNotContain($"<option value='{groupId}'>", updated);
+        Assert.Contains($"href='/admin/groups/{groupId}'>UI membership group</a>", updated);
+    }
+
+    [Fact]
     public async Task AdminCreate_ExternalOnlyUser_NoForcedPasswordChange_PreBoundEmail_IdNotReusable()
     {
         var c = _app.Client();
@@ -626,6 +655,10 @@ public class HttpPipelineTests : IClassFixture<NasAuthAppFactory>
         var edit = await c.GetStringAsync("/admin/users/edit?user=googleonly");
         Assert.Contains("g@example.com", edit);
         Assert.Contains("/admin/users/invites/delete", edit);
+        Assert.DoesNotContain("Password invitation and recovery", edit);
+        Assert.Contains("data-confirm='Sign googleonly out on all devices?'", edit);
+        Assert.Contains("action='/admin/users/force-logout'", edit);
+        Assert.Contains("Recent sign-ins", edit);
 
         // 删人 → 同名（大小写不同也算）不许再建
         Assert.Equal(HttpStatusCode.Redirect, (await SendCsrf(c, Post("/admin/users/delete",

@@ -14,6 +14,18 @@ internal static class AccessGroupEndpoints
 {
     internal static void MapAccessGroupEndpoints(this RouteGroupBuilder admin)
     {
+        admin.MapPost("/users/groups/add", async (HttpContext ctx, AccessGroupService groups, AuditLogger audit) =>
+        {
+            var form = await ctx.Request.ReadFormAsync();
+            var userId = form["user_id"].ToString();
+            var groupId = form["group_id"].ToString();
+            var returnPath = "/admin/users/edit?user=" + Uri.EscapeDataString(userId);
+            if (!groups.ChangeMember(groupId, userId, add: true))
+                return RedirectTo(returnPath, error: T("Membership has changed. Reload the user page and try again."));
+            Log(ctx, audit, "group-member-add", groupId, userId);
+            return RedirectTo(returnPath, notice: T("Member added."));
+        });
+
         var routes = admin.MapGroup("/groups");
         routes.MapGet("", (HttpContext ctx, AccessGroupService groups, UserRepository users,
             ExternalIdentityRepository identities) =>

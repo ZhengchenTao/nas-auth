@@ -135,7 +135,6 @@ public class TemplateContractTests
             Array.Empty<BindingView>(), grants, Array.Empty<AuditView>()));
         Assert.Contains("action='/admin/users/revoke'", html);
         Assert.Contains("name='user_id' value='bob'", html);
-        Assert.Contains("action='/admin/users/force-logout'", html);
         Assert.Contains("action='/admin/users/revoke-all'", html);
     }
 

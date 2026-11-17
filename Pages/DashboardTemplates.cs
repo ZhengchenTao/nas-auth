@@ -121,6 +121,16 @@ public static partial class DashboardTemplates
       {content}
     </main>
   </div>
+  <dialog id=""confirm-action"" aria-labelledby=""confirm-title"" aria-describedby=""confirm-message"">
+    <form method=""dialog"" data-no-busy>
+      <h2 id=""confirm-title"">{T("Confirm action")}</h2>
+      <p id=""confirm-message""></p>
+      <footer>
+        <button class=""btn"" data-variant=""outline"" value=""cancel"" autofocus>{T("Cancel")}</button>
+        <button class=""btn"" value=""confirm"" data-default-label=""{Esc(T("Proceed"))}"">{T("Proceed")}</button>
+      </footer>
+    </form>
+  </dialog>
 </body>
 </html>");
     }
@@ -139,7 +149,7 @@ public static partial class DashboardTemplates
         $"<span class='badge' data-variant='outline'>{ProviderIcon(provider)}{Esc(provider)}</span>";
 
     /// <summary>
-    /// 提交前确认：输出 form 上的 data-confirm 属性，由 theme.js 事件委托弹 confirm。
+    /// 提交前确认：输出 form 上的 data-confirm 属性，由 theme.js 事件委托打开站内确认框。
     /// text 传纯文本（未转义），这里整体 HtmlEncode 一次 —— 用户可控内容（client_name 等）只落在属性值里，
     /// 浏览器解码后经 getAttribute 取回仍是纯文本，不会像原先内联 onsubmit 那样被拼进 JS 字符串执行。
     /// </summary>
@@ -328,7 +338,8 @@ public static partial class DashboardTemplates
         foreach (var binding in bindings.Where(x => x.ProfileDefinition is not null))
         {
             var provider = binding.ProfileDefinition!;
-            var name = binding.Profile?.GetValueOrDefault(provider.NameField) ?? binding.DisplayName ?? provider.DisplayName;
+            var providerDisplayName = IsZh ? provider.DisplayNameZh ?? provider.DisplayName : provider.DisplayName;
+            var name = binding.Profile?.GetValueOrDefault(provider.NameField) ?? binding.DisplayName ?? providerDisplayName;
             var facts = new StringBuilder();
             var details = new StringBuilder();
             foreach (var definition in provider.Fields.Where(x => x.Value.Visible).OrderBy(x => x.Value.Order).ThenBy(x => x.Key))
@@ -336,13 +347,13 @@ public static partial class DashboardTemplates
                 var value = binding.Profile?.GetValueOrDefault(definition.Key);
                 if (string.IsNullOrWhiteSpace(value) || definition.Key == provider.NameField) continue;
                 if (definition.Value.Detail)
-                    details.Append($"<dt>{Esc(definition.Value.Label)}</dt><dd>{Esc(value)}</dd>");
+                    details.Append($"<dt>{Esc(IsZh ? definition.Value.LabelZh ?? definition.Value.Label : definition.Value.Label)}</dt><dd>{Esc(value)}</dd>");
                 else
-                    facts.Append($"<div><dt>{Esc(definition.Value.Label)}</dt><dd>{Esc(value)}</dd></div>");
+                    facts.Append($"<div><dt>{Esc(IsZh ? definition.Value.LabelZh ?? definition.Value.Label : definition.Value.Label)}</dt><dd>{Esc(value)}</dd></div>");
             }
             html.Append("<div class='card external-identity'><div class='identity-heading'><div class='identity-person'>");
             html.Append(Avatar(binding.AvatarFile, name, "avatar-sm"));
-            html.Append($"<div><p class='identity-provider'>{Esc(provider.DisplayName)}</p><h2>{Esc(name)}</h2></div></div><span class='identity-linked'>{T("Identity linked")}</span></div>");
+            html.Append($"<div><p class='identity-provider'>{Esc(providerDisplayName)}</p><h2>{Esc(name)}</h2></div></div><span class='identity-linked'>{T("Identity linked")}</span></div>");
             if (facts.Length > 0) html.Append($"<dl class='identity-facts'>{facts}</dl>");
             if (details.Length > 0) html.Append($"<details class='identity-details'><summary>{T("Identity details")}</summary><dl class='kv'>{details}</dl></details>");
             html.Append($"<div class='identity-bottom'><span class='identity-updated'>{T("Updated at")} · {Esc(binding.ProfileUpdatedAt ?? "—")}</span>");
@@ -363,7 +374,7 @@ public static partial class DashboardTemplates
         var config = System.Text.Json.JsonSerializer.Serialize(new { provider, bridge = definition.BrowserLookupUrl,
             subject, self, name, localNetwork = definition.BrowserLookupNeedsLocalNetwork,
             subjectField = definition.SubjectField, nameField = definition.NameField, usernameField = definition.UsernameField, emailField = definition.EmailField,
-            fields = definition.Fields.ToDictionary(x => x.Key, x => x.Value.Label),
+            fields = definition.Fields.ToDictionary(x => x.Key, x => IsZh ? x.Value.LabelZh ?? x.Value.Label : x.Value.Label),
             visible = definition.Fields.Where(x => x.Value.Visible && !x.Value.Detail).OrderBy(x => x.Value.Order).ThenBy(x => x.Key).Select(x => x.Key).ToArray() });
         var action = subject is null ? "/admin/directory/create" : self ? "/account/directory/import" : "/admin/directory/import";
         var query = self
@@ -450,7 +461,7 @@ public static partial class DashboardTemplates
                 sb.Append($"<td>{ProviderBadge(b.Provider)}</td>");
                 sb.Append($"<td class='wrap'>{Esc(b.DisplayName ?? "-")}<span class='sub'>{Esc(b.Email ?? b.Subject)}</span></td>");
                 sb.Append($"<td>{Esc(b.BoundAtDisplay)}</td>");
-                sb.Append("<td class='fit'><form method='post' action='/account/bindings/unbind'>");
+                sb.Append($"<td class='fit'><form method='post' action='/account/bindings/unbind' {Confirm(T("Unbind this external account?"))}>");
                 sb.Append(Hidden("provider", b.Provider));
                 sb.Append(Hidden("subject", b.Subject));
                 sb.Append($"<button class='btn' data-variant='destructive' data-size='sm' type='submit'>{T("Unbind")}</button></form></td>");
@@ -459,7 +470,7 @@ public static partial class DashboardTemplates
             sb.Append("</tbody></table></div>");
         }
         var providers = providerChoices ?? LegacyChoices(googleEnabled, microsoftEnabled);
-        if (providers.Count > 0)
+        if (providers.Any(p => p.CanBind))
         {
             sb.Append("<div class='actions' style='margin-top:16px'>");
             // 绑定是写操作：用 POST 表单（受跨源写拦截保护），不再是任何站点都能诱导跳转的 GET 链接
@@ -471,7 +482,7 @@ public static partial class DashboardTemplates
             sb.Append("</div>");
         }
         var html = Card(T("External identities"),
-            T("External accounts bound to this user can sign in directly. Binding requires an active session and writes the identity as active immediately (no approval round-trip)."),
+            T("The external accounts listed here can be used to sign in."),
             sb.ToString());
 
         // 改密码：只对能用密码登录的账号显示（§十四）
@@ -485,13 +496,6 @@ public static partial class DashboardTemplates
             form.Append("</form>");
             html += Card(T("Change password"), T("Changing the password also signs you out on all other devices."), form.ToString());
         }
-
-        // 登录会话（§十六）
-        var sessions = $"<p><a class='btn' data-variant='outline' href='/account/sessions'>{T("Manage device sessions")}</a></p><form method='post' action='/account/sessions/revoke-others' {Confirm(T("Sign out of all other devices?"))}>" +
-                       $"<button class='btn' data-variant='outline' type='submit'>{T("Sign out of all other devices")}</button></form>";
-        html += Card(T("Sessions"),
-            T("Review and revoke individual devices. Signing out other devices keeps this session and its linked credentials; older unlinked authorizations may require sign-in again."),
-            sessions);
 
         html += Card(T("Recent sign-ins"), T("Includes failed attempts. Kept for 90 days."), LoginsTable(recentLogins));
         return html;
@@ -530,7 +534,8 @@ public static partial class DashboardTemplates
     }
 
     // ---- 用户：列表 + 新建；单个用户的全部操作在 UserEditSection ----
-    public static string UsersSection(IReadOnlyList<UserAdminView> users, NasAuth.Config.ExternalProfilesOptions? profiles = null, bool externalSignInEnabled = true, NasAuth.Services.ResourceCatalog? catalog = null, UserDirectoryPage? directory = null)
+    public static string UsersSection(IReadOnlyList<UserAdminView> users, NasAuth.Config.ExternalProfilesOptions? profiles = null, bool externalSignInEnabled = true, NasAuth.Services.ResourceCatalog? catalog = null, UserDirectoryPage? directory = null, bool emailBindingAvailable = true,
+        IReadOnlyDictionary<string, IReadOnlyList<NasAuth.Services.AccessGroup>>? memberships = null)
     {
         var create = new StringBuilder("<form method='post' action='/admin/users/create'><div class='form-grid'>");
         create.Append($"<div class='field'><label for='new_username'>{T("Username")}</label><input type='text' id='new_username' name='username' required pattern='[a-zA-Z0-9._-]{{1,32}}' autocomplete='off' placeholder='{T("letters, digits, . _ -")}'></div>");
@@ -547,7 +552,7 @@ public static partial class DashboardTemplates
         create.Append($"<p class='hint' style='margin-top:12px'>{T("Some connected apps use email to match existing accounts. Use a consistent email where required. Enable password sign-in only when this account needs it.")}</p>");
 
         var sb = new StringBuilder(UserDirectoryControls(directory));
-        sb.Append($"<div class='table-container'><table class='table user-directory-table'><thead><tr><th>{T("Username")}</th><th>{T("Role")}</th><th>{T("Status")}</th><th>{T("Password sign-in")}</th><th>{T("Created")}</th><th></th></tr></thead><tbody>");
+        sb.Append($"<div class='table-container'><table class='table user-directory-table'><thead><tr><th>{T("Username")}</th><th>{T("Role")}</th><th>{T("Groups")}</th><th>{T("Status")}</th><th>{T("Password sign-in")}</th><th>{T("Created")}</th><th></th></tr></thead><tbody>");
         foreach (var u in users)
         {
             sb.Append("<tr>");
@@ -557,23 +562,25 @@ public static partial class DashboardTemplates
             if (u.IsSelf) sb.Append($" <span class='badge' data-variant='secondary'>{T("you")}</span>");
             sb.Append($"<span class='sub'><span class='mono'>{Esc(u.Username)}</span> · {(string.IsNullOrEmpty(u.Email) ? "—" : Esc(u.Email))}</span></div></div></td>");
             sb.Append($"<td>{RoleBadge(u)}</td>");
+            sb.Append($"<td class='wrap'>{GroupLinks(memberships?.GetValueOrDefault(u.UserId))}</td>");
             sb.Append($"<td>{StatusBadges(u)}</td>");
             sb.Append($"<td>{(u.AllowPasswordLogin ? T("Allowed") : $"<span class='hint'>{T("Off")}</span>")}</td>");
             sb.Append($"<td>{Esc(u.CreatedAtDisplay)}</td>");
             sb.Append($"<td class='fit'><a class='btn' data-variant='outline' data-size='sm' href='{Esc(EditHref(u.UserId))}'>{T("Manage")}</a></td>");
             sb.Append("</tr>");
         }
-        if (users.Count == 0) sb.Append("<tr><td colspan='6'>" + Empty(T("No matching accounts")) + "</td></tr>");
+        if (users.Count == 0) sb.Append("<tr><td colspan='7'>" + Empty(T("No matching accounts")) + "</td></tr>");
         sb.Append("</tbody></table></div>" + UserDirectoryFooter(directory));
 
         var external = new StringBuilder();
         foreach (var (id, provider) in profiles?.Providers ?? new Dictionary<string, NasAuth.Config.ExternalProfileProvider>())
             if (provider.AllowAdminCreate && provider.BrowserLookupUrl.Length > 0)
                 external.Append(DirectoryWidget(id, provider, null, false, null, catalog));
-        if (external.Length == 0)
+        if (external.Length == 0 && emailBindingAvailable)
             external.Append($"<form method='post' action='/admin/users/create'><input type='hidden' name='invite_by_email' value='1'><div class='field'><label>{T("Email")}</label><input class='input' type='email' name='email' required autocomplete='off'></div><p class='hint'>{T("The first verified external sign-in will bind this account. No password is created.")}</p>" + ApplicationChoices(catalog) + $"<button class='btn'>{T("Create external account")}</button></form>");
-        return UserLifecycleNavigation("active", directory) + Card(T("Users"), null, sb.ToString()) + (externalSignInEnabled ? Card(T("Create external account"), null, external.ToString()) : "") +
-            $"<details class='card account-create'{(externalSignInEnabled ? "" : " open")}><summary><span class='account-create-heading'><span class='account-create-title'>{T("Create password account")}</span><span class='hint'>{T("For accounts that sign in with a username and password")}</span></span><span class='account-create-chevron' aria-hidden='true'></span></summary>" +
+        var showExternalCreation = externalSignInEnabled && external.Length > 0;
+        return UserLifecycleNavigation("active", directory) + Card(T("Users"), null, sb.ToString()) + (showExternalCreation ? Card(T("Create external account"), null, external.ToString()) : "") +
+            $"<details class='card account-create'{(showExternalCreation ? "" : " open")}><summary><span class='account-create-heading'><span class='account-create-title'>{T("Create password account")}</span><span class='hint'>{T("For accounts that sign in with a username and password")}</span></span><span class='account-create-chevron' aria-hidden='true'></span></summary>" +
             $"<div class='account-create-body'><p class='hint'>{T("Choose a password, or use an invitation link so the recipient can set one.")}</p>" + create.ToString() + "</div></details>";
     }
 
@@ -717,7 +724,8 @@ public static partial class DashboardTemplates
 
     // ---- 单个用户：资料 / 资源授权 / 外部身份 / 已授权应用 / 会话 / 重置密码 / 删除 ----
     public static string UserEditSection(UserDetailView d,NasAuth.Config.ProvisioningOptions? provisioning=null,
-        IReadOnlyList<NasAuth.Services.ProvisioningStatus>? provisioningStatuses=null, string? credentialSection=null, string? deviceSection=null)
+        IReadOnlyList<NasAuth.Services.ProvisioningStatus>? provisioningStatuses=null, string? credentialSection=null, string? deviceSection=null,
+        bool emailBindingAvailable = true, IReadOnlyList<NasAuth.Services.AccessGroup>? availableGroups = null)
     {
         var u = d.User;
         var uid = Hidden("user_id", u.UserId);
@@ -765,6 +773,7 @@ public static partial class DashboardTemplates
             var effective = d.Resources.Select(r => r with { GrantedScopes = EffectiveScopes(d, r) }).ToList();
             html.Append(ProvisioningSection(u.UserId, provisioning, provisioningStatuses, effective, u.IsAdmin));
         }
+        if (availableGroups is not null) html.Append(UserGroupsSection(u.UserId, d.Groups, availableGroups));
         if (d.GrantSources is not null) html.Append(UserGrantSourcesSection(d));
 
         // 外部身份（管理员可解绑）
@@ -785,10 +794,11 @@ public static partial class DashboardTemplates
             ids.Append("</tbody></table></div>");
         }
 
-        // 预绑定邮箱（§十八）：首次用 Google 登录、且 Google 验证过这个邮箱的人直接绑到本用户，不进待批
-        ids.Append($"<h3 class='subhead'>{T("Pending first bindings")}</h3>");
         if (d.Invites is { Count: > 0 } invites)
         {
+            ids.Append($"<h3 class='subhead'>{T("Pending first bindings")}</h3>");
+            if (!emailBindingAvailable)
+                ids.Append($"<p class='hint'>{T("Current sign-in providers cannot use these email bindings. You can remove existing entries.")}</p>");
             ids.Append($"<div class='table-container'><table class='table'><thead><tr><th>{T("Email")}</th><th>{T("Added")}</th><th></th></tr></thead><tbody>");
             foreach (var i in invites)
             {
@@ -798,12 +808,15 @@ public static partial class DashboardTemplates
             }
             ids.Append("</tbody></table></div>");
         }
-        ids.Append($"<form method='post' action='/admin/users/invites/add' class='form-foot'>{uid}");
-        ids.Append(Hidden("email", u.Email ?? ""));
-        ids.Append($"<button class='btn' data-variant='outline' type='submit'{(string.IsNullOrEmpty(u.Email) ? " disabled" : "")}>{T("Enable first binding for account email")}</button></form>");
-        html.Append(Card(T("External identities"),
-            T("Pre-bound email: the first time someone signs in with this email, that account is bound to this user directly without going through approvals. Used once, then removed. Requires the provider to vouch for the email: Google must report it as verified; for a personal Microsoft account it must be the sign-in name. Otherwise it still goes to approvals."),
-            ids.ToString()));
+        if (emailBindingAvailable && !string.IsNullOrEmpty(u.Email))
+        {
+            ids.Append($"<form method='post' action='/admin/users/invites/add' class='form-foot'>{uid}");
+            ids.Append(Hidden("email", u.Email));
+            ids.Append($"<button class='btn' data-variant='outline' type='submit'>{T("Enable first binding for account email")}</button></form>");
+        }
+        html.Append(Card(T("External identities"), emailBindingAvailable
+            ? T("A pending email binding is used once when a provider verifies the address. Other new identities go through approval.")
+            : T("The external accounts listed here can be used to sign in."), ids.ToString()));
 
         // 代管已授权应用
         var revokeAll = d.Grants.Count == 0 ? null :
@@ -813,16 +826,8 @@ public static partial class DashboardTemplates
             T("Revoking deletes the refresh tokens; issued access tokens remain valid until they expire."),
             GrantsTable(d.Grants, "/admin/users/revoke", u.UserId), action: revokeAll));
 
-        // 会话（§十六）：最近登录 + 强制下线
-        var sess = new StringBuilder(LoginsTable(d.RecentLogins));
-        if (!u.IsSelf)
-            sess.Append($"<form method='post' action='/admin/users/force-logout' style='margin-top:16px' {Confirm(T("Sign {0} out on all devices?", u.Username))}>{uid}" +
-                        $"<button class='btn' data-variant='outline' type='submit'>{T("Sign out on all devices")}</button></form>");
-        html.Append(Card(T("Sign-ins & sessions"),
-            T("Signing out ends all Auth device sessions and their linked credentials. Application-owned sessions follow the application's own logout rules."),
-            sess.ToString()));
-
         if (deviceSection is not null) html.Append(deviceSection);
+        html.Append(Card(T("Recent sign-ins"), T("Includes failed attempts. Kept for 90 days."), LoginsTable(d.RecentLogins)));
         if (credentialSection is not null) html.Append(credentialSection);
         if (!u.IsSelf)
             html.Append(Card(T("Disable account"),T("Stop sign-in and revoke sessions. Keep identity and profile for recovery; restore application access explicitly later."),
@@ -939,8 +944,9 @@ public static partial class DashboardTemplates
             {
                 var first = group.First();
                 overview.Append($"<details class='application-row'><summary><span class='application-name'><strong>{Esc(first.App?.Name ?? first.DisplayName)}</strong>");
-                if (!string.IsNullOrEmpty(first.App?.Description))
-                    overview.Append($"<span class='sub'>{Esc(first.App.Description)}</span>");
+                var description = IsZh ? first.App?.DescriptionZh ?? first.App?.Description : first.App?.Description;
+                if (!string.IsNullOrEmpty(description))
+                    overview.Append($"<span class='sub'>{Esc(description)}</span>");
                 overview.Append("</span><span class='application-capabilities'>");
                 foreach (var r in group)
                     overview.Append($"<span class='capability-summary'><span class='badge' data-variant='secondary'>{CapabilityLabel(r)}</span><span>{T("{0} users", r.UserCount)}</span></span>");

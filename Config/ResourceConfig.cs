@@ -65,6 +65,8 @@ public class ResourceAppConfig
     public string Name { get; set; } = "";
     [JsonPropertyName("description")]
     public string Description { get; set; } = "";
+    [JsonPropertyName("description_zh")]
+    public string? DescriptionZh { get; set; }
     [JsonPropertyName("capability")]
     public string Capability { get; set; } = "api";
 }

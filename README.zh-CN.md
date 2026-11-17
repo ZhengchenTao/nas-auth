@@ -142,7 +142,7 @@ HTTP。adapter 收到 Bearer token 和 JSON `{"ticket":"…","client_ip":"…"}`
 
 图标文件放到或只读挂载到 `/app/wwwroot/branding/`。只允许站内路径，不接受远程地址或 HTML；
 图标内容参与静态资源版本哈希，路径自动兼容 `Auth:PathBase`。
-`NavigationLabels` 可按菜单 key 覆盖入口名称；不配的项目使用原文案。
+`NavigationLabels` 可按菜单 key 覆盖入口名称；不配的项目使用原文案。可选的 `LoginTitleZh`、`LoginSubtitleZh`、`NavigationLabelsZh` 仅在中文界面覆盖对应配置。
 默认名称与图标保留原行为，无需为已有实例补配置。
 
 用环境变量，`__` 表示层级（`Auth__Issuer` 就是 `Auth:Issuer`）。也可以写在 `appsettings*.json` 里，但密钥只放环境变量。
@@ -187,7 +187,7 @@ Auth__Dcr__AllowedCustomSchemes__0=cursor
 ### resources.json
 
 后台「应用与资源」默认按应用显示接入能力；「OAuth 客户端」和「技术明细」页签保留完整列表。
-资源可选配置 `app`，例如 `{"id":"gitea","name":"Gitea","description":"代码托管","capability":"web"}`。
+资源可选配置 `app`，例如 `{"id":"gitea","name":"Gitea","description":"Code hosting","description_zh":"代码托管","capability":"web"}`。
 同一应用的资源使用相同 `id`、`name` 和 `description`；`capability` 支持 `web`（网页登录）、
 `mcp`（MCP 访问）、`api`（API 访问）和 `gateway`（仅限 forward-auth 入口保护）。未配置的资源独立展示，
 不会按名称自动归并。人数按每项能力分别统计；活跃授权指有效续期授权，不代表在线人数。

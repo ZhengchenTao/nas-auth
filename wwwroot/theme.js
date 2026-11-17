@@ -26,7 +26,7 @@
     if (media.addEventListener) media.addEventListener('change', sync);
     new MutationObserver(describe).observe(sidebar, { attributes: true, attributeFilter: ['aria-hidden'] });
     document.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape' && !media.matches && sidebar.getAttribute('aria-hidden') === 'false' && typeof sidebar.close === 'function') {
+      if (event.key === 'Escape' && !document.querySelector('#confirm-action[open]') && !media.matches && sidebar.getAttribute('aria-hidden') === 'false' && typeof sidebar.close === 'function') {
         sidebar.close();
         if (toggle) toggle.focus();
         event.preventDefault();
@@ -60,11 +60,36 @@
     };
   }
 
-  // <form data-confirm="提示文字">：提交前确认，取消则不提交
-  document.addEventListener('submit', function (e) {
-    var f = e.target;
-    var msg = f && f.getAttribute ? f.getAttribute('data-confirm') : null;
-    if (msg && !window.confirm(msg)) e.preventDefault();
+  var confirmedForms = new WeakSet();
+  document.addEventListener('submit', function (event) {
+    var form = event.target;
+    var message = form.getAttribute('data-confirm');
+    if (event.defaultPrevented || !message || confirmedForms.has(form)) return;
+
+    event.preventDefault();
+    var dialog = document.getElementById('confirm-action');
+    if (!dialog || dialog.open || form.getAttribute('data-busy') === '1') return;
+
+    var submitter = event.submitter;
+    var confirmButton = dialog.querySelector('button[value="confirm"]');
+    var action = submitter && (submitter.textContent.trim() || submitter.value);
+    confirmButton.textContent = action || confirmButton.dataset.defaultLabel;
+    if (submitter && submitter.getAttribute('data-variant') === 'destructive')
+      confirmButton.setAttribute('data-variant', 'destructive');
+    else
+      confirmButton.removeAttribute('data-variant');
+    dialog.querySelector('#confirm-message').textContent = message;
+    dialog.returnValue = '';
+    dialog.addEventListener('close', function () {
+      if (dialog.returnValue !== 'confirm' || !form.isConnected) return;
+      confirmedForms.add(form);
+      try {
+        form.requestSubmit(submitter || undefined);
+      } finally {
+        confirmedForms.delete(form);
+      }
+    }, { once: true });
+    dialog.showModal();
   });
 
   // 提交中 loading + 防重复提交（2026-10-02）：「以 xx 身份授权」/ 登录后要等下游应用回调，网络慢时看起来像卡住，

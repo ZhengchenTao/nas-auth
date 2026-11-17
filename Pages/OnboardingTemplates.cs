@@ -40,10 +40,10 @@ public static partial class DashboardTemplates
 
     private static string Code(string value) => $"<pre style='white-space:pre-wrap;overflow-wrap:anywhere'><code>{Esc(value)}</code></pre>";
 
-    public static string CredentialLinksSection(UserRow user, IReadOnlyList<CredentialLinkRow> links)
+    public static string? CredentialLinksSection(UserRow user, IReadOnlyList<CredentialLinkRow> links)
     {
         if (user.allow_password_login == 0)
-            return Card(T("Invitation and recovery"), T("Local password access is disabled for this account. Recover an external account through its identity provider."), "");
+            return null;
         var body = new StringBuilder($"<form method='post' action='/admin/users/credential-links/issue'>{Hidden("user_id", user.user_id)}");
         body.Append($"<label class='check-line'><input type='checkbox' name='verified' value='1' required>{T("I have verified the recipient's identity and will deliver the link through a trusted channel.")}</label>");
         body.Append($"<div class='form-foot'><button class='btn' data-variant='outline' type='submit'>{T("Issue or reissue a password link")}</button></div></form>");
@@ -55,7 +55,7 @@ public static partial class DashboardTemplates
                     (link.state == "pending" ? $"<form method='post' action='/admin/users/credential-links/cancel'>{Hidden("user_id", user.user_id)}{Hidden("id", link.id)}<button class='btn' data-size='sm' data-variant='outline' type='submit'>{T("Revoke link")}</button></form>" : "") + "</td></tr>");
             body.Append("</tbody></table></div>");
         }
-        return Card(T("Invitation and recovery"), T("Links expire and can be used once. Reissuing revokes previous links. Existing credentials change only after the recipient sets a password."), body.ToString());
+        return Card(T("Password invitation and recovery"), T("Give this user a one-time link to set or recover their local password. Issuing a new link revokes the previous one."), body.ToString());
     }
 
     public static string IssuedCredentialSection(IssuedCredentialLink link, string issuer)

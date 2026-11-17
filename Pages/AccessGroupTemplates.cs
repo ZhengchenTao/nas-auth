@@ -133,16 +133,32 @@ public static partial class DashboardTemplates
             .SelectMany(s => s.Scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries)) ?? resource.GrantedScopes)
             .Distinct(StringComparer.Ordinal).ToList();
 
+    private static string GroupLinks(IReadOnlyList<AccessGroup>? groups) =>
+        groups is not { Count: > 0 } ? $"<span class='hint'>{T("No groups")}</span>" :
+            "<div class='actions user-group-links'>" + string.Concat(groups.Select(group =>
+                $"<a class='badge' data-variant='outline' href='{GroupPath(group.Id)}'>{Esc(group.Name)}</a>")) + "</div>";
+
+    private static string UserGroupsSection(string userId, IReadOnlyList<AccessGroup>? current,
+        IReadOnlyList<AccessGroup> available)
+    {
+        var body = new StringBuilder(GroupLinks(current));
+        if (available.Count > 0)
+        {
+            body.Append($"<form class='user-group-form' method='post' action='/admin/users/groups/add' {Confirm(T("Add this user to the selected group? They will inherit its application access."))}>");
+            body.Append(Hidden("user_id", userId));
+            body.Append($"<div class='field'><label for='add-user-group'>{T("Add to group")}</label><select id='add-user-group' name='group_id' required><option value='' disabled selected>{T("Select a group")}</option>");
+            foreach (var group in available)
+                body.Append($"<option value='{Esc(group.Id)}'>{Esc(group.Name)}</option>");
+            body.Append($"</select></div><button class='btn' data-variant='outline' type='submit'>{T("Add to group")}</button></form>");
+        }
+        else if (current is not { Count: > 0 })
+            body.Append($"<p><a href='/admin/groups/new'>{T("New group")}</a></p>");
+        return Card(T("Groups"), null, "<div id='user-groups'>" + body + "</div>");
+    }
+
     private static string UserGrantSourcesSection(UserDetailView detail)
     {
         var body = new StringBuilder();
-        if (detail.Groups is { Count: > 0 })
-        {
-            body.Append("<div class='actions'>");
-            foreach (var group in detail.Groups)
-                body.Append($"<a class='badge' data-variant='outline' href='{GroupPath(group.Id)}'>{Esc(group.Name)}</a>");
-            body.Append("</div>");
-        }
         var resources = detail.Resources.Where(r => !r.AdminOnly || detail.User.IsAdmin).ToDictionary(r => r.Aud);
         var sources = detail.GrantSources!.Where(s => resources.ContainsKey(s.Aud)).ToList();
         if (sources.Count == 0) body.Append(Empty(T("No application grants.")));

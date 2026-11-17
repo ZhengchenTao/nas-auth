@@ -21,6 +21,7 @@ public static class Ui
         set => RequestBranding.Value = value;
     }
     public static string Label(string key, string fallback) =>
+        I18n.IsZh && Branding.NavigationLabelsZh.TryGetValue(key, out var zhLabel) ? zhLabel :
         Branding.NavigationLabels.TryGetValue(key, out var label) ? label : I18n.T(fallback);
     public static string BrandIcon => string.IsNullOrEmpty(Branding.LogoPath) ? IconLogo :
         $"<img class='brand-icon' src='{Esc(Branding.LogoPath)}?v={AssetVersion}' alt=''>";

@@ -208,7 +208,6 @@ public class NoInlineScriptTests
         var confirms = Attributes(html).Where(a => a.Name == "data-confirm").Select(a => a.Value).ToList();
         Assert.Contains("Unbind this external account?", confirms);
         Assert.Contains("Revoke all grants of bob?", confirms);
-        Assert.Contains("Sign bob out on all devices?", confirms);
         Assert.Contains("Delete user bob? All of their refresh tokens will be revoked.", confirms);
     }
 

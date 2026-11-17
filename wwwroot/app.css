@@ -19,6 +19,29 @@ code {
 .sub { display: block; margin-top: 2px; color: var(--muted-foreground); font-size: .75rem;
        font-family: var(--nas-mono); overflow-wrap: anywhere; white-space: normal; }
 .field { gap: .5rem; }
+.field > select {
+  appearance: none;
+  min-height: 2.375rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: .45rem 2rem .45rem .75rem;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--card) var(--chevron-down-icon) no-repeat right .65rem center / 1rem;
+  color: var(--foreground);
+  cursor: pointer;
+}
+.field > select:enabled:hover { border-color: var(--ring); }
+.field > select:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.field > select:disabled { cursor: default; opacity: .6; }
+.field > select option { color: var(--foreground); background: var(--card); }
+@media (forced-colors: active) {
+  .field > select { appearance: auto; background: Canvas; color: CanvasText; }
+}
+.user-group-form { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; margin-top: 1rem; }
+.user-group-form .field { flex: 0 1 16rem; min-width: 0; }
+.user-group-links { gap: .375rem; }
+.user-group-links .badge { white-space: normal; overflow-wrap: anywhere; }
 .btn.block { width: 100%; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .sep { display: flex; align-items: center; gap: 12px; color: var(--muted-foreground); font-size: .75rem; }
@@ -340,3 +363,35 @@ td.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end
 .session-history > summary::after { content: ''; width: 6px; height: 6px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(45deg); }
 .session-history[open] > summary::after { transform: rotate(225deg); }
 .session-history > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; border-radius: 4px; }
+
+/* Confirmation dialog */
+#confirm-action {
+  width: min(28rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 16px 48px rgb(0 0 0 / .25);
+}
+#confirm-action::backdrop { background: rgb(0 0 0 / .5); }
+#confirm-action form { padding: clamp(1rem, 4vw, 1.5rem); }
+#confirm-action h2 { font-size: 1.125rem; font-weight: 650; }
+#confirm-message { margin-top: .5rem; overflow-wrap: anywhere; }
+#confirm-action footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: .5rem;
+  margin-top: 1.5rem;
+}
+#confirm-action button {
+  max-width: 100%;
+  height: auto;
+  min-height: 2.25rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

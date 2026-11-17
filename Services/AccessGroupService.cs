@@ -94,6 +94,21 @@ public sealed class AccessGroupService(AuthDb db, ResourceCatalog catalog, Provi
             """, new { userId }).AsList();
     }
 
+    public IReadOnlyDictionary<string, IReadOnlyList<AccessGroup>> MembershipsForUsers(IReadOnlyList<string> userIds)
+    {
+        if (userIds.Count == 0) return new Dictionary<string, IReadOnlyList<AccessGroup>>(StringComparer.Ordinal);
+        using var conn = db.OpenConnection();
+        var rows = conn.Query<(string UserId, string GroupId, string GroupName)>("""
+            SELECT m.user_id,g.id,g.name
+            FROM access_group_members m JOIN access_groups g ON g.id=m.group_id
+            WHERE m.user_id IN @userIds ORDER BY g.name COLLATE NOCASE,g.id
+            """, new { userIds });
+        return rows.GroupBy(row => row.UserId, StringComparer.Ordinal).ToDictionary(
+            group => group.Key,
+            group => (IReadOnlyList<AccessGroup>)group.Select(row => new AccessGroup { Id = row.GroupId, Name = row.GroupName }).ToList(),
+            StringComparer.Ordinal);
+    }
+
     public IReadOnlyList<GroupGrantSource> Sources(string userId)
     {
         using var conn = db.OpenConnection();

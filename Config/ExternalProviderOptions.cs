@@ -44,6 +44,9 @@ public sealed class ExternalProviderOptions
         }
     }
 
+    public bool SupportsVerifiedEmailBinding => GoogleEnabled || MicrosoftEnabled ||
+        ConfiguredProviders.Any(p => p.IsEnabled && !string.IsNullOrWhiteSpace(p.EmailVerifiedClaim));
+
     public bool IsEnabled(string provider) => FindClaimMapping(provider) is not null ||
         (!UsesConfiguredProviders && (provider == "google" ? GoogleEnabled :
             provider == "microsoft" && MicrosoftEnabled));

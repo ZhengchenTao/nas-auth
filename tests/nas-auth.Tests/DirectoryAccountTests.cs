@@ -45,6 +45,19 @@ public sealed class DirectoryAccountTests : IClassFixture<TicketAuthFactory>
     }
 
     [Fact]
+    public void TicketOnlyDeploymentDoesNotOfferEmailFirstBinding()
+    {
+        var providers = _app.Services.GetRequiredService<ExternalProviderOptions>();
+        Assert.False(providers.SupportsVerifiedEmailBinding);
+        var user = new NasAuth.Pages.UserAdminView("staff", "staff", false, false, false, "-", Email: "staff@example.test");
+        var detail = new NasAuth.Pages.UserDetailView(user, [], [], [], [],
+            Invites: [new NasAuth.Pages.InviteView("staff@example.test", "-")]);
+        var html = NasAuth.Pages.DashboardTemplates.UserEditSection(detail, emailBindingAvailable: providers.SupportsVerifiedEmailBinding);
+        Assert.DoesNotContain("/admin/users/invites/add", html);
+        Assert.Contains("/admin/users/invites/delete", html);
+    }
+
+    [Fact]
     public void ConfiguredCreationBindsExactIdentityWithoutPasswordAdministratorOrGrants()
     {
         using var scope = _app.Services.CreateScope();

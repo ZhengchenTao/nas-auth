@@ -58,7 +58,7 @@ public static class AdminEndpoints
         });
 
         // ----- 用户 -----
-        admin.MapGet("/users", (HttpContext ctx, UserRepository users, ExternalIdentityRepository identities, ExternalProfilesOptions profiles, ExternalProviderOptions providers) =>
+        admin.MapGet("/users", (HttpContext ctx, UserRepository users, ExternalIdentityRepository identities, ExternalProfilesOptions profiles, ExternalProviderOptions providers, AccessGroupService groups) =>
         {
             var query = ctx.Request.Query;
             int.TryParse(query["page"], out var page);
@@ -67,7 +67,8 @@ public static class AdminEndpoints
             var content = directory.Filter.View is "disabled" or "deleted"
                 ? DashboardTemplates.InactiveUsersSection(directory.Filter.View, directory.Users, directory.DeletedIds, directory)
                 : DashboardTemplates.UsersSection(directory.Users.Select(u => UserView(u,AdminId(ctx))).ToList(),profiles,providers.EnabledProviders.Count>0,
-                    ctx.RequestServices.GetRequiredService<ResourceCatalog>(), directory);
+                    ctx.RequestServices.GetRequiredService<ResourceCatalog>(), directory, providers.SupportsVerifiedEmailBinding,
+                    groups.MembershipsForUsers(directory.Users.Select(u => u.user_id).ToArray()));
             return Render(ctx,users,identities,DashboardSpace.Admin,"users","Users",content);
         });
 
@@ -106,7 +107,8 @@ public static class AdminEndpoints
 
         admin.MapPost("/users/create", async (HttpContext ctx, UserRepository users,
             ExternalInviteRepository invites, AuditLogger audit, ProvisioningService provisioning,
-            CredentialLinkService links, AuthOptions auth, ExternalIdentityRepository identities, PasswordLoginGate passwords) =>
+            CredentialLinkService links, AuthOptions auth, ExternalIdentityRepository identities, PasswordLoginGate passwords,
+            ExternalProviderOptions providers) =>
         {
             var adminId = AdminId(ctx);
             var form = await ctx.Request.ReadFormAsync();
@@ -118,7 +120,10 @@ public static class AdminEndpoints
             var passwordInvitation = allowPassword && form["credential_invite"] == "1";
             if (passwordInvitation && !passwords.Enabled)
                 return RedirectTo("/admin/users", error: T("Password access must be enabled before issuing an invitation."));
-            if (form["invite_by_email"] == "1") inviteEmail = newEmail.Trim();
+            var inviteByEmail = form["invite_by_email"] == "1";
+            if (inviteByEmail) inviteEmail = newEmail.Trim();
+            if ((inviteByEmail || inviteEmail.Length > 0) && !providers.SupportsVerifiedEmailBinding)
+                return RedirectTo("/admin/users", error: T("No configured sign-in provider can verify email for first binding."));
             if (string.IsNullOrEmpty(newUsername) && !allowPassword && !string.IsNullOrEmpty(inviteEmail))
                 newUsername = System.Text.RegularExpressions.Regex.Replace(inviteEmail.Split('@')[0], "[^a-zA-Z0-9._-]", "").ToLowerInvariant();
             // 首次登录强制改密是可选的（默认不强制）：给家人开的账号，管理员定的密码就是正式密码。
@@ -180,10 +185,12 @@ public static class AdminEndpoints
 
         // 预绑定邮箱（§十八）
         admin.MapPost("/users/invites/add", async (HttpContext ctx, UserRepository users,
-            ExternalInviteRepository invites, AuditLogger audit) =>
+            ExternalInviteRepository invites, AuditLogger audit, ExternalProviderOptions providers) =>
         {
             var form = await ctx.Request.ReadFormAsync();
             var targetId = form["user_id"].ToString();
+            if (!providers.SupportsVerifiedEmailBinding)
+                return RedirectTo(EditPath(targetId), error: T("No configured sign-in provider can verify email for first binding."));
             var email = form["email"].ToString().Trim();
             if (users.GetById(targetId) is null)
                 return RedirectTo("/admin/users", error: T("User does not exist"));
@@ -217,7 +224,8 @@ public static class AdminEndpoints
             ResourceCatalog catalog,
             AuditRepository audit,
             ExternalInviteRepository invites,
-            AccessGroupService groups) =>
+            AccessGroupService groups,
+            ExternalProviderOptions providers) =>
         {
             var targetId = ctx.Request.Query["user"].ToString();
             var target = users.GetById(targetId);
@@ -250,7 +258,9 @@ public static class AdminEndpoints
                     ctx.RequestServices.GetRequiredService<ProvisioningService>().List(targetId),
                     DashboardTemplates.CredentialLinksSection(target, ctx.RequestServices.GetRequiredService<CredentialLinkService>().List(targetId)),
                     DashboardTemplates.DeviceSessionsSection(ctx.RequestServices.GetRequiredService<DeviceSessions>().List(targetId), DeviceSessions.CurrentId(ctx.User),
-                        ctx.RequestServices.GetRequiredService<DeviceSessions>(), targetId, admin: true)));
+                        ctx.RequestServices.GetRequiredService<DeviceSessions>(), targetId, admin: true, username: target.username, isSelf: targetId == AdminId(ctx)),
+                    emailBindingAvailable: providers.SupportsVerifiedEmailBinding,
+                    availableGroups: groups.List().Where(g => !detail.Groups!.Any(current => current.Id == g.Id)).ToList()));
         });
 
         admin.MapPost("/users/provisioning/retry", async (HttpContext ctx, ProvisioningService provisioning, UserRepository users, AuditLogger audit) =>

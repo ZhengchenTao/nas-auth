@@ -28,6 +28,20 @@ public static class I18n
 
     private static readonly Dictionary<string, string> Zh = new(StringComparer.Ordinal)
     {
+        ["Confirm action"] = "确认操作",
+        ["No groups"] = "未加入用户组",
+        ["Add to group"] = "加入用户组",
+        ["Select a group"] = "请选择用户组",
+        ["Add this user to the selected group? They will inherit its application access."] = "将此用户加入所选用户组？该用户将继承此组的应用准入权限。",
+        ["Membership has changed. Reload the user page and try again."] = "组成员已变更，请刷新用户页面后重试。",
+        ["Proceed"] = "继续",
+        ["The external accounts listed here can be used to sign in."] = "可使用下列已绑定的外部账号登录。",
+        ["Current sign-in providers cannot use these email bindings. You can remove existing entries."] = "当前登录提供方无法完成这些邮箱预绑定，可移除已有记录。",
+        ["No configured sign-in provider can verify email for first binding."] = "当前登录提供方不支持通过已验证邮箱完成首次绑定。",
+        ["A pending email binding is used once when a provider verifies the address. Other new identities go through approval."] = "登录提供方验证该邮箱后，预绑定生效一次。其他新身份需经审批。",
+        ["Review this account's devices and sign out one or all of its Auth sessions."] = "查看此账号的设备，可单独下线一台设备或结束所有 Auth 会话。",
+        ["Password invitation and recovery"] = "密码邀请与恢复",
+        ["Give this user a one-time link to set or recover their local password. Issuing a new link revokes the previous one."] = "向该用户提供一次性链接，用于设置或恢复本地密码。生成新链接会撤销旧链接。",
         ["Last browser IP"] = "最近浏览器 IP",
         ["Devices and sessions"] = "设备与会话",
         ["Manage device sessions"] = "管理设备会话",

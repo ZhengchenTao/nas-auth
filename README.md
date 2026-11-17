@@ -176,7 +176,8 @@ details and secret values belong in private deployment configuration.
 ### Instance branding
 
 An optional top-level `Branding` section configures `SiteName`, `LoginTitle`, `LoginSubtitle`,
-`FaviconPath`, `LogoPath`, and `NavigationLabels` (menu key to display text). Defaults preserve
+`FaviconPath`, `LogoPath`, and `NavigationLabels` (menu key to display text).
+Optional `LoginTitleZh`, `LoginSubtitleZh`, and `NavigationLabelsZh` override those text settings in Chinese. Defaults preserve
 existing branding. Asset paths must be local, e.g. `/branding/icon.svg`; mount custom files
 read-only under `/app/wwwroot/branding`. Paths respect `Auth:PathBase`, asset contents participate
 in cache versioning, and all display text is HTML encoded. Restart after changes. This changes
@@ -234,7 +235,8 @@ only expose it through your proxy.
 ### resources.json
 
 The admin application overview groups resources by optional `app` metadata, for example
-`{"id":"gitea","name":"Gitea","description":"Code hosting","capability":"web"}`.
+`{"id":"gitea","name":"Gitea","description":"Code hosting","description_zh":"代码托管","capability":"web"}`.
+The optional `description_zh` is shown only in Chinese.
 Resources with the same application id must share its name and description. Capabilities
 are `web`, `mcp`, `api`, or `gateway` (forward-auth only). Unassigned resources remain separate;
 names are never used to infer membership. User counts stay separate for each capability.

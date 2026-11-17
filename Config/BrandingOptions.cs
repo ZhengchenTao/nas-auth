@@ -6,9 +6,13 @@ public class BrandingOptions
     public string SiteName { get; set; } = "nas-auth";
     public string? LoginTitle { get; set; }
     public string? LoginSubtitle { get; set; }
+    public string? LoginTitleZh { get; set; }
+    public string? LoginSubtitleZh { get; set; }
     public string FaviconPath { get; set; } = "/favicon.png";
     public string? LogoPath { get; set; }
     public Dictionary<string, string> NavigationLabels { get; set; } = new(StringComparer.Ordinal);
+
+    public Dictionary<string, string> NavigationLabelsZh { get; set; } = new(StringComparer.Ordinal);
 
     public void Validate()
     {
@@ -16,7 +20,7 @@ public class BrandingOptions
             throw new InvalidOperationException("Branding:SiteName must contain 1–80 characters");
         ValidatePath(FaviconPath);
         if (!string.IsNullOrEmpty(LogoPath)) ValidatePath(LogoPath);
-        foreach (var label in NavigationLabels.Values)
+        foreach (var label in NavigationLabels.Values.Concat(NavigationLabelsZh.Values))
             if (string.IsNullOrWhiteSpace(label) || label.Length > 80)
                 throw new InvalidOperationException("Branding:NavigationLabels values must contain 1–80 characters");
     }

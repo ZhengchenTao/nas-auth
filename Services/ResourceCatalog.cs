@@ -33,7 +33,7 @@ public class ResourceCatalog
 
         // 基本校验：aud / resource_url 必填，scopes 至少一条
         var forwardAuthPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var appMetadata = new Dictionary<string, (string Name, string Description)>(StringComparer.Ordinal);
+        var appMetadata = new Dictionary<string, (string Name, string Description, string? DescriptionZh)>(StringComparer.Ordinal);
         foreach (var r in list)
         {
             if (r.App is { } app)
@@ -43,7 +43,7 @@ public class ResourceCatalog
                     (r.IsForwardAuth && app.Capability != "gateway") ||
                     (!r.IsForwardAuth && app.Capability == "gateway"))
                     throw new InvalidOperationException($"resources.json aud={r.Aud} 的 app 配置不合法");
-                var metadata = (app.Name, app.Description);
+                var metadata = (app.Name, app.Description, app.DescriptionZh);
                 if (appMetadata.TryGetValue(app.Id, out var existing) && existing != metadata)
                     throw new InvalidOperationException($"resources.json app.id={app.Id} 的名称或说明不一致");
                 appMetadata[app.Id] = metadata;

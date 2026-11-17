@@ -9,7 +9,7 @@ public static partial class DashboardTemplates
 {
     private static string DeviceTime(long timestamp) => DateTimeOffset.FromUnixTimeSeconds(timestamp).ToLocalTime().ToString("yyyy-MM-dd HH:mm");
     public static string DeviceSessionsSection(IReadOnlyList<DeviceSessionRow> rows, string? currentId,
-        DeviceSessions sessions, string userId, bool admin = false)
+        DeviceSessions sessions, string userId, bool admin = false, string? username = null, bool isSelf = false)
     {
         var body = new StringBuilder();
         var activeRows = rows.Where(sessions.Available).ToArray();
@@ -45,6 +45,13 @@ public static partial class DashboardTemplates
         body.Append($"<p class='hint'>{T("Signing out revokes this Auth session and its linked credentials. Older unlinked authorizations and application-owned sessions may remain; review Authorized apps when needed.")}</p>");
         if (!admin)
             body.Append($"<form method='post' action='/account/sessions/revoke-others' {Confirm(T("Sign out of all other devices?"))}><button class='btn' data-variant='outline'>{T("Sign out of all other devices")}</button></form>");
-        return Card(T("Devices and sessions"), T("Recognize your devices, give them a name, and sign out a selected session without ending the others."), body.ToString());
+        else if (isSelf)
+            body.Append($"<a class='btn' data-variant='outline' href='/account/sessions'>{T("Manage device sessions")}</a>");
+        else
+            body.Append($"<form method='post' action='/admin/users/force-logout' {Confirm(T("Sign {0} out on all devices?", username ?? userId))}>{Hidden("user_id", userId)}" +
+                $"<button class='btn' data-variant='outline' type='submit'>{T("Sign out on all devices")}</button></form>");
+        return Card(T("Devices and sessions"), T(admin
+            ? "Review this account's devices and sign out one or all of its Auth sessions."
+            : "Recognize your devices, give them a name, and sign out a selected session without ending the others."), body.ToString());
     }
 }
