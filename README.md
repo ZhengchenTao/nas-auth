@@ -31,7 +31,7 @@ frontend build, nothing loaded from a CDN.
 - [obsidian-mcp](https://github.com/ZhengchenTao/obsidian-mcp): MCP server for
   an Obsidian vault (read and write).
 - [gitea-mcp](https://github.com/ZhengchenTao/gitea-mcp): MCP server for a
-  Gitea instance (read-only).
+  Gitea instance. Read access uses the server’s read token. Writes require a separate server-side write token, the `write:gitea` scope, and Gitea permissions.
 
 An MCP client finds the authorization server through the MCP server's
 metadata, registers itself, lets the user sign in, and gets a token that is
